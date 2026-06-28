@@ -1,0 +1,8 @@
+name = "cava"
+entry = "src/main.cy"
+
+[build]
+leak_check = true
+
+[test]
+dir = "test"
