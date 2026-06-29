@@ -95,7 +95,7 @@ fn ireturn(context: &Context): result<void, InstructionError> {
     return .ok();
 }
 
-const registry: InstructionRegistry = InstructionRegistry [
+const registry = InstructionRegistry [
     Instruction { opcode: Opcode.unsupported, length: 0, execute: unsupported }, // 0x00 unsupported
     Instruction { opcode: Opcode.unsupported, length: 0, execute: unsupported }, // 0x01 unsupported
     Instruction { opcode: Opcode.iconst_m1, length: 1, execute: iconst_m1 }, // 0x02 iconst_m1
