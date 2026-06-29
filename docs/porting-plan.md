@@ -45,6 +45,26 @@ During the parity phase:
 - Use small executable examples as regression checks.
 - Record Cyna gaps before introducing workarounds.
 
+## Text Ownership Rule
+
+Java-owned text is not a Cyna `string` by default.
+
+Classfile UTF-8 constants, class names, field names, method names, descriptors,
+attribute names, and method-area interned symbols should be represented as
+`[]const u8` views into JVM-owned or method-area-owned bytes. Convert to Cyna
+`string` only at host/Cyna boundaries where Cyna owns or controls the lifetime,
+such as diagnostics, printing, APIs that explicitly require Cyna strings, or
+implementation-owned synthesized metadata such as `Class.descriptor`.
+
+Do not build long-lived JVM metadata from `string.bytes()` on a by-value Cyna
+`string`. The returned byte view is tied to the Cyna string value, not to JVM
+storage. If metadata must outlive the source view, first store the bytes in
+method-area-owned storage and keep `[]const u8` views to that storage.
+
+`Class.descriptor` is implementation metadata, not a Java `String` object, so it
+may be a Cyna `string`. Build it from classfile byte views with `string.from`,
+which copies the bytes into Cyna-owned string storage.
+
 ## Suggested Milestones
 
 ### M1: Core Runtime Shape
@@ -89,4 +109,3 @@ During the parity phase:
 - Run the same examples as Zava.
 - Compare stdout.
 - Compare logs where useful.
-

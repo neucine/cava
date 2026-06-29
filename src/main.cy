@@ -1,8 +1,9 @@
 import { parse_class_header } from .classfile;
+import { first_type } from .method_area;
 import { default_value } from .types;
 
 fn main(): i32 {
-    switch default_value("I") {
+    switch default_value("I".bytes()) {
     case .int_value(value) {
         return value;
     }

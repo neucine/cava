@@ -26,6 +26,108 @@ Status:
 
 ## Open Gaps
 
+## 2026-06-29: Method-Area String Bytes View Cannot Escape
+
+Module: `src/method_area.cy`
+
+Zava construct: method-area interning stores class names and descriptors in an arena, then runtime metadata carries views to those stable bytes.
+
+Smallest Cyna reproduction:
+
+```cyna
+struct Metadata {
+    name: []const u8;
+}
+
+fn derive(name: string): Metadata {
+    return Metadata { name: name.bytes() };
+}
+```
+
+Expected capability: Cava needs JVM-origin metadata to point at bytes that outlive the derived `Class`, either by forwarding classfile-owned `[]const u8` views or by storing owned interned bytes in method-area storage. Implementation-owned synthesized metadata may use Cyna `string` when Cava/Cyna controls the lifetime.
+
+Current blocker: Cyna intentionally rejects returning `string.bytes()` from a by-value `string` parameter, including inside a returned struct, because the byte view is tied to the local `string` parameter. Returning a struct containing a `[]const u8` parameter view is supported and is used by `derive_array_class`.
+
+Classification: Design Gap.
+
+Decision: Do not derive long-lived JVM-origin metadata through by-value `string.bytes()`. Keep method-area APIs slice-based (`[]const u8`) for classfile and interned-symbol bytes. Use Cyna `string` for implementation-owned synthesized metadata such as `Class.name` and `Class.descriptor`, and build those strings with `string.from` so the bytes are copied into Cyna-owned storage.
+
+Status: Fixed locally.
+
+## 2026-06-29: Borrowed Union Payload Return From List Storage
+
+Module: `src/classfile.cy`
+
+Zava construct: classfile helper functions return borrowed UTF-8 constant-pool payloads when resolving class names, names, and descriptors.
+
+Smallest Cyna reproduction:
+
+```cyna
+union Entry {
+    text: []const u8;
+    other: i32;
+}
+
+struct Table {
+    entries: List<Entry>;
+
+    fn text(self: &Table, index: usize): []const u8 {
+        switch self.entries[index] {
+        case .text(bytes) {
+            return bytes;
+        }
+        case .other(value) {
+            const ignored = value;
+            return "".bytes();
+        }
+        }
+    }
+}
+```
+
+Expected capability: A method borrowing `self` should be able to return a borrowed slice payload from storage reachable through `self`, with the returned slice provenance tied to the receiver borrow.
+
+Current blocker: `cyna check` rejected the return with `borrowed values cannot escape the function via return`. Switching directly on `self.entries[index]` treated the captured slice as escaping a temporary rather than as a borrow from the receiver.
+
+Classification: Semantic Gap.
+
+Decision: Fixed in Cyna by letting switch payload captures prefer return-safe provenance from the switch subject projection, while preserving existing payload provenance for local unions that already carry borrowed data from elsewhere. Cava now exposes direct borrowed-return constant-pool helpers again.
+
+Status: Fixed locally.
+
+## 2026-06-28: Widening i32 to usize Cast Range Check
+
+Module: `src/classfile.cy`
+
+Zava construct: using a list length as a `usize` index bound while resolving constant-pool indexes.
+
+Smallest Cyna reproduction:
+
+```cyna
+fn main(): i32 {
+    var values: List<i32> = [];
+    values.push(1);
+    values.push(2);
+    const len = values.len() as usize;
+    var result: i32 = 1;
+    if len == 2 {
+        result = 0;
+    }
+    drop values;
+    return result;
+}
+```
+
+Expected capability: Widening a non-negative `i32` to `usize` should not trap when the value is in range.
+
+Current blocker: Native execution trapped in the generated cast range check for normal values such as list lengths.
+
+Classification: Tooling Gap.
+
+Decision: Fixed in Cyna by widening source integer values narrower than 64 bits to `i64` before comparing against target cast bounds.
+
+Status: Fixed locally.
+
 ## 2026-06-28: Optional Struct Global Constant Codegen
 
 Module: `src/types.cy`
@@ -105,13 +207,13 @@ struct Class {
 
 Expected capability: Borrowed indexed projection into a list of resource-shaped structs should lower when only reading a non-resource field.
 
-Current blocker: `cyna check` succeeds, but `cyna test` fails during lowering with `Unsupported` in `lowerAddressablePlacePointer` / borrowed index projection.
+Current blocker: Previously, `cyna check` succeeded, but `cyna test` failed during lowering with `Unsupported` in `lowerAddressablePlacePointer` / borrowed index projection.
 
 Classification: Tooling Gap.
 
-Decision: Keep early `Method` metadata copyable for now by storing counts instead of owned lists. Reintroduce full list-backed method attributes when the method-area storage model is ported or the lowering gap is fixed.
+Decision: Fixed in the local Cyna compiler. Cava now uses real `List<Field>` and `List<Method>` metadata, and the class metadata lookup test indexes through those lists successfully.
 
-Status: Open.
+Status: Fixed locally.
 
 ## 2026-06-28: Borrowed Subslice From Existing Byte Slice
 

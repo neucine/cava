@@ -2,6 +2,8 @@ pub enum ClassfileError: i32 {
     unexpected_eof = 0,
     invalid_magic,
     invalid_constant_tag,
+    invalid_constant_index,
+    invalid_constant_kind,
 }
 
 pub struct ByteReader {
@@ -154,6 +156,17 @@ pub struct ConstantMethodHandle {
 pub struct ConstantDynamicRef {
     pub bootstrap_method_attr_index: u16;
     pub name_and_type_index: u16;
+}
+
+pub struct ResolvedNameAndType {
+    pub name: []const u8;
+    pub descriptor: []const u8;
+}
+
+pub struct ResolvedMemberRef {
+    pub class_name: []const u8;
+    pub name: []const u8;
+    pub descriptor: []const u8;
 }
 
 pub struct ConstantWide {
@@ -319,6 +332,256 @@ pub fn read_constant_pool(reader: &ByteReader, constant_pool_count: u16): result
     return .ok(constants);
 }
 
+pub struct AttributeInfo {
+    pub name_index: u16;
+    pub length: u32;
+    pub raw: []const u8;
+}
+
+pub struct MemberInfo {
+    pub access_flags: u16;
+    pub name_index: u16;
+    pub descriptor_index: u16;
+    pub attributes: List<AttributeInfo>;
+}
+
+pub struct ClassFile {
+    pub minor_version: u16;
+    pub major_version: u16;
+    pub constant_pool: List<Constant>;
+    pub access_flags: u16;
+    pub this_class: u16;
+    pub super_class: u16;
+    pub interfaces: List<u16>;
+    pub fields: List<MemberInfo>;
+    pub methods: List<MemberInfo>;
+    pub attributes: List<AttributeInfo>;
+
+    fn valid_constant_index(self: &ClassFile, index: u16): bool {
+        const actual = index as usize;
+        return actual != 0 and actual < self.constant_pool.len();
+    }
+
+    fn bytes_equal(left: []const u8, right: []const u8): bool {
+        if left.len() != right.len() {
+            return false;
+        }
+        var i: usize = 0;
+        while i < left.len() {
+            if left[i] != right[i] {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    pub fn utf8_equals(self: &ClassFile, index: u16, expected: []const u8): result<bool, ClassfileError> {
+        return .ok(ClassFile.bytes_equal(try self.utf8(index), expected));
+    }
+
+    pub fn utf8(self: &ClassFile, index: u16): result<[]const u8, ClassfileError> {
+        if !self.valid_constant_index(index) {
+            return .err(ClassfileError.invalid_constant_index);
+        }
+
+        switch self.constant_pool[index as usize] {
+        case .utf8(bytes) { return .ok(bytes); }
+        case .unusable(value) { const ignored = value; }
+        case .integer(value) { const ignored = value; }
+        case .float(value) { const ignored = value; }
+        case .long(value) { const ignored = value; }
+        case .double(value) { const ignored = value; }
+        case .class_ref(value) { const ignored = value; }
+        case .string_ref(value) { const ignored = value; }
+        case .field_ref(value) { const ignored = value; }
+        case .method_ref(value) { const ignored = value; }
+        case .interface_method_ref(value) { const ignored = value; }
+        case .name_and_type(value) { const ignored = value; }
+        case .method_handle(value) { const ignored = value; }
+        case .method_type(value) { const ignored = value; }
+        case .dynamic(value) { const ignored = value; }
+        case .invoke_dynamic(value) { const ignored = value; }
+        case .module_ref(value) { const ignored = value; }
+        case .package_ref(value) { const ignored = value; }
+        }
+        return .err(ClassfileError.invalid_constant_kind);
+    }
+
+    pub fn class_name_equals(self: &ClassFile, index: u16, expected: []const u8): result<bool, ClassfileError> {
+        return .ok(ClassFile.bytes_equal(try self.class_name(index), expected));
+    }
+
+    pub fn class_name(self: &ClassFile, index: u16): result<[]const u8, ClassfileError> {
+        if !self.valid_constant_index(index) {
+            return .err(ClassfileError.invalid_constant_index);
+        }
+
+        switch self.constant_pool[index as usize] {
+        case .class_ref(name_index) {
+            return self.utf8(name_index);
+        }
+        case .unusable(value) { const ignored = value; }
+        case .utf8(value) { const ignored = value; }
+        case .integer(value) { const ignored = value; }
+        case .float(value) { const ignored = value; }
+        case .long(value) { const ignored = value; }
+        case .double(value) { const ignored = value; }
+        case .string_ref(value) { const ignored = value; }
+        case .field_ref(value) { const ignored = value; }
+        case .method_ref(value) { const ignored = value; }
+        case .interface_method_ref(value) { const ignored = value; }
+        case .name_and_type(value) { const ignored = value; }
+        case .method_handle(value) { const ignored = value; }
+        case .method_type(value) { const ignored = value; }
+        case .dynamic(value) { const ignored = value; }
+        case .invoke_dynamic(value) { const ignored = value; }
+        case .module_ref(value) { const ignored = value; }
+        case .package_ref(value) { const ignored = value; }
+        }
+        return .err(ClassfileError.invalid_constant_kind);
+    }
+
+    pub fn name_and_type_equals(self: &ClassFile, index: u16, expected_name: []const u8, expected_descriptor: []const u8): result<bool, ClassfileError> {
+        const pair = try self.name_and_type(index);
+        return .ok(ClassFile.bytes_equal(pair.name, expected_name) and ClassFile.bytes_equal(pair.descriptor, expected_descriptor));
+    }
+
+    pub fn name_and_type(self: &ClassFile, index: u16): result<ResolvedNameAndType, ClassfileError> {
+        if !self.valid_constant_index(index) {
+            return .err(ClassfileError.invalid_constant_index);
+        }
+
+        switch self.constant_pool[index as usize] {
+        case .name_and_type(pair) {
+            return .ok(ResolvedNameAndType {
+                name: try self.utf8(pair.name_index),
+                descriptor: try self.utf8(pair.descriptor_index),
+            });
+        }
+        case .unusable(value) { const ignored = value; }
+        case .utf8(value) { const ignored = value; }
+        case .integer(value) { const ignored = value; }
+        case .float(value) { const ignored = value; }
+        case .long(value) { const ignored = value; }
+        case .double(value) { const ignored = value; }
+        case .class_ref(value) { const ignored = value; }
+        case .string_ref(value) { const ignored = value; }
+        case .field_ref(value) { const ignored = value; }
+        case .method_ref(value) { const ignored = value; }
+        case .interface_method_ref(value) { const ignored = value; }
+        case .method_handle(value) { const ignored = value; }
+        case .method_type(value) { const ignored = value; }
+        case .dynamic(value) { const ignored = value; }
+        case .invoke_dynamic(value) { const ignored = value; }
+        case .module_ref(value) { const ignored = value; }
+        case .package_ref(value) { const ignored = value; }
+        }
+        return .err(ClassfileError.invalid_constant_kind);
+    }
+
+    pub fn member_ref_equals(self: &ClassFile, index: u16, expected_class: []const u8, expected_name: []const u8, expected_descriptor: []const u8): result<bool, ClassfileError> {
+        const member = try self.member_ref(index);
+        return .ok(
+            ClassFile.bytes_equal(member.class_name, expected_class) and
+            ClassFile.bytes_equal(member.name, expected_name) and
+            ClassFile.bytes_equal(member.descriptor, expected_descriptor)
+        );
+    }
+
+    pub fn member_ref(self: &ClassFile, index: u16): result<ResolvedMemberRef, ClassfileError> {
+        if !self.valid_constant_index(index) {
+            return .err(ClassfileError.invalid_constant_index);
+        }
+
+        var raw = ConstantMemberRef {
+            class_index: 0,
+            name_and_type_index: 0,
+        };
+
+        switch self.constant_pool[index as usize] {
+        case .field_ref(member) { raw = member; }
+        case .method_ref(member) { raw = member; }
+        case .interface_method_ref(member) { raw = member; }
+        case .unusable(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .utf8(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .integer(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .float(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .long(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .double(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .class_ref(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .string_ref(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .name_and_type(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .method_handle(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .method_type(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .dynamic(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .invoke_dynamic(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .module_ref(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        case .package_ref(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        }
+
+        const pair = try self.name_and_type(raw.name_and_type_index);
+        return .ok(ResolvedMemberRef {
+            class_name: try self.class_name(raw.class_index),
+            name: pair.name,
+            descriptor: pair.descriptor,
+        });
+    }
+}
+
+pub fn read_attribute_info(reader: &ByteReader): result<AttributeInfo, ClassfileError> {
+    const name_index = try reader.read_u2();
+    const length = try reader.read_u4();
+    return .ok(AttributeInfo {
+        name_index: name_index,
+        length: length,
+        raw: try reader.read_slice(length as usize),
+    });
+}
+
+pub fn read_attributes(reader: &ByteReader, count: u16): result<List<AttributeInfo>, ClassfileError> {
+    var attributes: List<AttributeInfo> = [];
+    var index: u16 = 0;
+    while index < count {
+        attributes.push(try read_attribute_info(reader));
+        index = index + 1;
+    }
+    return .ok(attributes);
+}
+
+pub fn read_member_info(reader: &ByteReader): result<MemberInfo, ClassfileError> {
+    const access_flags = try reader.read_u2();
+    const name_index = try reader.read_u2();
+    const descriptor_index = try reader.read_u2();
+    const attributes_count = try reader.read_u2();
+    return .ok(MemberInfo {
+        access_flags: access_flags,
+        name_index: name_index,
+        descriptor_index: descriptor_index,
+        attributes: try read_attributes(reader, attributes_count),
+    });
+}
+
+pub fn read_members(reader: &ByteReader, count: u16): result<List<MemberInfo>, ClassfileError> {
+    var members: List<MemberInfo> = [];
+    var index: u16 = 0;
+    while index < count {
+        members.push(try read_member_info(reader));
+        index = index + 1;
+    }
+    return .ok(members);
+}
+
+pub fn read_interfaces(reader: &ByteReader, count: u16): result<List<u16>, ClassfileError> {
+    var interfaces: List<u16> = [];
+    var index: u16 = 0;
+    while index < count {
+        interfaces.push(try reader.read_u2());
+        index = index + 1;
+    }
+    return .ok(interfaces);
+}
+
 pub struct ClassHeader {
     pub minor_version: u16;
     pub major_version: u16;
@@ -344,6 +607,40 @@ pub fn read_class_header(reader: &ByteReader): result<ClassHeader, ClassfileErro
 pub fn parse_class_header(data: []const u8): result<ClassHeader, ClassfileError> {
     var reader = ByteReader.init(data);
     return read_class_header(&reader);
+}
+
+pub fn read_classfile(reader: &ByteReader): result<ClassFile, ClassfileError> {
+    const header = try read_class_header(reader);
+    const constant_pool = try read_constant_pool(reader, header.constant_pool_count);
+    const access_flags = try reader.read_u2();
+    const this_class = try reader.read_u2();
+    const super_class = try reader.read_u2();
+    const interfaces_count = try reader.read_u2();
+    const interfaces = try read_interfaces(reader, interfaces_count);
+    const fields_count = try reader.read_u2();
+    const fields = try read_members(reader, fields_count);
+    const methods_count = try reader.read_u2();
+    const methods = try read_members(reader, methods_count);
+    const attributes_count = try reader.read_u2();
+    const attributes = try read_attributes(reader, attributes_count);
+
+    return .ok(ClassFile {
+        minor_version: header.minor_version,
+        major_version: header.major_version,
+        constant_pool: constant_pool,
+        access_flags: access_flags,
+        this_class: this_class,
+        super_class: super_class,
+        interfaces: interfaces,
+        fields: fields,
+        methods: methods,
+        attributes: attributes,
+    });
+}
+
+pub fn parse_classfile(data: []const u8): result<ClassFile, ClassfileError> {
+    var reader = ByteReader.init(data);
+    return read_classfile(&reader);
 }
 
 fn sample_header_bytes(): [:]u8 {
@@ -669,4 +966,237 @@ test "constant pool preserves raw JVM indexes and wide unusable slots" {
     }
 
     drop constants;
+}
+
+test "classfile parser reads class identity members and raw attributes" {
+    var data = [: 98]u8;
+    data.push(0xCA);
+    data.push(0xFE);
+    data.push(0xBA);
+    data.push(0xBE);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(52);
+    data.push(0);
+    data.push(5);
+
+    data.push(1);
+    data.push(0);
+    data.push(4);
+    data.push(77);
+    data.push(97);
+    data.push(105);
+    data.push(110);
+    data.push(7);
+    data.push(0);
+    data.push(1);
+    data.push(1);
+    data.push(0);
+    data.push(4);
+    data.push(67);
+    data.push(111);
+    data.push(100);
+    data.push(101);
+    data.push(1);
+    data.push(0);
+    data.push(10);
+    data.push(83);
+    data.push(111);
+    data.push(117);
+    data.push(114);
+    data.push(99);
+    data.push(101);
+    data.push(70);
+    data.push(105);
+    data.push(108);
+    data.push(101);
+
+    data.push(0);
+    data.push(33);
+    data.push(0);
+    data.push(2);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(2);
+
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(4);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(2);
+    data.push(0);
+    data.push(1);
+
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(3);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(4);
+    data.push(0xDE);
+    data.push(0xAD);
+    data.push(0xBE);
+    data.push(0xEF);
+
+    data.push(0);
+    data.push(1);
+    data.push(0);
+    data.push(4);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(2);
+    data.push(0);
+    data.push(1);
+
+    var reader = ByteReader.init(data[..]);
+    const classfile = try read_classfile(&reader);
+    assert(classfile.major_version == 52);
+    assert(classfile.constant_pool.len() == 5);
+    assert(classfile.access_flags == 33);
+    assert(classfile.this_class == 2);
+    assert(classfile.super_class == 0);
+    assert(classfile.interfaces.len() == 1);
+    assert(classfile.interfaces[0] == 2);
+    assert(classfile.fields.len() == 1);
+    assert(classfile.fields[0].access_flags == 1);
+    assert(classfile.fields[0].name_index == 1);
+    assert(classfile.fields[0].descriptor_index == 1);
+    assert(classfile.fields[0].attributes.len() == 1);
+    assert(classfile.fields[0].attributes[0].name_index == 4);
+    assert(classfile.fields[0].attributes[0].length == 2);
+    assert(classfile.fields[0].attributes[0].raw[1] == 1);
+    assert(classfile.methods.len() == 1);
+    assert(classfile.methods[0].attributes.len() == 1);
+    assert(classfile.methods[0].attributes[0].name_index == 3);
+    assert(classfile.methods[0].attributes[0].length == 4);
+    assert(classfile.methods[0].attributes[0].raw[0] == 0xDE);
+    assert(classfile.methods[0].attributes[0].raw[3] == 0xEF);
+    assert(classfile.attributes.len() == 1);
+    assert(classfile.attributes[0].name_index == 4);
+    assert(reader.remaining() == 0);
+    drop classfile;
+}
+
+test "classfile resolves constant pool symbolic references" {
+    var data = [: 57]u8;
+    data.push(0xCA);
+    data.push(0xFE);
+    data.push(0xBA);
+    data.push(0xBE);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(52);
+    data.push(0);
+    data.push(7);
+
+    data.push(1);
+    data.push(0);
+    data.push(4);
+    data.push(77);
+    data.push(97);
+    data.push(105);
+    data.push(110);
+    data.push(7);
+    data.push(0);
+    data.push(1);
+    data.push(1);
+    data.push(0);
+    data.push(6);
+    data.push(97);
+    data.push(110);
+    data.push(115);
+    data.push(119);
+    data.push(101);
+    data.push(114);
+    data.push(1);
+    data.push(0);
+    data.push(1);
+    data.push(73);
+    data.push(12);
+    data.push(0);
+    data.push(3);
+    data.push(0);
+    data.push(4);
+    data.push(9);
+    data.push(0);
+    data.push(2);
+    data.push(0);
+    data.push(5);
+
+    data.push(0);
+    data.push(33);
+    data.push(0);
+    data.push(2);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+    data.push(0);
+
+    var reader = ByteReader.init(data[..]);
+    const classfile = try read_classfile(&reader);
+    const class_name = try classfile.class_name(2);
+    assert(class_name.len() == 4);
+    assert(class_name[0] == 77);
+    assert(class_name[3] == 110);
+
+    const pair = try classfile.name_and_type(5);
+    assert(pair.name.len() == 6);
+    assert(pair.name[0] == 97);
+    assert(pair.name[5] == 114);
+    assert(pair.descriptor.len() == 1);
+    assert(pair.descriptor[0] == 73);
+
+    const member = try classfile.member_ref(6);
+    assert(member.class_name[0] == 77);
+    assert(member.name[0] == 97);
+    assert(member.descriptor[0] == 73);
+
+    assert(try classfile.class_name_equals(2, "Main".bytes()));
+    assert(try classfile.name_and_type_equals(5, "answer".bytes(), "I".bytes()));
+    assert(try classfile.member_ref_equals(6, "Main".bytes(), "answer".bytes(), "I".bytes()));
+    assert(!try classfile.member_ref_equals(6, "Other".bytes(), "answer".bytes(), "I".bytes()));
+
+    switch classfile.utf8_equals(2, "Main".bytes()) {
+    case .ok(value) {
+        const ignored = value;
+        assert(false);
+    }
+    case .err(err) {
+        assert(err == ClassfileError.invalid_constant_kind);
+    }
+    }
+
 }

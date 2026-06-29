@@ -62,12 +62,11 @@ pub type JavaLangReflectConstructor = ObjectRef;
 
 pub const null_ref: Reference = Reference { object_id: none };
 
-fn descriptor_tag(descriptor: string): u8 {
-    const bytes = descriptor.bytes();
-    return bytes[0];
+fn descriptor_tag(descriptor: []const u8): u8 {
+    return descriptor[0];
 }
 
-pub fn default_value(descriptor: string): Value {
+pub fn default_value(descriptor: []const u8): Value {
     const ch = descriptor_tag(descriptor);
     if ch == 66 {
         return .byte_value(0);
@@ -100,7 +99,7 @@ pub fn default_value(descriptor: string): Value {
     return .int_value(0);
 }
 
-pub fn is_primitive_descriptor(descriptor: string): bool {
+pub fn is_primitive_descriptor(descriptor: []const u8): bool {
     if descriptor.len() != 1 {
         return false;
     }
@@ -172,10 +171,10 @@ pub fn raw_method_access(access: MethodAccessFlags): u16 {
 }
 
 pub struct Field {
-    pub class_name: string;
+    pub class_name: []const u8;
     pub access_flags: FieldAccessFlags;
-    pub name: string;
-    pub descriptor: string;
+    pub name: []const u8;
+    pub descriptor: []const u8;
     pub index: u16;
     pub slot: u16;
 
@@ -188,11 +187,16 @@ pub struct Field {
     }
 }
 
+pub struct Name {
+    pub value: []const u8;
+}
+
 pub struct Method {
-    pub class_name: string;
+    pub class_name: []const u8;
     pub access_flags: MethodAccessFlags;
-    pub name: string;
-    pub descriptor: string;
+    pub name: []const u8;
+    pub descriptor: []const u8;
+    pub code: []const u8;
     pub max_stack: u16;
     pub max_locals: u16;
     pub code_len: u32;
@@ -200,7 +204,7 @@ pub struct Method {
     pub local_var_count: u32;
     pub line_number_count: u32;
     pub parameter_count: u32;
-    pub return_descriptor: string;
+    pub return_descriptor: []const u8;
 
     pub fn is_static(self: &Method): bool {
         return MethodAccessFlags.static_flag in self.access_flags;
@@ -219,8 +223,8 @@ pub struct LocalVariable {
     pub start_pc: u16;
     pub length: u16;
     pub index: u16;
-    pub name: string;
-    pub descriptor: string;
+    pub name: []const u8;
+    pub descriptor: []const u8;
 }
 
 pub struct LineNumber {
@@ -239,16 +243,16 @@ pub struct Class {
     pub name: string;
     pub descriptor: string;
     pub access_flags: ClassAccessFlags;
-    pub super_class: string;
-    pub interfaces: List<string>;
+    pub super_class: []const u8;
+    pub interfaces: List<Name>;
     pub fields: List<Field>;
     pub methods: List<Method>;
     pub instance_vars: u16;
     pub static_vars: List<Value>;
-    pub source_file: string;
+    pub source_file: []const u8;
     pub is_array: bool;
-    pub component_type: string;
-    pub element_type: string;
+    pub component_type: []const u8;
+    pub element_type: []const u8;
     pub dimensions: u32;
     pub defined: bool;
     pub linked: bool;
@@ -258,33 +262,47 @@ pub struct Class {
         return ClassAccessFlags.interface_flag in self.access_flags;
     }
 
-    pub fn field_index(self: &Class, name: string, descriptor: string, is_static: bool): ?i32 {
-        var i: i32 = 0;
+    fn bytes_equal(left: []const u8, right: []const u8): bool {
+        if left.len() != right.len() {
+            return false;
+        }
+        var i: usize = 0;
+        while i < left.len() {
+            if left[i] != right[i] {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    pub fn field_index(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): ?i32 {
+        var i: usize = 0;
         while i < self.fields.len() {
-            if self.fields[i].name == name and self.fields[i].descriptor == descriptor and self.fields[i].is_static() == is_static {
-                return i;
+            if Class.bytes_equal(self.fields[i].name, name) and Class.bytes_equal(self.fields[i].descriptor, descriptor) and self.fields[i].is_static() == is_static {
+                return i as i32;
             }
             i = i + 1;
         }
         return none;
     }
 
-    pub fn method_index(self: &Class, name: string, descriptor: string, is_static: bool): ?i32 {
-        var i: i32 = 0;
+    pub fn method_index(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): ?i32 {
+        var i: usize = 0;
         while i < self.methods.len() {
-            if self.methods[i].name == name and self.methods[i].descriptor == descriptor and self.methods[i].is_static() == is_static {
-                return i;
+            if Class.bytes_equal(self.methods[i].name, name) and Class.bytes_equal(self.methods[i].descriptor, descriptor) and self.methods[i].is_static() == is_static {
+                return i as i32;
             }
             i = i + 1;
         }
         return none;
     }
 
-    pub fn has_field(self: &Class, name: string, descriptor: string, is_static: bool): bool {
+    pub fn has_field(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): bool {
         return self.field_index(name, descriptor, is_static) != none;
     }
 
-    pub fn has_method(self: &Class, name: string, descriptor: string, is_static: bool): bool {
+    pub fn has_method(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): bool {
         return self.method_index(name, descriptor, is_static) != none;
     }
 }
@@ -342,7 +360,7 @@ test "null reference equality" {
 }
 
 test "primitive descriptor defaults" {
-    switch default_value("I") {
+    switch default_value("I".bytes()) {
     case .int_value(value) {
         assert(value == 0);
     }
@@ -357,7 +375,7 @@ test "primitive descriptor defaults" {
     case .ref_value(value) { fail_unexpected_value(.ref_value(value)); }
     }
 
-    switch default_value("Z") {
+    switch default_value("Z".bytes()) {
     case .boolean_value(value) {
         assert(value == false_value);
     }
@@ -374,7 +392,7 @@ test "primitive descriptor defaults" {
 }
 
 test "reference descriptor default" {
-    switch default_value("Ljava/lang/Object;") {
+    switch default_value("Ljava/lang/Object;".bytes()) {
     case .ref_value(reference) {
         assert(reference.is_null());
     }
@@ -391,10 +409,10 @@ test "reference descriptor default" {
 }
 
 test "primitive descriptor detection" {
-    assert(is_primitive_descriptor("I"));
-    assert(is_primitive_descriptor("Z"));
-    assert(!is_primitive_descriptor("[I"));
-    assert(!is_primitive_descriptor("Ljava/lang/Object;"));
+    assert(is_primitive_descriptor("I".bytes()));
+    assert(is_primitive_descriptor("Z".bytes()));
+    assert(!is_primitive_descriptor("[I".bytes()));
+    assert(!is_primitive_descriptor("Ljava/lang/Object;".bytes()));
 }
 
 test "access flags decode raw JVM bits" {
@@ -419,18 +437,19 @@ test "access flags decode raw JVM bits" {
 
 test "class metadata supports field and method lookup" {
     const field = Field {
-        class_name: "Example",
+        class_name: "Example".bytes(),
         access_flags: field_access_flags(0x0008),
-        name: "answer",
-        descriptor: "I",
+        name: "answer".bytes(),
+        descriptor: "I".bytes(),
         index: 0,
         slot: 0,
     };
     const method = Method {
-        class_name: "Example",
+        class_name: "Example".bytes(),
         access_flags: method_access_flags(0x0009),
-        name: "main",
-        descriptor: "([Ljava/lang/String;)V",
+        name: "main".bytes(),
+        descriptor: "([Ljava/lang/String;)V".bytes(),
+        code: "A".bytes(),
         max_stack: 2,
         max_locals: 1,
         code_len: 8,
@@ -438,36 +457,36 @@ test "class metadata supports field and method lookup" {
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 1,
-        return_descriptor: "V",
+        return_descriptor: "V".bytes(),
     };
     const class = Class {
-        name: "Example",
+        name: string.from("Example".bytes()),
         descriptor: "LExample;",
         access_flags: class_access_flags(0x0021),
-        super_class: "java/lang/Object",
+        super_class: "java/lang/Object".bytes(),
         interfaces: [],
         fields: [field],
         methods: [method],
         instance_vars: 0,
         static_vars: [],
-        source_file: "Example.java",
+        source_file: "Example.java".bytes(),
         is_array: false,
-        component_type: "",
-        element_type: "",
+        component_type: "".bytes(),
+        element_type: "".bytes(),
         dimensions: 0,
         defined: true,
         linked: false,
         class_object: null_ref,
     };
 
-    const found_field = class.field_index("answer", "I", true);
+    const found_field = class.field_index("answer".bytes(), "I".bytes(), true);
     if found_field is value {
         assert(value == 0);
     } else {
         assert(false);
     }
 
-    const found_method = class.method_index("main", "([Ljava/lang/String;)V", true);
+    const found_method = class.method_index("main".bytes(), "([Ljava/lang/String;)V".bytes(), true);
     if found_method is value {
         assert(value == 0);
         assert(class.methods[value].max_stack == 2);
@@ -476,6 +495,6 @@ test "class metadata supports field and method lookup" {
         assert(false);
     }
 
-    assert(!class.has_field("answer", "I", false));
-    assert(!class.has_method("missing", "()V", true));
+    assert(!class.has_field("answer".bytes(), "I".bytes(), false));
+    assert(!class.has_method("missing".bytes(), "()V".bytes(), true));
 }
