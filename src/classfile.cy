@@ -564,29 +564,11 @@ pub fn parse_classfile(data: []const u8): result<ClassFile, ClassfileError> {
 }
 
 fn sample_header_bytes(): [:]u8 {
-    var data = [: 10]u8;
-    data.push(0xCA);
-    data.push(0xFE);
-    data.push(0xBA);
-    data.push(0xBE);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(52);
-    data.push(0);
-    data.push(3);
-    return data;
+    return [:]u8 [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52, 0, 3];
 }
 
 test "byte reader reads big endian primitives" {
-    var data = [: 7]u8;
-    data.push(0xCA);
-    data.push(0xFE);
-    data.push(0xBA);
-    data.push(0xBE);
-    data.push(0);
-    data.push(52);
-    data.push(7);
+    var data: [:]u8 = [0xCA, 0xFE, 0xBA, 0xBE, 0, 52, 7];
 
     var reader = ByteReader.init(data[..]);
     assert(try reader.read_u1() == 0xCA);
@@ -637,27 +619,12 @@ test "constant pool tags decode raw JVM tags" {
 }
 
 test "constant reader parses utf8 class and member refs" {
-    var data = [: 19]u8;
-    data.push(1);
-    data.push(0);
-    data.push(4);
-    data.push(77);
-    data.push(97);
-    data.push(105);
-    data.push(110);
-    data.push(7);
-    data.push(0);
-    data.push(1);
-    data.push(12);
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(10);
-    data.push(0);
-    data.push(2);
-    data.push(0);
-    data.push(3);
+    var data: [:]u8 = [
+        1, 0, 4, 77, 97, 105, 110,
+        7, 0, 1,
+        12, 0, 1, 0, 1,
+        10, 0, 2, 0, 3
+    ];
 
     var reader = ByteReader.init(data[..]);
     const first = try read_constant(&reader);
@@ -700,23 +667,11 @@ test "constant reader parses utf8 class and member refs" {
 }
 
 test "constant pool preserves raw JVM indexes and wide unusable slots" {
-    var data = [: 16]u8;
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(88);
-    data.push(5);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(42);
-    data.push(7);
-    data.push(0);
-    data.push(1);
+    var data: [:]u8 = [
+        1, 0, 1, 88,
+        5, 0, 0, 0, 0, 0, 0, 0, 42,
+        7, 0, 1
+    ];
 
     var reader = ByteReader.init(data[..]);
     var constants: List<Constant> = [];
