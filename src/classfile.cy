@@ -300,32 +300,17 @@ pub fn read_constant_pool(reader: &ByteReader, constant_pool_count: u16): result
         constants.push(constant);
 
         switch constant {
-        case .long(value) {
-            const ignored = value;
+        case .long {
             constants.push(.unusable(0));
             index = index + 2;
         }
-        case .double(value) {
-            const ignored = value;
+        case .double {
             constants.push(.unusable(0));
             index = index + 2;
         }
-        case .unusable(value) { const ignored = value; index = index + 1; }
-        case .utf8(value) { const ignored = value; index = index + 1; }
-        case .integer(value) { const ignored = value; index = index + 1; }
-        case .float(value) { const ignored = value; index = index + 1; }
-        case .class_ref(value) { const ignored = value; index = index + 1; }
-        case .string_ref(value) { const ignored = value; index = index + 1; }
-        case .field_ref(value) { const ignored = value; index = index + 1; }
-        case .method_ref(value) { const ignored = value; index = index + 1; }
-        case .interface_method_ref(value) { const ignored = value; index = index + 1; }
-        case .name_and_type(value) { const ignored = value; index = index + 1; }
-        case .method_handle(value) { const ignored = value; index = index + 1; }
-        case .method_type(value) { const ignored = value; index = index + 1; }
-        case .dynamic(value) { const ignored = value; index = index + 1; }
-        case .invoke_dynamic(value) { const ignored = value; index = index + 1; }
-        case .module_ref(value) { const ignored = value; index = index + 1; }
-        case .package_ref(value) { const ignored = value; index = index + 1; }
+        else {
+            index = index + 1;
+        }
         }
     }
 
@@ -387,25 +372,8 @@ pub struct ClassFile {
 
         switch self.constant_pool[index as usize] {
         case .utf8(bytes) { return .ok(bytes); }
-        case .unusable(value) { const ignored = value; }
-        case .integer(value) { const ignored = value; }
-        case .float(value) { const ignored = value; }
-        case .long(value) { const ignored = value; }
-        case .double(value) { const ignored = value; }
-        case .class_ref(value) { const ignored = value; }
-        case .string_ref(value) { const ignored = value; }
-        case .field_ref(value) { const ignored = value; }
-        case .method_ref(value) { const ignored = value; }
-        case .interface_method_ref(value) { const ignored = value; }
-        case .name_and_type(value) { const ignored = value; }
-        case .method_handle(value) { const ignored = value; }
-        case .method_type(value) { const ignored = value; }
-        case .dynamic(value) { const ignored = value; }
-        case .invoke_dynamic(value) { const ignored = value; }
-        case .module_ref(value) { const ignored = value; }
-        case .package_ref(value) { const ignored = value; }
+        else { return .err(ClassfileError.invalid_constant_kind); }
         }
-        return .err(ClassfileError.invalid_constant_kind);
     }
 
     pub fn class_name_equals(self: &ClassFile, index: u16, expected: []const u8): result<bool, ClassfileError> {
@@ -421,25 +389,8 @@ pub struct ClassFile {
         case .class_ref(name_index) {
             return self.utf8(name_index);
         }
-        case .unusable(value) { const ignored = value; }
-        case .utf8(value) { const ignored = value; }
-        case .integer(value) { const ignored = value; }
-        case .float(value) { const ignored = value; }
-        case .long(value) { const ignored = value; }
-        case .double(value) { const ignored = value; }
-        case .string_ref(value) { const ignored = value; }
-        case .field_ref(value) { const ignored = value; }
-        case .method_ref(value) { const ignored = value; }
-        case .interface_method_ref(value) { const ignored = value; }
-        case .name_and_type(value) { const ignored = value; }
-        case .method_handle(value) { const ignored = value; }
-        case .method_type(value) { const ignored = value; }
-        case .dynamic(value) { const ignored = value; }
-        case .invoke_dynamic(value) { const ignored = value; }
-        case .module_ref(value) { const ignored = value; }
-        case .package_ref(value) { const ignored = value; }
+        else { return .err(ClassfileError.invalid_constant_kind); }
         }
-        return .err(ClassfileError.invalid_constant_kind);
     }
 
     pub fn name_and_type_equals(self: &ClassFile, index: u16, expected_name: []const u8, expected_descriptor: []const u8): result<bool, ClassfileError> {
@@ -459,25 +410,8 @@ pub struct ClassFile {
                 descriptor: try self.utf8(pair.descriptor_index),
             });
         }
-        case .unusable(value) { const ignored = value; }
-        case .utf8(value) { const ignored = value; }
-        case .integer(value) { const ignored = value; }
-        case .float(value) { const ignored = value; }
-        case .long(value) { const ignored = value; }
-        case .double(value) { const ignored = value; }
-        case .class_ref(value) { const ignored = value; }
-        case .string_ref(value) { const ignored = value; }
-        case .field_ref(value) { const ignored = value; }
-        case .method_ref(value) { const ignored = value; }
-        case .interface_method_ref(value) { const ignored = value; }
-        case .method_handle(value) { const ignored = value; }
-        case .method_type(value) { const ignored = value; }
-        case .dynamic(value) { const ignored = value; }
-        case .invoke_dynamic(value) { const ignored = value; }
-        case .module_ref(value) { const ignored = value; }
-        case .package_ref(value) { const ignored = value; }
+        else { return .err(ClassfileError.invalid_constant_kind); }
         }
-        return .err(ClassfileError.invalid_constant_kind);
     }
 
     pub fn member_ref_equals(self: &ClassFile, index: u16, expected_class: []const u8, expected_name: []const u8, expected_descriptor: []const u8): result<bool, ClassfileError> {
@@ -503,21 +437,7 @@ pub struct ClassFile {
         case .field_ref(member) { raw = member; }
         case .method_ref(member) { raw = member; }
         case .interface_method_ref(member) { raw = member; }
-        case .unusable(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .utf8(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .integer(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .float(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .long(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .double(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .class_ref(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .string_ref(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .name_and_type(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .method_handle(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .method_type(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .dynamic(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .invoke_dynamic(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .module_ref(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
-        case .package_ref(value) { const ignored = value; return .err(ClassfileError.invalid_constant_kind); }
+        else { return .err(ClassfileError.invalid_constant_kind); }
         }
 
         const pair = try self.name_and_type(raw.name_and_type_index);
@@ -690,7 +610,6 @@ test "classfile header parser rejects invalid magic" {
     data[0] = 0;
     switch parse_class_header(data[..]) {
     case .ok(header) {
-        const ignored = header;
         assert(false);
     }
     case .err(err) {
@@ -748,23 +667,7 @@ test "constant reader parses utf8 class and member refs" {
         assert(bytes[0] == 77);
         assert(bytes[3] == 110);
     }
-    case .unusable(value) { const ignored = value; assert(false); }
-    case .integer(value) { const ignored = value; assert(false); }
-    case .float(value) { const ignored = value; assert(false); }
-    case .long(value) { const ignored = value; assert(false); }
-    case .double(value) { const ignored = value; assert(false); }
-    case .class_ref(value) { const ignored = value; assert(false); }
-    case .string_ref(value) { const ignored = value; assert(false); }
-    case .field_ref(value) { const ignored = value; assert(false); }
-    case .method_ref(value) { const ignored = value; assert(false); }
-    case .interface_method_ref(value) { const ignored = value; assert(false); }
-    case .name_and_type(value) { const ignored = value; assert(false); }
-    case .method_handle(value) { const ignored = value; assert(false); }
-    case .method_type(value) { const ignored = value; assert(false); }
-    case .dynamic(value) { const ignored = value; assert(false); }
-    case .invoke_dynamic(value) { const ignored = value; assert(false); }
-    case .module_ref(value) { const ignored = value; assert(false); }
-    case .package_ref(value) { const ignored = value; assert(false); }
+    else { assert(false); }
     }
 
     const second = try read_constant(&reader);
@@ -772,23 +675,7 @@ test "constant reader parses utf8 class and member refs" {
     case .class_ref(name_index) {
         assert(name_index == 1);
     }
-    case .unusable(value) { const ignored = value; assert(false); }
-    case .utf8(value) { const ignored = value; assert(false); }
-    case .integer(value) { const ignored = value; assert(false); }
-    case .float(value) { const ignored = value; assert(false); }
-    case .long(value) { const ignored = value; assert(false); }
-    case .double(value) { const ignored = value; assert(false); }
-    case .string_ref(value) { const ignored = value; assert(false); }
-    case .field_ref(value) { const ignored = value; assert(false); }
-    case .method_ref(value) { const ignored = value; assert(false); }
-    case .interface_method_ref(value) { const ignored = value; assert(false); }
-    case .name_and_type(value) { const ignored = value; assert(false); }
-    case .method_handle(value) { const ignored = value; assert(false); }
-    case .method_type(value) { const ignored = value; assert(false); }
-    case .dynamic(value) { const ignored = value; assert(false); }
-    case .invoke_dynamic(value) { const ignored = value; assert(false); }
-    case .module_ref(value) { const ignored = value; assert(false); }
-    case .package_ref(value) { const ignored = value; assert(false); }
+    else { assert(false); }
     }
 
     const third = try read_constant(&reader);
@@ -797,23 +684,7 @@ test "constant reader parses utf8 class and member refs" {
         assert(pair.name_index == 1);
         assert(pair.descriptor_index == 1);
     }
-    case .unusable(value) { const ignored = value; assert(false); }
-    case .utf8(value) { const ignored = value; assert(false); }
-    case .integer(value) { const ignored = value; assert(false); }
-    case .float(value) { const ignored = value; assert(false); }
-    case .long(value) { const ignored = value; assert(false); }
-    case .double(value) { const ignored = value; assert(false); }
-    case .class_ref(value) { const ignored = value; assert(false); }
-    case .string_ref(value) { const ignored = value; assert(false); }
-    case .field_ref(value) { const ignored = value; assert(false); }
-    case .method_ref(value) { const ignored = value; assert(false); }
-    case .interface_method_ref(value) { const ignored = value; assert(false); }
-    case .method_handle(value) { const ignored = value; assert(false); }
-    case .method_type(value) { const ignored = value; assert(false); }
-    case .dynamic(value) { const ignored = value; assert(false); }
-    case .invoke_dynamic(value) { const ignored = value; assert(false); }
-    case .module_ref(value) { const ignored = value; assert(false); }
-    case .package_ref(value) { const ignored = value; assert(false); }
+    else { assert(false); }
     }
 
     const fourth = try read_constant(&reader);
@@ -822,23 +693,7 @@ test "constant reader parses utf8 class and member refs" {
         assert(member.class_index == 2);
         assert(member.name_and_type_index == 3);
     }
-    case .unusable(value) { const ignored = value; assert(false); }
-    case .utf8(value) { const ignored = value; assert(false); }
-    case .integer(value) { const ignored = value; assert(false); }
-    case .float(value) { const ignored = value; assert(false); }
-    case .long(value) { const ignored = value; assert(false); }
-    case .double(value) { const ignored = value; assert(false); }
-    case .class_ref(value) { const ignored = value; assert(false); }
-    case .string_ref(value) { const ignored = value; assert(false); }
-    case .field_ref(value) { const ignored = value; assert(false); }
-    case .interface_method_ref(value) { const ignored = value; assert(false); }
-    case .name_and_type(value) { const ignored = value; assert(false); }
-    case .method_handle(value) { const ignored = value; assert(false); }
-    case .method_type(value) { const ignored = value; assert(false); }
-    case .dynamic(value) { const ignored = value; assert(false); }
-    case .invoke_dynamic(value) { const ignored = value; assert(false); }
-    case .module_ref(value) { const ignored = value; assert(false); }
-    case .package_ref(value) { const ignored = value; assert(false); }
+    else { assert(false); }
     }
 
     assert(reader.remaining() == 0);
@@ -870,31 +725,14 @@ test "constant pool preserves raw JVM indexes and wide unusable slots" {
         constants = value;
     }
     case .err(err) {
-        const ignored = err;
         assert(false);
     }
     }
     assert(constants.len() == 5);
 
     switch constants[0] {
-    case .unusable(value) { const ignored = value; }
-    case .utf8(value) { const ignored = value; assert(false); }
-    case .integer(value) { const ignored = value; assert(false); }
-    case .float(value) { const ignored = value; assert(false); }
-    case .long(value) { const ignored = value; assert(false); }
-    case .double(value) { const ignored = value; assert(false); }
-    case .class_ref(value) { const ignored = value; assert(false); }
-    case .string_ref(value) { const ignored = value; assert(false); }
-    case .field_ref(value) { const ignored = value; assert(false); }
-    case .method_ref(value) { const ignored = value; assert(false); }
-    case .interface_method_ref(value) { const ignored = value; assert(false); }
-    case .name_and_type(value) { const ignored = value; assert(false); }
-    case .method_handle(value) { const ignored = value; assert(false); }
-    case .method_type(value) { const ignored = value; assert(false); }
-    case .dynamic(value) { const ignored = value; assert(false); }
-    case .invoke_dynamic(value) { const ignored = value; assert(false); }
-    case .module_ref(value) { const ignored = value; assert(false); }
-    case .package_ref(value) { const ignored = value; assert(false); }
+    case .unusable {}
+    else { assert(false); }
     }
 
     switch constants[2] {
@@ -902,67 +740,19 @@ test "constant pool preserves raw JVM indexes and wide unusable slots" {
         assert(value.high_bytes == 0);
         assert(value.low_bytes == 42);
     }
-    case .unusable(value) { const ignored = value; assert(false); }
-    case .utf8(value) { const ignored = value; assert(false); }
-    case .integer(value) { const ignored = value; assert(false); }
-    case .float(value) { const ignored = value; assert(false); }
-    case .double(value) { const ignored = value; assert(false); }
-    case .class_ref(value) { const ignored = value; assert(false); }
-    case .string_ref(value) { const ignored = value; assert(false); }
-    case .field_ref(value) { const ignored = value; assert(false); }
-    case .method_ref(value) { const ignored = value; assert(false); }
-    case .interface_method_ref(value) { const ignored = value; assert(false); }
-    case .name_and_type(value) { const ignored = value; assert(false); }
-    case .method_handle(value) { const ignored = value; assert(false); }
-    case .method_type(value) { const ignored = value; assert(false); }
-    case .dynamic(value) { const ignored = value; assert(false); }
-    case .invoke_dynamic(value) { const ignored = value; assert(false); }
-    case .module_ref(value) { const ignored = value; assert(false); }
-    case .package_ref(value) { const ignored = value; assert(false); }
+    else { assert(false); }
     }
 
     switch constants[3] {
-    case .unusable(value) { const ignored = value; }
-    case .utf8(value) { const ignored = value; assert(false); }
-    case .integer(value) { const ignored = value; assert(false); }
-    case .float(value) { const ignored = value; assert(false); }
-    case .long(value) { const ignored = value; assert(false); }
-    case .double(value) { const ignored = value; assert(false); }
-    case .class_ref(value) { const ignored = value; assert(false); }
-    case .string_ref(value) { const ignored = value; assert(false); }
-    case .field_ref(value) { const ignored = value; assert(false); }
-    case .method_ref(value) { const ignored = value; assert(false); }
-    case .interface_method_ref(value) { const ignored = value; assert(false); }
-    case .name_and_type(value) { const ignored = value; assert(false); }
-    case .method_handle(value) { const ignored = value; assert(false); }
-    case .method_type(value) { const ignored = value; assert(false); }
-    case .dynamic(value) { const ignored = value; assert(false); }
-    case .invoke_dynamic(value) { const ignored = value; assert(false); }
-    case .module_ref(value) { const ignored = value; assert(false); }
-    case .package_ref(value) { const ignored = value; assert(false); }
+    case .unusable {}
+    else { assert(false); }
     }
 
     switch constants[4] {
     case .class_ref(name_index) {
         assert(name_index == 1);
     }
-    case .unusable(value) { const ignored = value; assert(false); }
-    case .utf8(value) { const ignored = value; assert(false); }
-    case .integer(value) { const ignored = value; assert(false); }
-    case .float(value) { const ignored = value; assert(false); }
-    case .long(value) { const ignored = value; assert(false); }
-    case .double(value) { const ignored = value; assert(false); }
-    case .string_ref(value) { const ignored = value; assert(false); }
-    case .field_ref(value) { const ignored = value; assert(false); }
-    case .method_ref(value) { const ignored = value; assert(false); }
-    case .interface_method_ref(value) { const ignored = value; assert(false); }
-    case .name_and_type(value) { const ignored = value; assert(false); }
-    case .method_handle(value) { const ignored = value; assert(false); }
-    case .method_type(value) { const ignored = value; assert(false); }
-    case .dynamic(value) { const ignored = value; assert(false); }
-    case .invoke_dynamic(value) { const ignored = value; assert(false); }
-    case .module_ref(value) { const ignored = value; assert(false); }
-    case .package_ref(value) { const ignored = value; assert(false); }
+    else { assert(false); }
     }
 
     drop constants;
@@ -1191,7 +981,6 @@ test "classfile resolves constant pool symbolic references" {
 
     switch classfile.utf8_equals(2, "Main".bytes()) {
     case .ok(value) {
-        const ignored = value;
         assert(false);
     }
     case .err(err) {
