@@ -1,4 +1,5 @@
 import { parse_class_header } from .classfile;
+import { new_heap } from .heap;
 import { first_type } from .method_area;
 import { default_value } from .types;
 
