@@ -140,37 +140,37 @@ pub fn new_thread(id: u64, name: string): Thread {
 pub struct Context {
     pub class_index: usize;
     pub method_index: usize;
+    pub frame: Frame;
+    pub code: []const u8;
 
-    pub fn read_u1(self: &Context, frame: &Frame, code: []const u8): u8 {
-        const ignored = self;
-        const index = (frame.pc + frame.offset) as usize;
-        const value = code[index];
-        frame.offset = frame.offset + 1;
+    pub fn read_u1(self: &Context): u8 {
+        const index = (self.frame.pc + self.frame.offset) as usize;
+        const value = self.code[index];
+        self.frame.offset = self.frame.offset + 1;
         return value;
     }
 
-    pub fn read_u2(self: &Context, frame: &Frame, code: []const u8): u16 {
-        const high = self.read_u1(frame, code) as u16;
-        const low = self.read_u1(frame, code) as u16;
+    pub fn read_u2(self: &Context): u16 {
+        const high = self.read_u1() as u16;
+        const low = self.read_u1() as u16;
         return (high << 8) | low;
     }
 
-    pub fn read_i2(self: &Context, frame: &Frame, code: []const u8): i16 {
-        return self.read_u2(frame, code) as i16;
+    pub fn read_i2(self: &Context): i16 {
+        return self.read_u2() as i16;
     }
 
-    pub fn read_i4(self: &Context, frame: &Frame, code: []const u8): i32 {
-        const first = self.read_u1(frame, code) as i32;
-        const second = self.read_u1(frame, code) as i32;
-        const third = self.read_u1(frame, code) as i32;
-        const fourth = self.read_u1(frame, code) as i32;
+    pub fn read_i4(self: &Context): i32 {
+        const first = self.read_u1() as i32;
+        const second = self.read_u1() as i32;
+        const third = self.read_u1() as i32;
+        const fourth = self.read_u1() as i32;
         return (first << 24) | (second << 16) | (third << 8) | fourth;
     }
 
-    pub fn padding(self: &Context, frame: &Frame): void {
-        const ignored = self;
-        while ((frame.pc + frame.offset) % 4) != 0 {
-            frame.offset = frame.offset + 1;
+    pub fn padding(self: &Context): void {
+        while ((self.frame.pc + self.frame.offset) % 4) != 0 {
+            self.frame.offset = self.frame.offset + 1;
         }
     }
 }
@@ -278,20 +278,17 @@ test "context reads big endian operands and padding" {
         parameter_count: 0,
         return_descriptor: "I",
     };
-    var frame = new_frame(0, 0, 1, 4);
-    var context = Context { class_index: 0, method_index: 0 };
-
     const code = method.code.bytes();
-    assert(context.read_u1(&frame, code) == 49);
-    assert(frame.offset == 2);
-    assert(context.read_u2(&frame, code) == 0x3233);
-    assert(frame.offset == 4);
+    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, 1, 4), code: code };
 
-    frame.pc = 5;
-    frame.offset = 1;
-    context.padding(&frame);
-    assert(frame.offset == 3);
-    assert(context.read_i4(&frame, code) == 0x38394142);
+    assert(context.read_u1() == 49);
+    assert(context.frame.offset == 2);
+    assert(context.read_u2() == 0x3233);
+    assert(context.frame.offset == 4);
 
-    drop frame;
+    context.frame.pc = 5;
+    context.frame.offset = 1;
+    context.padding();
+    assert(context.frame.offset == 3);
+    assert(context.read_i4() == 0x38394142);
 }
