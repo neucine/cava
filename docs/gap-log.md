@@ -26,6 +26,36 @@ Status:
 
 ## Open Gaps
 
+## 2026-06-29: Dynamic Filesystem Path String Leaks Through std.fs
+
+Module: `src/method_area.cy`
+
+Zava construct: classpath loading builds `<root>/<class>.class`, reads the bytes, and keeps classfile storage alive while runtime metadata borrows from it.
+
+Smallest Cyna reproduction:
+
+```cyna
+import { read_file } from std.fs;
+
+fn main(): i32 {
+    var path = string.from("/tmp/Main.class".bytes());
+    const result = read_file(path);
+    drop path;
+    const ignored = result;
+    return 0;
+}
+```
+
+Expected capability: Passing a dynamically built `string` to `std.fs.read_file` should not leave a live allocation after the caller drops the path and any returned source string is cleaned up.
+
+Current blocker: A classpath-loading test that writes `/tmp/CavaLoaderTest.class`, builds the path with `class_file_path`, and calls `read_file(path)` passes functionally but fails Cyna runtime leak checking with one live allocation. Attempting to retain owned dense class bytes directly as `List<[:]u8>` also exposed a Cyna sema crash in dense-array type interning, so Cava cannot currently use that as a storage workaround.
+
+Classification: Runtime / Tooling Gap.
+
+Decision: Keep parsed-byte loading and path construction in Cava. Keep the `load_class_from_path` API shape, but do not enable the filesystem integration test until the dynamic `std.fs` string leak and/or dense-array list crash is fixed in Cyna. For now, classfile metadata tests use caller-owned byte buffers.
+
+Status: Open.
+
 ## 2026-06-29: Method-Area String Bytes View Cannot Escape
 
 Module: `src/method_area.cy`

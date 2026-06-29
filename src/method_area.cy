@@ -1,5 +1,31 @@
 import { AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant, ConstantMemberRef, ConstantNameAndType, MemberInfo, parse_classfile } from .classfile;
 import { Class, Field, Method, Name, Value, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
+import { FsError, read_file } from std.fs;
+
+pub enum MethodAreaError: i32 {
+    classfile = 0,
+    not_found,
+    permission_denied,
+    already_exists,
+    invalid_path,
+    io_error,
+}
+
+fn method_area_error_from_fs(err: FsError): MethodAreaError {
+    if err == FsError.not_found {
+        return MethodAreaError.not_found;
+    }
+    if err == FsError.permission_denied {
+        return MethodAreaError.permission_denied;
+    }
+    if err == FsError.already_exists {
+        return MethodAreaError.already_exists;
+    }
+    if err == FsError.invalid_path {
+        return MethodAreaError.invalid_path;
+    }
+    return MethodAreaError.io_error;
+}
 
 pub struct SymbolPool {
     pub symbols: List<Name>;
@@ -47,6 +73,7 @@ pub fn new_symbol_pool(): SymbolPool {
 pub struct MethodArea {
     pub classes: List<Class>;
     pub symbols: SymbolPool;
+    pub class_sources: List<string>;
 
     pub fn find_class_index(self: &MethodArea, name: []const u8): ?usize {
         var index: usize = 0;
@@ -158,12 +185,52 @@ pub struct MethodArea {
         var classfile = try parse_classfile(data);
         return self.define_class(&classfile);
     }
+
+    pub fn load_class_from_source(self: &MethodArea, source: string): result<usize, ClassfileError> {
+        var classfile = try parse_classfile(source.bytes());
+        const name = try classfile.class_name(classfile.this_class);
+        if self.find_class_index(name) is existing {
+            return .ok(existing);
+        }
+
+        self.symbols.add(name);
+        self.classes.push(try derive_class(&classfile));
+        self.class_sources.push(source);
+        return .ok(self.classes.len() - 1);
+    }
+
+    pub fn load_class_from_path(self: &MethodArea, root: string, class_name: []const u8): result<usize, MethodAreaError> {
+        if self.find_class_index(class_name) is existing {
+            return .ok(existing);
+        }
+
+        var path = class_file_path(root, class_name);
+        const read_result = read_file(path);
+        drop path;
+
+        switch read_result {
+        case .ok(source) {
+            const loaded = self.load_class_from_source(source);
+            switch loaded {
+            case .ok(index) { return .ok(index); }
+            case .err(err) {
+                const ignored = err;
+                return .err(MethodAreaError.classfile);
+            }
+            }
+        }
+        case .err(err) {
+            return .err(method_area_error_from_fs(err));
+        }
+        }
+    }
 }
 
 pub fn new_method_area(): MethodArea {
     return MethodArea {
         classes: [],
         symbols: new_symbol_pool(),
+        class_sources: [],
     };
 }
 
