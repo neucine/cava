@@ -8,29 +8,41 @@ pub type double = f64;
 pub type boolean = u8;
 pub type return_address = u32;
 
+pub enum ReferenceKind: i32 {
+    null_ref = 0,
+    object,
+    array,
+}
+
 pub struct Reference {
-    pub object_id: ?u64;
+    pub kind: ReferenceKind;
+    pub slot: ?usize;
+    pub generation: u64;
 
     pub fn init_null(): Reference {
-        return Reference { object_id: none };
+        return Reference {
+            kind: ReferenceKind.null_ref,
+            slot: none,
+            generation: 0,
+        };
     }
 
     pub fn is_null(self: Reference): bool {
-        return self.object_id == none;
+        return self.slot == none;
     }
 
     pub fn non_null(self: Reference): bool {
-        return self.object_id != none;
+        return self.slot != none;
     }
 
     pub fn equals(self: Reference, that: Reference): bool {
-        if self.object_id is left {
-            if that.object_id is right {
-                return left == right;
+        if self.slot is left {
+            if that.slot is right {
+                return self.kind == that.kind and left == right and self.generation == that.generation;
             }
             return false;
         }
-        return that.object_id == none;
+        return that.slot == none;
     }
 }
 
@@ -60,7 +72,11 @@ pub type JavaLangClassLoader = ObjectRef;
 pub type JavaLangReflectField = ObjectRef;
 pub type JavaLangReflectConstructor = ObjectRef;
 
-pub const null_ref: Reference = Reference { object_id: none };
+pub const null_ref: Reference = Reference {
+    kind: ReferenceKind.null_ref,
+    slot: none,
+    generation: 0,
+};
 
 fn descriptor_tag(descriptor: []const u8): u8 {
     return descriptor[0];
@@ -171,10 +187,10 @@ pub fn raw_method_access(access: MethodAccessFlags): u16 {
 }
 
 pub struct Field {
-    pub class_name: []const u8;
+    pub class_name: string;
     pub access_flags: FieldAccessFlags;
-    pub name: []const u8;
-    pub descriptor: []const u8;
+    pub name: string;
+    pub descriptor: string;
     pub index: u16;
     pub slot: u16;
 
@@ -187,16 +203,12 @@ pub struct Field {
     }
 }
 
-pub struct Name {
-    pub value: []const u8;
-}
-
 pub struct Method {
-    pub class_name: []const u8;
+    pub class_name: string;
     pub access_flags: MethodAccessFlags;
-    pub name: []const u8;
-    pub descriptor: []const u8;
-    pub code: []const u8;
+    pub name: string;
+    pub descriptor: string;
+    pub code: string;
     pub max_stack: u16;
     pub max_locals: u16;
     pub code_len: u32;
@@ -204,7 +216,7 @@ pub struct Method {
     pub local_var_count: u32;
     pub line_number_count: u32;
     pub parameter_count: u32;
-    pub return_descriptor: []const u8;
+    pub return_descriptor: string;
 
     pub fn is_static(self: &Method): bool {
         return MethodAccessFlags.static_flag in self.access_flags;
@@ -223,8 +235,8 @@ pub struct LocalVariable {
     pub start_pc: u16;
     pub length: u16;
     pub index: u16;
-    pub name: []const u8;
-    pub descriptor: []const u8;
+    pub name: string;
+    pub descriptor: string;
 }
 
 pub struct LineNumber {
@@ -243,16 +255,16 @@ pub struct Class {
     pub name: string;
     pub descriptor: string;
     pub access_flags: ClassAccessFlags;
-    pub super_class: []const u8;
-    pub interfaces: List<Name>;
+    pub super_class: string;
+    pub interfaces: List<string>;
     pub fields: List<Field>;
     pub methods: List<Method>;
     pub instance_vars: u16;
     pub static_vars: List<Value>;
-    pub source_file: []const u8;
+    pub source_file: string;
     pub is_array: bool;
-    pub component_type: []const u8;
-    pub element_type: []const u8;
+    pub component_type: string;
+    pub element_type: string;
     pub dimensions: u32;
     pub defined: bool;
     pub linked: bool;
@@ -279,7 +291,7 @@ pub struct Class {
     pub fn field_index(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): ?i32 {
         var i: usize = 0;
         while i < self.fields.len() {
-            if Class.bytes_equal(self.fields[i].name, name) and Class.bytes_equal(self.fields[i].descriptor, descriptor) and self.fields[i].is_static() == is_static {
+            if Class.bytes_equal(self.fields[i].name.bytes(), name) and Class.bytes_equal(self.fields[i].descriptor.bytes(), descriptor) and self.fields[i].is_static() == is_static {
                 return i as i32;
             }
             i = i + 1;
@@ -290,7 +302,7 @@ pub struct Class {
     pub fn method_index(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): ?i32 {
         var i: usize = 0;
         while i < self.methods.len() {
-            if Class.bytes_equal(self.methods[i].name, name) and Class.bytes_equal(self.methods[i].descriptor, descriptor) and self.methods[i].is_static() == is_static {
+            if Class.bytes_equal(self.methods[i].name.bytes(), name) and Class.bytes_equal(self.methods[i].descriptor.bytes(), descriptor) and self.methods[i].is_static() == is_static {
                 return i as i32;
             }
             i = i + 1;
@@ -354,7 +366,7 @@ fn fail_unexpected_value(value: Value): void {
 
 test "null reference equality" {
     const first = null_ref;
-    const second = Reference { object_id: none };
+    const second = Reference.init_null();
     assert(first.is_null());
     assert(first.equals(second));
 }
@@ -437,19 +449,19 @@ test "access flags decode raw JVM bits" {
 
 test "class metadata supports field and method lookup" {
     const field = Field {
-        class_name: "Example".bytes(),
+        class_name: "Example",
         access_flags: field_access_flags(0x0008),
-        name: "answer".bytes(),
-        descriptor: "I".bytes(),
+        name: "answer",
+        descriptor: "I",
         index: 0,
         slot: 0,
     };
     const method = Method {
-        class_name: "Example".bytes(),
+        class_name: "Example",
         access_flags: method_access_flags(0x0009),
-        name: "main".bytes(),
-        descriptor: "([Ljava/lang/String;)V".bytes(),
-        code: "A".bytes(),
+        name: "main",
+        descriptor: "([Ljava/lang/String;)V",
+        code: "A",
         max_stack: 2,
         max_locals: 1,
         code_len: 8,
@@ -457,22 +469,22 @@ test "class metadata supports field and method lookup" {
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 1,
-        return_descriptor: "V".bytes(),
+        return_descriptor: "V",
     };
     const class = Class {
         name: string.from("Example".bytes()),
         descriptor: "LExample;",
         access_flags: class_access_flags(0x0021),
-        super_class: "java/lang/Object".bytes(),
+        super_class: "java/lang/Object",
         interfaces: [],
         fields: [field],
         methods: [method],
         instance_vars: 0,
         static_vars: [],
-        source_file: "Example.java".bytes(),
+        source_file: "Example.java",
         is_array: false,
-        component_type: "".bytes(),
-        element_type: "".bytes(),
+        component_type: "",
+        element_type: "",
         dimensions: 0,
         defined: true,
         linked: false,

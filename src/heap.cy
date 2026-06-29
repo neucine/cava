@@ -1,48 +1,59 @@
-import { Class, Field, Method, Name, Reference, Value, class_access_flags, default_value, field_access_flags, null_ref } from .types;
+import { Class, Field, Method, Reference, ReferenceKind, Value, class_access_flags, default_value, field_access_flags, null_ref } from .types;
 
 pub struct Object {
-    pub id: u64;
     pub class_index: usize;
     pub fields: List<Value>;
 }
 
 pub struct ArrayObject {
-    pub id: u64;
     pub class_index: usize;
     pub elements: List<Value>;
 }
 
+pub struct ObjectSlot {
+    pub occupied: bool;
+    pub generation: u64;
+    pub object: Object;
+}
+
+pub struct ArraySlot {
+    pub occupied: bool;
+    pub generation: u64;
+    pub array: ArrayObject;
+}
+
 pub struct Heap {
-    pub objects: List<Object>;
-    pub arrays: List<ArrayObject>;
-    pub next_id: u64;
+    pub objects: List<ObjectSlot>;
+    pub arrays: List<ArraySlot>;
 
     pub fn allocate_object(self: &Heap, class_index: usize, class: &Class): Reference {
-        const id = self.next_id;
-        self.next_id = self.next_id + 1;
-
         var fields: List<Value> = [];
         var index: usize = 0;
         while index < class.fields.len() {
             const field = class.fields[index];
             if !field.is_static() {
-                fields.push(default_value(field.descriptor));
+                fields.push(default_value(field.descriptor.bytes()));
             }
             index = index + 1;
         }
 
-        self.objects.push(Object {
-            id: id,
-            class_index: class_index,
-            fields: fields,
+        const slot = self.objects.len();
+        self.objects.push(ObjectSlot {
+            occupied: true,
+            generation: 1,
+            object: Object {
+                class_index: class_index,
+                fields: fields,
+            },
         });
-        return Reference { object_id: id };
+        return Reference {
+            kind: ReferenceKind.object,
+            slot: slot,
+            generation: 1,
+        };
     }
 
     pub fn allocate_array(self: &Heap, class_index: usize, component_descriptor: []const u8, length: usize): Reference {
-        const id = self.next_id;
-        self.next_id = self.next_id + 1;
-
         var elements: List<Value> = [];
         var index: usize = 0;
         while index < length {
@@ -50,22 +61,31 @@ pub struct Heap {
             index = index + 1;
         }
 
-        self.arrays.push(ArrayObject {
-            id: id,
-            class_index: class_index,
-            elements: elements,
+        const slot = self.arrays.len();
+        self.arrays.push(ArraySlot {
+            occupied: true,
+            generation: 1,
+            array: ArrayObject {
+                class_index: class_index,
+                elements: elements,
+            },
         });
-        return Reference { object_id: id };
+        return Reference {
+            kind: ReferenceKind.array,
+            slot: slot,
+            generation: 1,
+        };
     }
 
     pub fn object_index(self: &Heap, reference: Reference): ?usize {
-        if reference.object_id is id {
-            var index: usize = 0;
-            while index < self.objects.len() {
-                if self.objects[index].id == id {
-                    return index;
+        if reference.kind != ReferenceKind.object {
+            return none;
+        }
+        if reference.slot is slot {
+            if slot < self.objects.len() {
+                if self.objects[slot].occupied and self.objects[slot].generation == reference.generation {
+                    return slot;
                 }
-                index = index + 1;
             }
         }
         return none;
@@ -76,13 +96,14 @@ pub struct Heap {
     }
 
     pub fn array_index(self: &Heap, reference: Reference): ?usize {
-        if reference.object_id is id {
-            var index: usize = 0;
-            while index < self.arrays.len() {
-                if self.arrays[index].id == id {
-                    return index;
+        if reference.kind != ReferenceKind.array {
+            return none;
+        }
+        if reference.slot is slot {
+            if slot < self.arrays.len() {
+                if self.arrays[slot].occupied and self.arrays[slot].generation == reference.generation {
+                    return slot;
                 }
-                index = index + 1;
             }
         }
         return none;
@@ -94,15 +115,15 @@ pub struct Heap {
 
     pub fn array_length(self: &Heap, reference: Reference): ?usize {
         if self.array_index(reference) is array_index_value {
-            return self.arrays[array_index_value].elements.len();
+            return self.arrays[array_index_value].array.elements.len();
         }
         return none;
     }
 
     pub fn get_element(self: &Heap, reference: Reference, index: usize): ?Value {
         if self.array_index(reference) is array_index_value {
-            if index < self.arrays[array_index_value].elements.len() {
-                return self.arrays[array_index_value].elements[index];
+            if index < self.arrays[array_index_value].array.elements.len() {
+                return self.arrays[array_index_value].array.elements[index];
             }
         }
         return none;
@@ -110,8 +131,8 @@ pub struct Heap {
 
     pub fn set_element(self: &Heap, reference: Reference, index: usize, value: Value): bool {
         if self.array_index(reference) is array_index_value {
-            if index < self.arrays[array_index_value].elements.len() {
-                self.arrays[array_index_value].elements[index] = value;
+            if index < self.arrays[array_index_value].array.elements.len() {
+                self.arrays[array_index_value].array.elements[index] = value;
                 return true;
             }
         }
@@ -121,8 +142,8 @@ pub struct Heap {
     pub fn get_field(self: &Heap, reference: Reference, slot: u16): ?Value {
         if self.object_index(reference) is object_index {
             const actual_slot = slot as usize;
-            if actual_slot < self.objects[object_index].fields.len() {
-                return self.objects[object_index].fields[actual_slot];
+            if actual_slot < self.objects[object_index].object.fields.len() {
+                return self.objects[object_index].object.fields[actual_slot];
             }
         }
         return none;
@@ -131,8 +152,8 @@ pub struct Heap {
     pub fn set_field(self: &Heap, reference: Reference, slot: u16, value: Value): bool {
         if self.object_index(reference) is object_index {
             const actual_slot = slot as usize;
-            if actual_slot < self.objects[object_index].fields.len() {
-                self.objects[object_index].fields[actual_slot] = value;
+            if actual_slot < self.objects[object_index].object.fields.len() {
+                self.objects[object_index].object.fields[actual_slot] = value;
                 return true;
             }
         }
@@ -144,7 +165,6 @@ pub fn new_heap(): Heap {
     return Heap {
         objects: [],
         arrays: [],
-        next_id: 1,
     };
 }
 
@@ -165,18 +185,18 @@ fn assert_int_value(value: Value, expected: i32): void {
 
 test "heap allocates objects with default instance fields" {
     const static_field = Field {
-        class_name: "Example".bytes(),
+        class_name: "Example",
         access_flags: field_access_flags(0x0008),
-        name: "counter".bytes(),
-        descriptor: "I".bytes(),
+        name: "counter",
+        descriptor: "I",
         index: 0,
         slot: 0,
     };
     const instance_field = Field {
-        class_name: "Example".bytes(),
+        class_name: "Example",
         access_flags: field_access_flags(0x0001),
-        name: "value".bytes(),
-        descriptor: "I".bytes(),
+        name: "value",
+        descriptor: "I",
         index: 1,
         slot: 0,
     };
@@ -184,16 +204,16 @@ test "heap allocates objects with default instance fields" {
         name: string.from("Example".bytes()),
         descriptor: "LExample;",
         access_flags: class_access_flags(0x0021),
-        super_class: "java/lang/Object".bytes(),
+        super_class: "java/lang/Object",
         interfaces: [],
         fields: [static_field, instance_field],
         methods: [],
         instance_vars: 1,
         static_vars: [.int_value(0)],
-        source_file: "Example.java".bytes(),
+        source_file: "Example.java",
         is_array: false,
-        component_type: "".bytes(),
-        element_type: "".bytes(),
+        component_type: "",
+        element_type: "",
         dimensions: 0,
         defined: true,
         linked: false,
@@ -205,8 +225,10 @@ test "heap allocates objects with default instance fields" {
     assert(reference.non_null());
     assert(heap.has_object(reference));
     assert(heap.objects.len() == 1);
-    assert(heap.objects[0].class_index == 0);
-    assert(heap.objects[0].fields.len() == 1);
+    assert(heap.objects[0].occupied);
+    assert(heap.objects[0].generation == reference.generation);
+    assert(heap.objects[0].object.class_index == 0);
+    assert(heap.objects[0].object.fields.len() == 1);
 
     if heap.get_field(reference, 0) is value {
         assert_int_value(value, 0);
@@ -217,10 +239,10 @@ test "heap allocates objects with default instance fields" {
 
 test "heap updates instance fields by slot" {
     const instance_field = Field {
-        class_name: "Example".bytes(),
+        class_name: "Example",
         access_flags: field_access_flags(0x0001),
-        name: "value".bytes(),
-        descriptor: "I".bytes(),
+        name: "value",
+        descriptor: "I",
         index: 0,
         slot: 0,
     };
@@ -228,16 +250,16 @@ test "heap updates instance fields by slot" {
         name: string.from("Example".bytes()),
         descriptor: "LExample;",
         access_flags: class_access_flags(0x0021),
-        super_class: "java/lang/Object".bytes(),
+        super_class: "java/lang/Object",
         interfaces: [],
         fields: [instance_field],
         methods: [],
         instance_vars: 1,
         static_vars: [],
-        source_file: "Example.java".bytes(),
+        source_file: "Example.java",
         is_array: false,
-        component_type: "".bytes(),
-        element_type: "".bytes(),
+        component_type: "",
+        element_type: "",
         dimensions: 0,
         defined: true,
         linked: false,
@@ -257,6 +279,47 @@ test "heap updates instance fields by slot" {
     }
     assert(heap.get_field(reference, 1) == none);
     assert(heap.get_field(Reference.init_null(), 0) == none);
+}
+
+test "heap rejects stale object slot references" {
+    const instance_field = Field {
+        class_name: "Example",
+        access_flags: field_access_flags(0x0001),
+        name: "value",
+        descriptor: "I",
+        index: 0,
+        slot: 0,
+    };
+    var class = Class {
+        name: string.from("Example".bytes()),
+        descriptor: "LExample;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [instance_field],
+        methods: [],
+        instance_vars: 1,
+        static_vars: [],
+        source_file: "Example.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+
+    var heap = new_heap();
+    const reference = heap.allocate_object(0, &class);
+    const stale = Reference {
+        kind: ReferenceKind.object,
+        slot: reference.slot,
+        generation: reference.generation + 1,
+    };
+    assert(heap.has_object(reference));
+    assert(!heap.has_object(stale));
+    assert(heap.get_field(stale, 0) == none);
 }
 
 test "heap allocates primitive arrays with default elements" {

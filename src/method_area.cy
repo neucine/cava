@@ -1,5 +1,5 @@
 import { AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant, ConstantMemberRef, ConstantNameAndType, MemberInfo, parse_classfile } from .classfile;
-import { Class, Field, Method, Name, Value, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
+import { Class, Field, Method, Value, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
 import { FsError, read_file } from std.fs;
 
 pub enum MethodAreaError: i32 {
@@ -28,7 +28,7 @@ fn method_area_error_from_fs(err: FsError): MethodAreaError {
 }
 
 pub struct SymbolPool {
-    pub symbols: List<Name>;
+    pub symbols: List<string>;
 
     fn bytes_equal(left: []const u8, right: []const u8): bool {
         if left.len() != right.len() {
@@ -48,7 +48,7 @@ pub struct SymbolPool {
         var index: usize = 0;
         while index < self.symbols.len() {
             const symbol = self.symbols[index];
-            if SymbolPool.bytes_equal(symbol.value, value) {
+            if SymbolPool.bytes_equal(symbol.bytes(), value) {
                 return true;
             }
             index = index + 1;
@@ -60,7 +60,7 @@ pub struct SymbolPool {
         if self.contains(value) {
             return;
         }
-        self.symbols.push(Name { value: value });
+        self.symbols.push(string.from(value));
     }
 }
 
@@ -99,7 +99,7 @@ pub struct MethodArea {
         var index: usize = 0;
         while index < self.classes[class_index].fields.len() {
             const field = self.classes[class_index].fields[index];
-            if bytes_equal(field.name, name) and bytes_equal(field.descriptor, descriptor) {
+            if bytes_equal(field.name.bytes(), name) and bytes_equal(field.descriptor.bytes(), descriptor) {
                 return index as i32;
             }
             index = index + 1;
@@ -115,7 +115,7 @@ pub struct MethodArea {
         var index: usize = 0;
         while index < self.classes[class_index].methods.len() {
             const method = self.classes[class_index].methods[index];
-            if bytes_equal(method.name, name) and bytes_equal(method.descriptor, descriptor) {
+            if bytes_equal(method.name.bytes(), name) and bytes_equal(method.descriptor.bytes(), descriptor) {
                 return index as i32;
             }
             index = index + 1;
@@ -404,16 +404,16 @@ pub fn derive_array_class(name: []const u8): Class {
         name: string.from(name),
         descriptor: string.from(name),
         access_flags: class_access_flags(0x0001),
-        super_class: "java/lang/Object".bytes(),
-        interfaces: [Name { value: "java/io/Serializable".bytes() }, Name { value: "java/lang/Cloneable".bytes() }],
+        super_class: "java/lang/Object",
+        interfaces: ["java/io/Serializable", "java/lang/Cloneable"],
         fields: fields,
         methods: methods,
         instance_vars: 0,
         static_vars: static_vars,
-        source_file: "".bytes(),
+        source_file: "",
         is_array: true,
-        component_type: array_component_type(name),
-        element_type: array_element_type(name),
+        component_type: string.from(array_component_type(name)),
+        element_type: string.from(array_element_type(name)),
         dimensions: array_dimensions(name),
         defined: true,
         linked: false,
@@ -510,12 +510,12 @@ fn member_code_info(classfile: &ClassFile, attributes: []AttributeInfo): result<
     return .ok(out);
 }
 
-fn derive_interfaces(classfile: &ClassFile): result<List<Name>, ClassfileError> {
-    var interfaces: List<Name> = [];
+fn derive_interfaces(classfile: &ClassFile): result<List<string>, ClassfileError> {
+    var interfaces: List<string> = [];
     const raw_interfaces = classfile.interfaces[..];
     var index: usize = 0;
     while index < raw_interfaces.len() {
-        interfaces.push(Name { value: try classfile.class_name(raw_interfaces[index]) });
+        interfaces.push(string.from(try classfile.class_name(raw_interfaces[index])));
         index = index + 1;
     }
     return .ok(interfaces);
@@ -539,10 +539,10 @@ fn derive_fields(classfile: &ClassFile, class_name: []const u8): result<List<Fie
             instance_slot = instance_slot + 1;
         }
         fields.push(Field {
-            class_name: class_name,
+            class_name: string.from(class_name),
             access_flags: field_access_flags(access_flags),
-            name: try classfile.utf8(field_infos[index].name_index),
-            descriptor: descriptor,
+            name: string.from(try classfile.utf8(field_infos[index].name_index)),
+            descriptor: string.from(descriptor),
             index: index as u16,
             slot: slot,
         });
@@ -557,7 +557,7 @@ fn derive_static_vars(fields: &List<Field>): List<Value> {
     while index < fields.len() {
         const field = fields[index];
         if field.is_static() {
-            values.push(default_value(field.descriptor));
+            values.push(default_value(field.descriptor.bytes()));
         }
         index = index + 1;
     }
@@ -601,11 +601,11 @@ fn derive_methods(classfile: &ClassFile, class_name: []const u8): result<List<Me
         const descriptor = try classfile.utf8(method_infos[index].descriptor_index);
         const code = try member_code_info(classfile, method_infos[index].attributes[..]);
         methods.push(Method {
-            class_name: class_name,
+            class_name: string.from(class_name),
             access_flags: method_access_flags(method_infos[index].access_flags),
-            name: try classfile.utf8(method_infos[index].name_index),
-            descriptor: descriptor,
-            code: code.code,
+            name: string.from(try classfile.utf8(method_infos[index].name_index)),
+            descriptor: string.from(descriptor),
+            code: string.from(code.code),
             max_stack: code.max_stack,
             max_locals: code.max_locals,
             code_len: code.code_len,
@@ -613,7 +613,7 @@ fn derive_methods(classfile: &ClassFile, class_name: []const u8): result<List<Me
             local_var_count: code.local_var_count,
             line_number_count: code.line_number_count,
             parameter_count: method_parameter_count(descriptor) as u32,
-            return_descriptor: method_return_descriptor(descriptor),
+            return_descriptor: string.from(method_return_descriptor(descriptor)),
         });
         index = index + 1;
     }
@@ -624,9 +624,9 @@ pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
     const class_name = try classfile.class_name(classfile.this_class);
     var fields = try derive_fields(classfile, class_name);
     var methods = try derive_methods(classfile, class_name);
-    var super_class = "".bytes();
+    var super_class = "";
     if classfile.super_class != 0 {
-        super_class = try classfile.class_name(classfile.super_class);
+        super_class = string.from(try classfile.class_name(classfile.super_class));
     }
     return .ok(Class {
         name: string.from(class_name),
@@ -638,10 +638,10 @@ pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
         methods: methods,
         instance_vars: instance_var_count(&fields),
         static_vars: derive_static_vars(&fields),
-        source_file: try derive_source_file(classfile),
+        source_file: string.from(try derive_source_file(classfile)),
         is_array: false,
-        component_type: "".bytes(),
-        element_type: "".bytes(),
+        component_type: "",
+        element_type: "",
         dimensions: 0,
         defined: true,
         linked: false,
@@ -672,8 +672,10 @@ test "method area parses array class descriptor metadata" {
     assert(class.descriptor.len() == 20);
     assert(class.super_class.len() == 16);
     assert(class.interfaces.len() == 2);
-    assert(class.component_type[0] == 91);
-    assert(class.element_type[0] == 76);
+    const component_type = class.component_type.bytes();
+    const element_type = class.element_type.bytes();
+    assert(component_type[0] == 91);
+    assert(element_type[0] == 76);
     assert(class.dimensions == 2);
     assert(class.fields.len() == 0);
     assert(class.methods.len() == 0);
@@ -726,7 +728,8 @@ test "method area synthesizes array classes once" {
     assert(second == 0);
     assert(area.classes.len() == 1);
     assert(area.classes[0].is_array);
-    assert(area.classes[0].component_type[0] == 73);
+    const component_type = area.classes[0].component_type.bytes();
+    assert(component_type[0] == 73);
     assert(area.has_class("[I".bytes()));
 }
 
@@ -866,14 +869,18 @@ test "method area derives class metadata from classfile" {
 
     var class = try derive_class(&classfile);
     const class_name = class.name.bytes();
+    const descriptor = class.descriptor.bytes();
+    const super_class = class.super_class.bytes();
+    const source_file = class.source_file.bytes();
+    const interface_name = class.interfaces[0].bytes();
     assert(class_name[0] == 77);
     assert(class.descriptor.len() == 6);
-    assert(class.descriptor.bytes()[0] == 76);
-    assert(class.super_class[0] == 106);
-    assert(class.source_file[0] == 77);
-    assert(class.source_file.len() == 9);
+    assert(descriptor[0] == 76);
+    assert(super_class[0] == 106);
+    assert(source_file[0] == 77);
+    assert(source_file.len() == 9);
     assert(class.interfaces.len() == 1);
-    assert(class.interfaces[0].value[0] == 82);
+    assert(interface_name[0] == 82);
     assert(class.fields.len() == 2);
     assert(class.fields[0].is_static());
     assert(class.fields[0].slot == 0);
@@ -897,10 +904,12 @@ test "method area derives class metadata from classfile" {
     assert(class.methods[0].max_stack == 2);
     assert(class.methods[0].max_locals == 1);
     assert(class.methods[0].code_len == 2);
-    assert(class.methods[0].code[0] == 4);
-    assert(class.methods[0].code[1] == 172);
+    const method_code = class.methods[0].code.bytes();
+    assert(method_code[0] == 4);
+    assert(method_code[1] == 172);
     assert(class.methods[0].line_number_count == 1);
     assert(class.methods[0].local_var_count == 1);
     assert(class.methods[0].parameter_count == 0);
-    assert(class.methods[0].return_descriptor[0] == 73);
+    const return_descriptor = class.methods[0].return_descriptor.bytes();
+    assert(return_descriptor[0] == 73);
 }
