@@ -1,6 +1,7 @@
 import { parse_class_header } from .classfile;
 import { new_frame } from .engine;
 import { new_heap } from .heap;
+import { execute_next } from .instruction;
 import { first_type } from .method_area;
 import { default_value } from .types;
 
