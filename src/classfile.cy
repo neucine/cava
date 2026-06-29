@@ -714,110 +714,40 @@ test "constant pool preserves raw JVM indexes and wide unusable slots" {
 }
 
 test "classfile parser reads class identity members and raw attributes" {
-    var data = [: 98]u8;
-    data.push(0xCA);
-    data.push(0xFE);
-    data.push(0xBA);
-    data.push(0xBE);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(52);
-    data.push(0);
-    data.push(5);
-
-    data.push(1);
-    data.push(0);
-    data.push(4);
-    data.push(77);
-    data.push(97);
-    data.push(105);
-    data.push(110);
-    data.push(7);
-    data.push(0);
-    data.push(1);
-    data.push(1);
-    data.push(0);
-    data.push(4);
-    data.push(67);
-    data.push(111);
-    data.push(100);
-    data.push(101);
-    data.push(1);
-    data.push(0);
-    data.push(10);
-    data.push(83);
-    data.push(111);
-    data.push(117);
-    data.push(114);
-    data.push(99);
-    data.push(101);
-    data.push(70);
-    data.push(105);
-    data.push(108);
-    data.push(101);
-
-    data.push(0);
-    data.push(33);
-    data.push(0);
-    data.push(2);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(2);
-
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(4);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(2);
-    data.push(0);
-    data.push(1);
-
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(3);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(4);
-    data.push(0xDE);
-    data.push(0xAD);
-    data.push(0xBE);
-    data.push(0xEF);
-
-    data.push(0);
-    data.push(1);
-    data.push(0);
-    data.push(4);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(2);
-    data.push(0);
-    data.push(1);
+    var data: [:]u8 = [
+        0xCA, 0xFE, 0xBA, 0xBE,
+        0, 0, 0, 52,
+        0, 5,
+        1, 0, 4, 77, 97, 105, 110,
+        7, 0, 1,
+        1, 0, 4, 67, 111, 100, 101,
+        1, 0, 10, 83, 111, 117, 114, 99, 101, 70, 105, 108, 101,
+        0, 33,
+        0, 2,
+        0, 0,
+        0, 1,
+        0, 2,
+        0, 1,
+        0, 1,
+        0, 1,
+        0, 1,
+        0, 1,
+        0, 4,
+        0, 0, 0, 2,
+        0, 1,
+        0, 1,
+        0, 1,
+        0, 1,
+        0, 1,
+        0, 1,
+        0, 3,
+        0, 0, 0, 4,
+        0xDE, 0xAD, 0xBE, 0xEF,
+        0, 1,
+        0, 4,
+        0, 0, 0, 2,
+        0, 1
+    ];
 
     var reader = ByteReader.init(data[..]);
     const classfile = try read_classfile(&reader);
@@ -849,66 +779,24 @@ test "classfile parser reads class identity members and raw attributes" {
 }
 
 test "classfile resolves constant pool symbolic references" {
-    var data = [: 57]u8;
-    data.push(0xCA);
-    data.push(0xFE);
-    data.push(0xBA);
-    data.push(0xBE);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(52);
-    data.push(0);
-    data.push(7);
-
-    data.push(1);
-    data.push(0);
-    data.push(4);
-    data.push(77);
-    data.push(97);
-    data.push(105);
-    data.push(110);
-    data.push(7);
-    data.push(0);
-    data.push(1);
-    data.push(1);
-    data.push(0);
-    data.push(6);
-    data.push(97);
-    data.push(110);
-    data.push(115);
-    data.push(119);
-    data.push(101);
-    data.push(114);
-    data.push(1);
-    data.push(0);
-    data.push(1);
-    data.push(73);
-    data.push(12);
-    data.push(0);
-    data.push(3);
-    data.push(0);
-    data.push(4);
-    data.push(9);
-    data.push(0);
-    data.push(2);
-    data.push(0);
-    data.push(5);
-
-    data.push(0);
-    data.push(33);
-    data.push(0);
-    data.push(2);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
+    var data: [:]u8 = [
+        0xCA, 0xFE, 0xBA, 0xBE,
+        0, 0, 0, 52,
+        0, 7,
+        1, 0, 4, 77, 97, 105, 110,
+        7, 0, 1,
+        1, 0, 6, 97, 110, 115, 119, 101, 114,
+        1, 0, 1, 73,
+        12, 0, 3, 0, 4,
+        9, 0, 2, 0, 5,
+        0, 33,
+        0, 2,
+        0, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0, 0
+    ];
 
     var reader = ByteReader.init(data[..]);
     const classfile = try read_classfile(&reader);

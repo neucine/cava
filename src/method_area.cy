@@ -731,43 +731,20 @@ test "method area synthesizes array classes once" {
 }
 
 test "method area loads class from bytes" {
-    var data = [: 34]u8;
-    data.push(0xCA);
-    data.push(0xFE);
-    data.push(0xBA);
-    data.push(0xBE);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(52);
-    data.push(0);
-    data.push(3);
-
-    data.push(1);
-    data.push(0);
-    data.push(4);
-    data.push(77);
-    data.push(97);
-    data.push(105);
-    data.push(110);
-    data.push(7);
-    data.push(0);
-    data.push(1);
-
-    data.push(0);
-    data.push(33);
-    data.push(0);
-    data.push(2);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
-    data.push(0);
+    var data: [:]u8 = [
+        0xCA, 0xFE, 0xBA, 0xBE,
+        0, 0, 0, 52,
+        0, 3,
+        1, 0, 4, 77, 97, 105, 110,
+        7, 0, 1,
+        0, 33,
+        0, 2,
+        0, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0, 0
+    ];
 
     var area = new_method_area();
     const index = try area.load_class_from_bytes(data[..]);
@@ -832,58 +809,30 @@ test "class file path builds classpath-relative paths" {
 }
 
 test "method area derives class metadata from classfile" {
-    var code_raw = [: 44]u8;
-    code_raw.push(0);
-    code_raw.push(2);
-    code_raw.push(0);
-    code_raw.push(1);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(2);
-    code_raw.push(4);
-    code_raw.push(172);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(2);
+    var code_raw: [:]u8 = [
+        0, 2,
+        0, 1,
+        0, 0, 0, 2,
+        4, 172,
+        0, 0,
+        0, 2,
+        0, 15,
+        0, 0, 0, 6,
+        0, 1,
+        0, 0,
+        0, 42,
+        0, 16,
+        0, 0, 0, 12,
+        0, 1,
+        0, 0,
+        0, 2,
+        0, 10,
+        0, 8,
+        0, 0,
+        0
+    ];
 
-    code_raw.push(0);
-    code_raw.push(15);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(6);
-    code_raw.push(0);
-    code_raw.push(1);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(42);
-
-    code_raw.push(0);
-    code_raw.push(16);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(12);
-    code_raw.push(0);
-    code_raw.push(1);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(2);
-    code_raw.push(0);
-    code_raw.push(10);
-    code_raw.push(0);
-    code_raw.push(8);
-    code_raw.push(0);
-    code_raw.push(0);
-    code_raw.push(0);
-
-    var source_raw = [: 2]u8;
-    source_raw.push(0);
-    source_raw.push(14);
+    var source_raw: [:]u8 = [0, 14];
 
     var classfile = ClassFile {
         minor_version: 0,
