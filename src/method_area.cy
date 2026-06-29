@@ -732,18 +732,18 @@ test "method area synthesizes array classes once" {
 
 test "method area loads class from bytes" {
     var data: [:]u8 = [
-        0xCA, 0xFE, 0xBA, 0xBE,
-        0, 0, 0, 52,
-        0, 3,
-        1, 0, 4, 77, 97, 105, 110,
-        7, 0, 1,
-        0, 33,
-        0, 2,
-        0, 0,
-        0, 0,
-        0, 0,
-        0, 0,
-        0, 0
+        0xCA, 0xFE, 0xBA, 0xBE, // magic
+        0, 0, 0, 52, // minor, major
+        0, 3, // constant_pool_count
+        1, 0, 4, 77, 97, 105, 110, // #1 utf8 Main
+        7, 0, 1, // #2 class Main
+        0, 33, // access_flags
+        0, 2, // this_class
+        0, 0, // super_class
+        0, 0, // interfaces_count
+        0, 0, // fields_count
+        0, 0, // methods_count
+        0, 0 // attributes_count
     ];
 
     var area = new_method_area();
@@ -810,26 +810,25 @@ test "class file path builds classpath-relative paths" {
 
 test "method area derives class metadata from classfile" {
     var code_raw: [:]u8 = [
-        0, 2,
-        0, 1,
-        0, 0, 0, 2,
-        4, 172,
-        0, 0,
-        0, 2,
-        0, 15,
-        0, 0, 0, 6,
-        0, 1,
-        0, 0,
-        0, 42,
-        0, 16,
-        0, 0, 0, 12,
-        0, 1,
-        0, 0,
-        0, 2,
-        0, 10,
-        0, 8,
-        0, 0,
-        0
+        0, 2, // max_stack
+        0, 1, // max_locals
+        0, 0, 0, 2, // code_length
+        4, 172, // iconst_1, ireturn
+        0, 0, // exception_table_length
+        0, 2, // attributes_count
+        0, 15, // LineNumberTable name_index
+        0, 0, 0, 6, // LineNumberTable length
+        0, 1, // line_number_table_length
+        0, 0, // start_pc
+        0, 42, // line_number
+        0, 16, // LocalVariableTable name_index
+        0, 0, 0, 12, // LocalVariableTable length
+        0, 1, // local_variable_table_length
+        0, 0, // start_pc
+        0, 2, // length
+        0, 10, // name_index
+        0, 8, // descriptor_index
+        0, 0 // index
     ];
 
     var source_raw: [:]u8 = [0, 14];

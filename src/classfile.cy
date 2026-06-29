@@ -715,38 +715,38 @@ test "constant pool preserves raw JVM indexes and wide unusable slots" {
 
 test "classfile parser reads class identity members and raw attributes" {
     var data: [:]u8 = [
-        0xCA, 0xFE, 0xBA, 0xBE,
-        0, 0, 0, 52,
-        0, 5,
-        1, 0, 4, 77, 97, 105, 110,
-        7, 0, 1,
-        1, 0, 4, 67, 111, 100, 101,
-        1, 0, 10, 83, 111, 117, 114, 99, 101, 70, 105, 108, 101,
-        0, 33,
-        0, 2,
-        0, 0,
-        0, 1,
-        0, 2,
-        0, 1,
-        0, 1,
-        0, 1,
-        0, 1,
-        0, 1,
-        0, 4,
-        0, 0, 0, 2,
-        0, 1,
-        0, 1,
-        0, 1,
-        0, 1,
-        0, 1,
-        0, 1,
-        0, 3,
-        0, 0, 0, 4,
-        0xDE, 0xAD, 0xBE, 0xEF,
-        0, 1,
-        0, 4,
-        0, 0, 0, 2,
-        0, 1
+        0xCA, 0xFE, 0xBA, 0xBE, // magic
+        0, 0, 0, 52, // minor, major
+        0, 5, // constant_pool_count
+        1, 0, 4, 77, 97, 105, 110, // #1 utf8 Main
+        7, 0, 1, // #2 class Main
+        1, 0, 4, 67, 111, 100, 101, // #3 utf8 Code
+        1, 0, 10, 83, 111, 117, 114, 99, 101, 70, 105, 108, 101, // #4 utf8 SourceFile
+        0, 33, // access_flags
+        0, 2, // this_class
+        0, 0, // super_class
+        0, 1, // interfaces_count
+        0, 2, // interface[0]
+        0, 1, // fields_count
+        0, 1, // field access_flags
+        0, 1, // field name_index
+        0, 1, // field descriptor_index
+        0, 1, // field attributes_count
+        0, 4, // field attribute name_index
+        0, 0, 0, 2, // field attribute length
+        0, 1, // field attribute raw
+        0, 1, // methods_count
+        0, 1, // method access_flags
+        0, 1, // method name_index
+        0, 1, // method descriptor_index
+        0, 1, // method attributes_count
+        0, 3, // method attribute name_index
+        0, 0, 0, 4, // method attribute length
+        0xDE, 0xAD, 0xBE, 0xEF, // method attribute raw
+        0, 1, // attributes_count
+        0, 4, // class attribute name_index
+        0, 0, 0, 2, // class attribute length
+        0, 1 // class attribute raw
     ];
 
     var reader = ByteReader.init(data[..]);
@@ -780,22 +780,22 @@ test "classfile parser reads class identity members and raw attributes" {
 
 test "classfile resolves constant pool symbolic references" {
     var data: [:]u8 = [
-        0xCA, 0xFE, 0xBA, 0xBE,
-        0, 0, 0, 52,
-        0, 7,
-        1, 0, 4, 77, 97, 105, 110,
-        7, 0, 1,
-        1, 0, 6, 97, 110, 115, 119, 101, 114,
-        1, 0, 1, 73,
-        12, 0, 3, 0, 4,
-        9, 0, 2, 0, 5,
-        0, 33,
-        0, 2,
-        0, 0,
-        0, 0,
-        0, 0,
-        0, 0,
-        0, 0
+        0xCA, 0xFE, 0xBA, 0xBE, // magic
+        0, 0, 0, 52, // minor, major
+        0, 7, // constant_pool_count
+        1, 0, 4, 77, 97, 105, 110, // #1 utf8 Main
+        7, 0, 1, // #2 class Main
+        1, 0, 6, 97, 110, 115, 119, 101, 114, // #3 utf8 answer
+        1, 0, 1, 73, // #4 utf8 I
+        12, 0, 3, 0, 4, // #5 name_and_type answer:I
+        9, 0, 2, 0, 5, // #6 field_ref Main.answer:I
+        0, 33, // access_flags
+        0, 2, // this_class
+        0, 0, // super_class
+        0, 0, // interfaces_count
+        0, 0, // fields_count
+        0, 0, // methods_count
+        0, 0 // attributes_count
     ];
 
     var reader = ByteReader.init(data[..]);
