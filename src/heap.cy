@@ -6,8 +6,15 @@ pub struct Object {
     pub fields: List<Value>;
 }
 
+pub struct ArrayObject {
+    pub id: u64;
+    pub class_index: usize;
+    pub elements: List<Value>;
+}
+
 pub struct Heap {
     pub objects: List<Object>;
+    pub arrays: List<ArrayObject>;
     pub next_id: u64;
 
     pub fn allocate_object(self: &Heap, class_index: usize, class: &Class): Reference {
@@ -32,6 +39,25 @@ pub struct Heap {
         return Reference { object_id: id };
     }
 
+    pub fn allocate_array(self: &Heap, class_index: usize, component_descriptor: []const u8, length: usize): Reference {
+        const id = self.next_id;
+        self.next_id = self.next_id + 1;
+
+        var elements: List<Value> = [];
+        var index: usize = 0;
+        while index < length {
+            elements.push(default_value(component_descriptor));
+            index = index + 1;
+        }
+
+        self.arrays.push(ArrayObject {
+            id: id,
+            class_index: class_index,
+            elements: elements,
+        });
+        return Reference { object_id: id };
+    }
+
     pub fn object_index(self: &Heap, reference: Reference): ?usize {
         if reference.object_id is id {
             var index: usize = 0;
@@ -47,6 +73,49 @@ pub struct Heap {
 
     pub fn has_object(self: &Heap, reference: Reference): bool {
         return self.object_index(reference) != none;
+    }
+
+    pub fn array_index(self: &Heap, reference: Reference): ?usize {
+        if reference.object_id is id {
+            var index: usize = 0;
+            while index < self.arrays.len() {
+                if self.arrays[index].id == id {
+                    return index;
+                }
+                index = index + 1;
+            }
+        }
+        return none;
+    }
+
+    pub fn has_array(self: &Heap, reference: Reference): bool {
+        return self.array_index(reference) != none;
+    }
+
+    pub fn array_length(self: &Heap, reference: Reference): ?usize {
+        if self.array_index(reference) is array_index_value {
+            return self.arrays[array_index_value].elements.len();
+        }
+        return none;
+    }
+
+    pub fn get_element(self: &Heap, reference: Reference, index: usize): ?Value {
+        if self.array_index(reference) is array_index_value {
+            if index < self.arrays[array_index_value].elements.len() {
+                return self.arrays[array_index_value].elements[index];
+            }
+        }
+        return none;
+    }
+
+    pub fn set_element(self: &Heap, reference: Reference, index: usize, value: Value): bool {
+        if self.array_index(reference) is array_index_value {
+            if index < self.arrays[array_index_value].elements.len() {
+                self.arrays[array_index_value].elements[index] = value;
+                return true;
+            }
+        }
+        return false;
     }
 
     pub fn get_field(self: &Heap, reference: Reference, slot: u16): ?Value {
@@ -74,6 +143,7 @@ pub struct Heap {
 pub fn new_heap(): Heap {
     return Heap {
         objects: [],
+        arrays: [],
         next_id: 1,
     };
 }
@@ -187,4 +257,59 @@ test "heap updates instance fields by slot" {
     }
     assert(heap.get_field(reference, 1) == none);
     assert(heap.get_field(Reference.init_null(), 0) == none);
+}
+
+test "heap allocates primitive arrays with default elements" {
+    var heap = new_heap();
+    const reference = heap.allocate_array(0, "I".bytes(), 3);
+
+    assert(reference.non_null());
+    assert(heap.has_array(reference));
+    assert(!heap.has_object(reference));
+    if heap.array_length(reference) is length {
+        assert(length == 3);
+    } else {
+        assert(false);
+    }
+
+    if heap.get_element(reference, 0) is value {
+        assert_int_value(value, 0);
+    } else {
+        assert(false);
+    }
+    if heap.get_element(reference, 2) is value {
+        assert_int_value(value, 0);
+    } else {
+        assert(false);
+    }
+    assert(heap.get_element(reference, 3) == none);
+}
+
+test "heap updates array elements by index" {
+    var heap = new_heap();
+    const reference = heap.allocate_array(0, "I".bytes(), 2);
+
+    assert(heap.set_element(reference, 1, .int_value(42)));
+    assert(!heap.set_element(reference, 2, .int_value(1)));
+    assert(!heap.set_element(Reference.init_null(), 0, .int_value(1)));
+
+    if heap.get_element(reference, 1) is value {
+        assert_int_value(value, 42);
+    } else {
+        assert(false);
+    }
+}
+
+test "heap allocates reference arrays with null elements" {
+    var heap = new_heap();
+    const reference = heap.allocate_array(0, "Ljava/lang/Object;".bytes(), 1);
+
+    if heap.get_element(reference, 0) is value {
+        switch value {
+        case .ref_value(actual) { assert(actual.is_null()); }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
 }
