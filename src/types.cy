@@ -208,7 +208,7 @@ pub struct Method {
     pub access_flags: MethodAccessFlags;
     pub name: string;
     pub descriptor: string;
-    pub code: string;
+    pub code: []const u8;
     pub max_stack: u16;
     pub max_locals: u16;
     pub code_len: u32;
@@ -461,7 +461,7 @@ test "class metadata supports field and method lookup" {
         access_flags: method_access_flags(0x0009),
         name: "main",
         descriptor: "([Ljava/lang/String;)V",
-        code: "A",
+        code: "A".bytes(),
         max_stack: 2,
         max_locals: 1,
         code_len: 8,

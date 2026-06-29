@@ -114,8 +114,7 @@ pub struct MethodArea {
 
         var index: usize = 0;
         while index < self.classes[class_index].methods.len() {
-            const method = self.classes[class_index].methods[index];
-            if bytes_equal(method.name.bytes(), name) and bytes_equal(method.descriptor.bytes(), descriptor) {
+            if bytes_equal(self.classes[class_index].methods[index].name.bytes(), name) and bytes_equal(self.classes[class_index].methods[index].descriptor.bytes(), descriptor) {
                 return index as i32;
             }
             index = index + 1;
@@ -182,8 +181,7 @@ pub struct MethodArea {
     }
 
     pub fn load_class_from_bytes(self: &MethodArea, data: []const u8): result<usize, ClassfileError> {
-        var classfile = try parse_classfile(data);
-        return self.define_class(&classfile);
+        return self.load_class_from_source(string.from(data));
     }
 
     pub fn load_class_from_source(self: &MethodArea, source: string): result<usize, ClassfileError> {
@@ -605,7 +603,7 @@ fn derive_methods(classfile: &ClassFile, class_name: []const u8): result<List<Me
             access_flags: method_access_flags(method_infos[index].access_flags),
             name: string.from(try classfile.utf8(method_infos[index].name_index)),
             descriptor: string.from(descriptor),
-            code: string.from(code.code),
+            code: code.code,
             max_stack: code.max_stack,
             max_locals: code.max_locals,
             code_len: code.code_len,
@@ -868,19 +866,14 @@ test "method area derives class metadata from classfile" {
     };
 
     var class = try derive_class(&classfile);
-    const class_name = class.name.bytes();
-    const descriptor = class.descriptor.bytes();
-    const super_class = class.super_class.bytes();
-    const source_file = class.source_file.bytes();
-    const interface_name = class.interfaces[0].bytes();
-    assert(class_name[0] == 77);
+    assert(class.name.bytes()[0] == 77);
     assert(class.descriptor.len() == 6);
-    assert(descriptor[0] == 76);
-    assert(super_class[0] == 106);
-    assert(source_file[0] == 77);
-    assert(source_file.len() == 9);
+    assert(class.descriptor.bytes()[0] == 76);
+    assert(class.super_class.bytes()[0] == 106);
+    assert(class.source_file.bytes()[0] == 77);
+    assert(class.source_file.bytes().len() == 9);
     assert(class.interfaces.len() == 1);
-    assert(interface_name[0] == 82);
+    assert(class.interfaces[0].bytes()[0] == 82);
     assert(class.fields.len() == 2);
     assert(class.fields[0].is_static());
     assert(class.fields[0].slot == 0);
@@ -904,12 +897,11 @@ test "method area derives class metadata from classfile" {
     assert(class.methods[0].max_stack == 2);
     assert(class.methods[0].max_locals == 1);
     assert(class.methods[0].code_len == 2);
-    const method_code = class.methods[0].code.bytes();
-    assert(method_code[0] == 4);
-    assert(method_code[1] == 172);
+    assert(class.methods[0].code[0] == 4);
+    assert(class.methods[0].code[1] == 172);
     assert(class.methods[0].line_number_count == 1);
     assert(class.methods[0].local_var_count == 1);
     assert(class.methods[0].parameter_count == 0);
-    const return_descriptor = class.methods[0].return_descriptor.bytes();
-    assert(return_descriptor[0] == 73);
+    assert(class.methods[0].return_descriptor.bytes()[0] == 73);
+    drop class;
 }

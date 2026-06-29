@@ -377,15 +377,17 @@ pub fn execute_next(context: &Context): result<void, InstructionError> {
 }
 
 pub fn execute_method(method: &Method): result<FrameResult, InstructionError> {
-    const code = method.code.bytes();
-    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, method.max_locals, method.max_stack), code: code };
+    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, method.max_locals, method.max_stack), code: method.code };
 
     while context.frame.pc < method.code_len {
         try execute_next(&context);
         if context.frame.result is result {
-            return .ok(result);
+            const out = result;
+            drop context;
+            return .ok(out);
         }
     }
+    drop context;
     return .err(InstructionError.missing_return);
 }
 
@@ -409,13 +411,13 @@ fn assert_int_result(result: FrameResult, expected: i32): void {
 }
 
 test "instruction executes iconst and ireturn" {
-    var code: [:]u8 = [4, 172];
+    const code: [2]u8 = [4, 172];
     var method = Method {
         class_name: "Main",
         access_flags: method_access_flags(0),
         name: "answer",
         descriptor: "()I",
-        code: string.from(code[..]),
+        code: code[..],
         max_stack: 1,
         max_locals: 0,
         code_len: 2,
@@ -428,17 +430,18 @@ test "instruction executes iconst and ireturn" {
 
     const result = try execute_method(&method);
     assert_int_result(result, 1);
+    drop method;
 }
 
 test "instruction executes bipush sipush and ireturn" {
-    var byte_code: [:]u8 = [16, 254, 172];
-    var short_code: [:]u8 = [17, 1, 2, 172];
+    const byte_code: [3]u8 = [16, 254, 172];
+    const short_code: [4]u8 = [17, 1, 2, 172];
     var byte_method = Method {
         class_name: "Main",
         access_flags: method_access_flags(0),
         name: "byteValue",
         descriptor: "()I",
-        code: string.from(byte_code[..]),
+        code: byte_code[..],
         max_stack: 1,
         max_locals: 0,
         code_len: 3,
@@ -453,7 +456,7 @@ test "instruction executes bipush sipush and ireturn" {
         access_flags: method_access_flags(0),
         name: "shortValue",
         descriptor: "()I",
-        code: string.from(short_code[..]),
+        code: short_code[..],
         max_stack: 1,
         max_locals: 0,
         code_len: 4,
@@ -468,4 +471,6 @@ test "instruction executes bipush sipush and ireturn" {
     const short_result = try execute_method(&short_method);
     assert_int_result(byte_result, 0 - 2);
     assert_int_result(short_result, 258);
+    drop byte_method;
+    drop short_method;
 }

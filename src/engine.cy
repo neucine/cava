@@ -268,7 +268,7 @@ test "context reads big endian operands and padding" {
         access_flags: method_access_flags(0),
         name: "run",
         descriptor: "()I",
-        code: "0123456789AB",
+        code: "0123456789AB".bytes(),
         max_stack: 4,
         max_locals: 1,
         code_len: 10,
@@ -278,8 +278,7 @@ test "context reads big endian operands and padding" {
         parameter_count: 0,
         return_descriptor: "I",
     };
-    const code = method.code.bytes();
-    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, 1, 4), code: code };
+    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, 1, 4), code: method.code };
 
     assert(context.read_u1() == 49);
     assert(context.frame.offset == 2);
