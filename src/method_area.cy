@@ -353,7 +353,6 @@ fn class_descriptor_from_name(name: string): string {
     }
     bytes.push(59);
     const out = string.from(bytes[..]);
-    drop bytes;
     return out;
 }
 
