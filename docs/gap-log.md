@@ -26,6 +26,115 @@ Status:
 
 ## Open Gaps
 
+## 2026-06-30: JVM Constant-Pool Object Constants
+
+Module: `src/instruction.cy`
+
+Zava construct: `ldc` and `ldc_w` can materialize `String`, `Class`, method type, method handle, and dynamic constants in addition to primitive numeric constants.
+
+Smallest Cyna reproduction:
+
+```cyna
+fn load_string_constant(index: u16): Reference {
+    // Cava needs to resolve the constant-pool string, intern or allocate a
+    // java/lang/String object, and push its heap reference.
+    assert(false);
+    return null_ref;
+}
+```
+
+Expected capability: Cava needs method-area/class context and Java object construction for constant-pool entries whose JVM value is a heap object or dynamically linked value.
+
+Current blocker: `Context` now carries a constant-pool view, but Cava does not yet construct `java/lang/String`, class mirror objects, method handles, method types, or dynamic constants.
+
+Classification: Cava Runtime Gap.
+
+Decision: Implement `ldc`/`ldc_w` primitive numeric constants and `ldc2_w` primitive wide numeric constants now. Return `InstructionError.invalid_constant` for object/dynamic constant kinds until class/object constant materialization is designed.
+
+Status: Open.
+
+## 2026-06-30: JVM Array Exception Construction for Bytecode Array Ops
+
+Module: `src/instruction.cy`
+
+Zava construct: `newarray`, `iaload`, `iastore`, `arraylength`, and null `athrow` throw Java exceptions for negative sizes, null array references, out-of-bounds indexes, and rethrowing a null throwable.
+
+Smallest Cyna reproduction:
+
+```cyna
+fn load(heap: &Heap, reference: Reference, index: i32): i32 {
+    if reference.is_null() or index < 0 {
+        // Cava needs to throw NullPointerException or ArrayIndexOutOfBoundsException.
+        assert(false);
+    }
+    return 0;
+}
+```
+
+Expected capability: Cava should allocate the correct Java exception object and return `FrameResult.exception`, then later route it through method exception handlers.
+
+Current blocker: Cava has a heap and `FrameResult.exception`, but not Java exception object construction or handler search in the interpreter loop.
+
+Classification: Cava Runtime Gap.
+
+Decision: Implement normal paths for primitive int array creation, load, store, length, and non-null `athrow` now. Keep exceptional paths that require constructing a Java exception object explicit with `assert(false)` until Java exception dispatch exists.
+
+Status: Open.
+
+## 2026-06-30: JVM Floating-Point NaN and Saturating Conversion Semantics
+
+Module: `src/instruction.cy`
+
+Zava construct: `fcmpl`, `fcmpg`, `dcmpl`, `dcmpg`, `f2i`, `f2l`, `d2i`, `d2l`, `f2d`, and `d2f` preserve JVM floating-point edge semantics, including NaN ordering choices, infinities, signed zero, truncation toward zero, and saturation for integer conversions.
+
+Smallest Cyna reproduction:
+
+```cyna
+fn convert(value: f64): i32 {
+    // Cyna checked casts require finite in-range exact values.
+    // JVM d2i must instead map NaN to 0 and out-of-range values to int bounds.
+    return value as i32;
+}
+```
+
+Expected capability: Cava needs either runtime helpers for JVM float comparison/conversion or Cyna primitives that expose unordered/NaN checks and unchecked/saturating float casts.
+
+Current blocker: Cyna lowers float comparisons to ordered LLVM predicates and checked float casts enforce finite/exact conversion. That is good Cyna semantics, but it cannot directly express JVM bytecode edge behavior.
+
+Classification: Cava Runtime Gap with possible Cyna runtime/helper support.
+
+Decision: Implement `i2f`, `i2d`, `l2f`, and `l2d` now because mixed integer/float arithmetic lowers to raw integer-to-float conversion. Keep the NaN-sensitive compare and float-to-int/float-to-float opcodes unsupported until Cava has explicit JVM helpers.
+
+Status: Open.
+
+## 2026-06-30: JVM ArithmeticException Construction for Integer Div/Rem
+
+Module: `src/instruction.cy`
+
+Zava construct: `idiv`, `ldiv`, `irem`, and `lrem` throw `java/lang/ArithmeticException` when the divisor is zero.
+
+Smallest Cyna reproduction:
+
+```cyna
+fn div(value: i32, divisor: i32): i32 {
+    if divisor == 0 {
+        // Cava needs to allocate and throw java/lang/ArithmeticException here.
+        assert(false);
+    }
+    return value / divisor;
+}
+```
+
+Expected capability: Cava needs method-area lookup plus heap construction for `java/lang/ArithmeticException`, then instruction execution should set `FrameResult.exception` instead of asserting or trapping.
+
+Current blocker: Cava has `Frame.throw_exception` and a `FrameResult.exception` carrier, but the interpreter does not yet allocate Java exception objects or search exception handlers.
+
+Classification: Cava Runtime Gap.
+
+Decision: Implement the non-zero normal paths for `idiv`, `ldiv`, `irem`, and `lrem` now. Keep zero-divisor behavior explicit with `assert(false)` until Java exception allocation/handler dispatch exists.
+
+Status: Open.
+
 ## 2026-06-29: Dynamic Filesystem Path String Leaks Through std.fs
 
 Module: `src/method_area.cy`

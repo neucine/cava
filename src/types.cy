@@ -208,7 +208,7 @@ pub struct Method {
     pub access_flags: MethodAccessFlags;
     pub name: string;
     pub descriptor: string;
-    pub code: []const u8;
+    pub code: [:]u8;
     pub max_stack: u16;
     pub max_locals: u16;
     pub code_len: u32;
@@ -229,6 +229,16 @@ pub struct Method {
     pub fn is_abstract(self: &Method): bool {
         return MethodAccessFlags.abstract in self.access_flags;
     }
+}
+
+pub fn byte_buffer(source: []const u8): [:]u8 {
+    var out = [: source.len()]u8;
+    var index: usize = 0;
+    while index < source.len() {
+        out.push(source[index]);
+        index = index + 1;
+    }
+    return out;
 }
 
 pub struct LocalVariable {
@@ -461,7 +471,7 @@ test "class metadata supports field and method lookup" {
         access_flags: method_access_flags(0x0009),
         name: "main",
         descriptor: "([Ljava/lang/String;)V",
-        code: "A".bytes(),
+        code: byte_buffer("A".bytes()),
         max_stack: 2,
         max_locals: 1,
         code_len: 8,

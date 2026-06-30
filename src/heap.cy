@@ -53,11 +53,11 @@ pub struct Heap {
         };
     }
 
-    pub fn allocate_array(self: &Heap, class_index: usize, component_descriptor: []const u8, length: usize): Reference {
+    pub fn allocate_array(self: &Heap, class_index: usize, component_descriptor: string, length: usize): Reference {
         var elements: List<Value> = [];
         var index: usize = 0;
         while index < length {
-            elements.push(default_value(component_descriptor));
+            elements.push(default_value(component_descriptor.bytes()));
             index = index + 1;
         }
 
@@ -324,7 +324,7 @@ test "heap rejects stale object slot references" {
 
 test "heap allocates primitive arrays with default elements" {
     var heap = new_heap();
-    const reference = heap.allocate_array(0, "I".bytes(), 3);
+    const reference = heap.allocate_array(0, "I", 3);
 
     assert(reference.non_null());
     assert(heap.has_array(reference));
@@ -350,7 +350,7 @@ test "heap allocates primitive arrays with default elements" {
 
 test "heap updates array elements by index" {
     var heap = new_heap();
-    const reference = heap.allocate_array(0, "I".bytes(), 2);
+    const reference = heap.allocate_array(0, "I", 2);
 
     assert(heap.set_element(reference, 1, .int_value(42)));
     assert(!heap.set_element(reference, 2, .int_value(1)));
@@ -365,7 +365,7 @@ test "heap updates array elements by index" {
 
 test "heap allocates reference arrays with null elements" {
     var heap = new_heap();
-    const reference = heap.allocate_array(0, "Ljava/lang/Object;".bytes(), 1);
+    const reference = heap.allocate_array(0, "Ljava/lang/Object;", 1);
 
     if heap.get_element(reference, 0) is value {
         switch value {

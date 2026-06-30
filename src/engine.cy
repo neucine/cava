@@ -1,4 +1,6 @@
-import { Method, Reference, Value, method_access_flags } from .types;
+import { Constant } from .classfile;
+import { Class, Method, Reference, Value, byte_buffer, method_access_flags } from .types;
+import { Heap, new_heap } from .heap;
 
 const max_call_stack: usize = 512;
 
@@ -142,6 +144,9 @@ pub struct Context {
     pub method_index: usize;
     pub frame: Frame;
     pub code: []const u8;
+    pub constant_pool: []const Constant;
+    pub classes: []Class;
+    pub heap: Heap;
 
     pub fn read_u1(self: &Context): u8 {
         const index = (self.frame.pc + self.frame.offset) as usize;
@@ -272,7 +277,7 @@ test "context reads big endian operands and padding" {
         access_flags: method_access_flags(0),
         name: "run",
         descriptor: "()I",
-        code: "0123456789AB".bytes(),
+        code: byte_buffer("0123456789AB".bytes()),
         max_stack: 4,
         max_locals: 1,
         code_len: 10,
@@ -282,7 +287,9 @@ test "context reads big endian operands and padding" {
         parameter_count: 0,
         return_descriptor: "I",
     };
-    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, 1, 4), code: method.code };
+    var constant_pool: [:]Constant = [: 0] [];
+    var classes: [:]Class = [: 0] [];
+    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, 1, 4), code: method.code[..], constant_pool: constant_pool[..], classes: classes[..], heap: new_heap() };
 
     assert(context.read_u1() == 49);
     assert(context.frame.offset == 2);
@@ -301,6 +308,9 @@ test "context reads big endian operands and padding" {
         method_index: 0,
         frame: new_frame(0, 0, 0, 0),
         code: negative_code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: new_heap(),
     };
     assert(negative_context.read_i2() == (0 - 13));
     drop negative_context;
