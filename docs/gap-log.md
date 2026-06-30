@@ -84,6 +84,31 @@ Decision: Do not derive long-lived JVM-origin metadata through by-value `string.
 
 Status: Fixed locally.
 
+## 2026-06-30: JVM Logical Right Shift Needs Integer Bit Reinterpretation
+
+Module: `src/instruction.cy`
+
+Zava construct: `iushr` and `lushr` implement logical right shift by reinterpreting signed integer bits as the same-width unsigned integer, shifting, then reinterpreting the result back to the signed JVM value type.
+
+Smallest Cyna reproduction:
+
+```cyna
+fn logical_shift(value: i32, amount: i32): i32 {
+    const bits: u32 = value as! u32;
+    return (bits >> (amount & 31)) as! i32;
+}
+```
+
+Expected capability: Cava needs an explicit bit reinterpretation path between same-width signed and unsigned integer types to model JVM logical right shift for negative `int` values.
+
+Current blocker: Fixed in Cyna by allowing `as!` between explicit same-width integer types, such as `i32` to `u32` and `i64` to `u64`, while continuing to reject width mismatches.
+
+Classification: Tooling Gap.
+
+Decision: Implemented `iushr` and `lushr` in Cava using same-width integer `as!` reinterpretation.
+
+Status: Fixed locally.
+
 ## 2026-06-29: Borrowed Union Payload Return From List Storage
 
 Module: `src/classfile.cy`

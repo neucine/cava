@@ -157,7 +157,11 @@ pub struct Context {
     }
 
     pub fn read_i2(self: &Context): i16 {
-        return self.read_u2() as i16;
+        const value = self.read_u2();
+        if value > 32767 {
+            return ((value as i32) - 65536) as i16;
+        }
+        return value as i16;
     }
 
     pub fn read_i4(self: &Context): i32 {
@@ -290,4 +294,14 @@ test "context reads big endian operands and padding" {
     context.padding();
     assert(context.frame.offset == 3);
     assert(context.read_i4() == 0x38394142);
+
+    const negative_code: [3]u8 = [0, 255, 243];
+    var negative_context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 0),
+        code: negative_code[..],
+    };
+    assert(negative_context.read_i2() == (0 - 13));
+    drop negative_context;
 }
