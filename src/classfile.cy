@@ -511,31 +511,6 @@ pub struct ClassFile {
         return actual != 0 and actual < self.constant_pool.len();
     }
 
-    fn bytes_equal(left: []const u8, right: []const u8): bool {
-        if left.len() != right.len() {
-            return false;
-        }
-        var i: usize = 0;
-        while i < left.len() {
-            if left[i] != right[i] {
-                return false;
-            }
-            i = i + 1;
-        }
-        return true;
-    }
-
-    pub fn utf8_equals(self: &ClassFile, index: u16, expected: []const u8): result<bool, ClassfileError> {
-        if !self.valid_constant_index(index) {
-            return .err(ClassfileError.invalid_constant_index);
-        }
-
-        switch self.constant_pool[index as usize] {
-        case .utf8(value) { return .ok(ClassFile.bytes_equal(value.bytes(), expected)); }
-        else { return .err(ClassfileError.invalid_constant_kind); }
-        }
-    }
-
     pub fn utf8(self: &ClassFile, index: u16): result<string, ClassfileError> {
         if !self.valid_constant_index(index) {
             return .err(ClassfileError.invalid_constant_index);
@@ -543,19 +518,6 @@ pub struct ClassFile {
 
         switch self.constant_pool[index as usize] {
         case .utf8(value) { return .ok(string.from(value.bytes())); }
-        else { return .err(ClassfileError.invalid_constant_kind); }
-        }
-    }
-
-    pub fn class_name_equals(self: &ClassFile, index: u16, expected: []const u8): result<bool, ClassfileError> {
-        if !self.valid_constant_index(index) {
-            return .err(ClassfileError.invalid_constant_index);
-        }
-
-        switch self.constant_pool[index as usize] {
-        case .class_ref(name_index) {
-            return self.utf8_equals(name_index, expected);
-        }
         else { return .err(ClassfileError.invalid_constant_kind); }
         }
     }
@@ -568,23 +530,6 @@ pub struct ClassFile {
         switch self.constant_pool[index as usize] {
         case .class_ref(name_index) {
             return self.utf8(name_index);
-        }
-        else { return .err(ClassfileError.invalid_constant_kind); }
-        }
-    }
-
-    pub fn name_and_type_equals(self: &ClassFile, index: u16, expected_name: []const u8, expected_descriptor: []const u8): result<bool, ClassfileError> {
-        if !self.valid_constant_index(index) {
-            return .err(ClassfileError.invalid_constant_index);
-        }
-
-        switch self.constant_pool[index as usize] {
-        case .name_and_type(pair) {
-            const name_matched = try self.utf8_equals(pair.name_index, expected_name);
-            if !name_matched {
-                return .ok(false);
-            }
-            return self.utf8_equals(pair.descriptor_index, expected_descriptor);
         }
         else { return .err(ClassfileError.invalid_constant_kind); }
         }
@@ -603,39 +548,6 @@ pub struct ClassFile {
             });
         }
         else { return .err(ClassfileError.invalid_constant_kind); }
-        }
-    }
-
-    pub fn member_ref_equals(self: &ClassFile, index: u16, expected_class: []const u8, expected_name: []const u8, expected_descriptor: []const u8): result<bool, ClassfileError> {
-        if !self.valid_constant_index(index) {
-            return .err(ClassfileError.invalid_constant_index);
-        }
-
-        var raw = ConstantMemberRef {
-            class_index: 0,
-            name_and_type_index: 0,
-        };
-        switch self.constant_pool[index as usize] {
-        case .field_ref(member) { raw = member; }
-        case .method_ref(member) { raw = member; }
-        case .interface_method_ref(member) { raw = member; }
-        else { return .err(ClassfileError.invalid_constant_kind); }
-        }
-
-        switch self.class_name_equals(raw.class_index, expected_class) {
-        case .ok(class_matched) {
-            if !class_matched {
-                return .ok(false);
-            }
-        }
-        case .err(err) { return .err(err); }
-        }
-
-        switch self.name_and_type_equals(raw.name_and_type_index, expected_name, expected_descriptor) {
-        case .ok(matched) {
-            return .ok(matched);
-        }
-        case .err(err) { return .err(err); }
         }
     }
 
@@ -1060,8 +972,9 @@ test "classfile resolves constant pool symbolic references" {
     assert(member.descriptor.bytes()[0] == 73);
     drop member;
 
-    switch classfile.utf8_equals(2, "Main".bytes()) {
+    switch classfile.utf8(2) {
     case .ok(value) {
+        drop value;
         assert(false);
     }
     case .err(err) {
@@ -1074,7 +987,7 @@ test "classfile resolves constant pool symbolic references" {
     drop data;
 }
 
-test "classfile symbolic equality helpers compare resolved constants" {
+test "classfile resolved constants compare with string equality" {
     var data: [:]u8 = [
         0xCA, 0xFE, 0xBA, 0xBE, // magic
         0, 0, 0, 52, // minor, major
@@ -1104,29 +1017,46 @@ test "classfile symbolic equality helpers compare resolved constants" {
     }
     }
 
-    switch classfile.class_name_equals(2, "Main".bytes()) {
-    case .ok(value) { assert(value); }
+    switch classfile.class_name(2) {
+    case .ok(value) {
+        assert(value == "Main");
+        drop value;
+    }
     case .err(err) {
         const ignored = err;
         assert(false);
     }
     }
-    switch classfile.name_and_type_equals(5, "answer".bytes(), "I".bytes()) {
-    case .ok(value) { assert(value); }
+    switch classfile.name_and_type(5) {
+    case .ok(value) {
+        assert(value.name == "answer");
+        assert(value.descriptor == "I");
+        drop value;
+    }
     case .err(err) {
         const ignored = err;
         assert(false);
     }
     }
-    switch classfile.member_ref_equals(6, "Main".bytes(), "answer".bytes(), "I".bytes()) {
-    case .ok(value) { assert(value); }
+    switch classfile.member_ref(6) {
+    case .ok(value) {
+        assert(value.class_name == "Main");
+        assert(value.name == "answer");
+        assert(value.descriptor == "I");
+        drop value;
+    }
     case .err(err) {
         const ignored = err;
         assert(false);
     }
     }
-    switch classfile.member_ref_equals(6, "Other".bytes(), "answer".bytes(), "I".bytes()) {
-    case .ok(value) { assert(!value); }
+    switch classfile.member_ref(6) {
+    case .ok(value) {
+        assert(value.class_name != "Other");
+        assert(value.name == "answer");
+        assert(value.descriptor == "I");
+        drop value;
+    }
     case .err(err) {
         const ignored = err;
         assert(false);
