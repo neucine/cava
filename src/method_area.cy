@@ -1,5 +1,5 @@
-import { AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant, ConstantMemberRef, ConstantNameAndType, MemberInfo, parse_classfile } from .classfile;
-import { Class, Field, Method, Value, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
+import { AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant, ConstantMemberRef, ConstantNameAndType, MemberInfo, new_classfile, parse_classfile } from .classfile;
+import { Class, Field, Method, Value, byte_buffer, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
 import { FsError, read_file } from std.fs;
 
 pub enum MethodAreaError: i32 {
@@ -30,25 +30,11 @@ fn method_area_error_from_fs(err: FsError): MethodAreaError {
 pub struct SymbolPool {
     pub symbols: List<string>;
 
-    fn bytes_equal(left: []const u8, right: []const u8): bool {
-        if left.len() != right.len() {
-            return false;
-        }
-        var index: usize = 0;
-        while index < left.len() {
-            if left[index] != right[index] {
-                return false;
-            }
-            index = index + 1;
-        }
-        return true;
-    }
-
     pub fn contains(self: &SymbolPool, value: []const u8): bool {
         var index: usize = 0;
         while index < self.symbols.len() {
             const symbol = self.symbols[index];
-            if SymbolPool.bytes_equal(symbol.bytes(), value) {
+            if symbol.bytes() == value {
                 return true;
             }
             index = index + 1;
@@ -75,11 +61,12 @@ pub struct MethodArea {
     pub symbols: SymbolPool;
     pub class_sources: List<string>;
 
-    pub fn find_class_index(self: &MethodArea, name: []const u8): ?usize {
+    pub fn find_class_index(self: &MethodArea, name: string): ?usize {
+        const name_bytes = name.bytes();
         var index: usize = 0;
         while index < self.classes.len() {
             const class_name = self.classes[index].name.bytes();
-            if bytes_equal(class_name, name) {
+            if class_name == name_bytes {
                 return index;
             }
             index = index + 1;
@@ -87,19 +74,21 @@ pub struct MethodArea {
         return none;
     }
 
-    pub fn has_class(self: &MethodArea, name: []const u8): bool {
+    pub fn has_class(self: &MethodArea, name: string): bool {
         return self.find_class_index(name) != none;
     }
 
-    pub fn field_index(self: &MethodArea, class_index: usize, name: []const u8, descriptor: []const u8): ?i32 {
+    pub fn field_index(self: &MethodArea, class_index: usize, name: string, descriptor: string): ?i32 {
         if class_index >= self.classes.len() {
             return none;
         }
 
+        const name_bytes = name.bytes();
+        const descriptor_bytes = descriptor.bytes();
         var index: usize = 0;
         while index < self.classes[class_index].fields.len() {
             const field = self.classes[class_index].fields[index];
-            if bytes_equal(field.name.bytes(), name) and bytes_equal(field.descriptor.bytes(), descriptor) {
+            if field.name.bytes() == name_bytes and field.descriptor.bytes() == descriptor_bytes {
                 return index as i32;
             }
             index = index + 1;
@@ -107,14 +96,16 @@ pub struct MethodArea {
         return none;
     }
 
-    pub fn method_index(self: &MethodArea, class_index: usize, name: []const u8, descriptor: []const u8): ?i32 {
+    pub fn method_index(self: &MethodArea, class_index: usize, name: string, descriptor: string): ?i32 {
         if class_index >= self.classes.len() {
             return none;
         }
 
+        const name_bytes = name.bytes();
+        const descriptor_bytes = descriptor.bytes();
         var index: usize = 0;
         while index < self.classes[class_index].methods.len() {
-            if bytes_equal(self.classes[class_index].methods[index].name.bytes(), name) and bytes_equal(self.classes[class_index].methods[index].descriptor.bytes(), descriptor) {
+            if self.classes[class_index].methods[index].name.bytes() == name_bytes and self.classes[class_index].methods[index].descriptor.bytes() == descriptor_bytes {
                 return index as i32;
             }
             index = index + 1;
@@ -124,7 +115,8 @@ pub struct MethodArea {
 
     pub fn resolve_class_ref(self: &MethodArea, classfile: &ClassFile, constant_index: u16): result<usize, ClassfileError> {
         const name = try classfile.class_name(constant_index);
-        if name.len() > 0 and name[0] == 91 {
+        const name_bytes = name.bytes();
+        if name_bytes.len() > 0 and name_bytes[0] == 91 {
             return .ok(self.define_array_class(name));
         }
         if self.find_class_index(name) is existing {
@@ -159,12 +151,13 @@ pub struct MethodArea {
         return .err(ClassfileError.invalid_constant_index);
     }
 
-    pub fn define_array_class(self: &MethodArea, name: []const u8): usize {
-        if self.find_class_index(name) is existing {
+    pub fn define_array_class(self: &MethodArea, name: string): usize {
+        const name_bytes = name.bytes();
+        if self.find_class_index(string.from(name_bytes)) is existing {
             return existing;
         }
 
-        self.symbols.add(name);
+        self.symbols.add(name_bytes);
         self.classes.push(derive_array_class(name));
         return self.classes.len() - 1;
     }
@@ -175,7 +168,7 @@ pub struct MethodArea {
             return .ok(existing);
         }
 
-        self.symbols.add(name);
+        self.symbols.add(name.bytes());
         self.classes.push(try derive_class(classfile));
         return .ok(self.classes.len() - 1);
     }
@@ -185,20 +178,22 @@ pub struct MethodArea {
     }
 
     pub fn load_class_from_source(self: &MethodArea, source: string): result<usize, ClassfileError> {
-        var classfile = try parse_classfile(source.bytes());
+        var classfile = new_classfile();
+        try parse_classfile(string.from(source.bytes()), &classfile);
         const name = try classfile.class_name(classfile.this_class);
         if self.find_class_index(name) is existing {
             return .ok(existing);
         }
 
-        self.symbols.add(name);
+        self.symbols.add(name.bytes());
         self.classes.push(try derive_class(&classfile));
         self.class_sources.push(source);
+        drop classfile;
         return .ok(self.classes.len() - 1);
     }
 
-    pub fn load_class_from_path(self: &MethodArea, root: string, class_name: []const u8): result<usize, MethodAreaError> {
-        if self.find_class_index(class_name) is existing {
+    pub fn load_class_from_path(self: &MethodArea, root: string, class_name: string): result<usize, MethodAreaError> {
+        if self.find_class_index(string.from(class_name.bytes())) is existing {
             return .ok(existing);
         }
 
@@ -232,36 +227,15 @@ pub fn new_method_area(): MethodArea {
     };
 }
 
-pub fn class_file_path(root: string, class_name: []const u8): string {
+pub fn class_file_path(root: string, class_name: string): string {
     const root_bytes = root.bytes();
-    var separator_len: usize = 1;
-    if root_bytes.len() == 0 or root_bytes[root_bytes.len() - 1] == 47 {
-        separator_len = 0;
+    if root_bytes.len() == 0 {
+        return $"{class_name}.class";
     }
-
-    var bytes = [: root_bytes.len() + separator_len + class_name.len() + 6]u8;
-    var index: usize = 0;
-    while index < root_bytes.len() {
-        bytes.push(root_bytes[index]);
-        index = index + 1;
+    if root_bytes[root_bytes.len() - 1] == 47 {
+        return $"{root}{class_name}.class";
     }
-    if separator_len == 1 {
-        bytes.push(47);
-    }
-    index = 0;
-    while index < class_name.len() {
-        bytes.push(class_name[index]);
-        index = index + 1;
-    }
-    bytes.push(46);
-    bytes.push(99);
-    bytes.push(108);
-    bytes.push(97);
-    bytes.push(115);
-    bytes.push(115);
-    const out = string.from(bytes[..]);
-    drop bytes;
-    return out;
+    return $"{root}/{class_name}.class";
 }
 
 pub struct ResolvedFieldRef {
@@ -272,20 +246,6 @@ pub struct ResolvedFieldRef {
 pub struct ResolvedMethodRef {
     pub class_index: usize;
     pub method_index: i32;
-}
-
-fn bytes_equal(left: []const u8, right: []const u8): bool {
-    if left.len() != right.len() {
-        return false;
-    }
-    var index: usize = 0;
-    while index < left.len() {
-        if left[index] != right[index] {
-            return false;
-        }
-        index = index + 1;
-    }
-    return true;
 }
 
 pub fn first_type(descriptor: []const u8): []const u8 {
@@ -382,25 +342,29 @@ pub fn array_dimensions(name: []const u8): u32 {
     return dimensions;
 }
 
-fn class_descriptor_from_name(name: []const u8): string {
-    var bytes = [: name.len() + 2]u8;
+fn class_descriptor_from_name(name: string): string {
+    const name_bytes = name.bytes();
+    var bytes = [: name_bytes.len() + 2]u8;
     bytes.push(76);
     var index: usize = 0;
-    while index < name.len() {
-        bytes.push(name[index]);
+    while index < name_bytes.len() {
+        bytes.push(name_bytes[index]);
         index = index + 1;
     }
     bytes.push(59);
-    return string.from(bytes[..]);
+    const out = string.from(bytes[..]);
+    drop bytes;
+    return out;
 }
 
-pub fn derive_array_class(name: []const u8): Class {
+pub fn derive_array_class(name: string): Class {
+    const name_bytes = name.bytes();
     var fields: List<Field> = [];
     var methods: List<Method> = [];
     var static_vars: List<Value> = [];
     return Class {
-        name: string.from(name),
-        descriptor: string.from(name),
+        name: string.from(name_bytes),
+        descriptor: string.from(name_bytes),
         access_flags: class_access_flags(0x0001),
         super_class: "java/lang/Object",
         interfaces: ["java/io/Serializable", "java/lang/Cloneable"],
@@ -410,9 +374,9 @@ pub fn derive_array_class(name: []const u8): Class {
         static_vars: static_vars,
         source_file: "",
         is_array: true,
-        component_type: string.from(array_component_type(name)),
-        element_type: string.from(array_element_type(name)),
-        dimensions: array_dimensions(name),
+        component_type: string.from(array_component_type(name_bytes)),
+        element_type: string.from(array_element_type(name_bytes)),
+        dimensions: array_dimensions(name_bytes),
         defined: true,
         linked: false,
         class_object: null_ref,
@@ -420,7 +384,7 @@ pub fn derive_array_class(name: []const u8): Class {
 }
 
 struct CodeInfo {
-    code: []const u8;
+    code: [:]u8;
     max_stack: u16;
     max_locals: u16;
     code_len: u32;
@@ -431,7 +395,7 @@ struct CodeInfo {
 
 fn empty_code_info(): CodeInfo {
     return CodeInfo {
-        code: "".bytes(),
+        code: byte_buffer("".bytes()),
         max_stack: 0,
         max_locals: 0,
         code_len: 0,
@@ -444,25 +408,31 @@ fn empty_code_info(): CodeInfo {
 fn apply_code_attribute_info(classfile: &ClassFile, name_index: u16, raw: []const u8, info: &CodeInfo): result<void, ClassfileError> {
     const name = try classfile.utf8(name_index);
     var reader = ByteReader.init(raw);
-    if bytes_equal(name, "LineNumberTable".bytes()) {
+    const is_line_number_table = name.bytes() == "LineNumberTable".bytes();
+    const is_local_variable_table = name.bytes() == "LocalVariableTable".bytes();
+    if is_line_number_table {
         const count = try reader.read_u2();
         info.line_number_count = info.line_number_count + (count as u32);
         try reader.skip((count as usize) * 4);
-        return .ok();
+    } else {
+        if is_local_variable_table {
+            const count = try reader.read_u2();
+            info.local_var_count = info.local_var_count + (count as u32);
+            try reader.skip((count as usize) * 10);
+        }
     }
-    if bytes_equal(name, "LocalVariableTable".bytes()) {
-        const count = try reader.read_u2();
-        info.local_var_count = info.local_var_count + (count as u32);
-        try reader.skip((count as usize) * 10);
-        return .ok();
-    }
+    drop reader;
+    drop name;
     return .ok();
 }
 
 fn code_info_from_attribute(classfile: &ClassFile, name_index: u16, raw: []const u8): result<CodeInfo, ClassfileError> {
     const name = try classfile.utf8(name_index);
-    if !bytes_equal(name, "Code".bytes()) {
-        return .ok(empty_code_info());
+    const is_code = name.bytes() == "Code".bytes();
+    drop name;
+    if !is_code {
+        const out = empty_code_info();
+        return .ok(out);
     }
 
     var reader = ByteReader.init(raw);
@@ -470,7 +440,7 @@ fn code_info_from_attribute(classfile: &ClassFile, name_index: u16, raw: []const
     const max_locals = try reader.read_u2();
     const code_len = try reader.read_u4();
     const code_start = reader.offset;
-    const code = raw[code_start..code_start + (code_len as usize)];
+    const code = byte_buffer(raw[code_start..code_start + (code_len as usize)]);
     try reader.skip(code_len as usize);
     const exception_count = try reader.read_u2();
     try reader.skip((exception_count as usize) * 8);
@@ -488,10 +458,12 @@ fn code_info_from_attribute(classfile: &ClassFile, name_index: u16, raw: []const
     while index < attributes_count as usize {
         const nested_name_index = try reader.read_u2();
         const nested_length = try reader.read_u4();
-        const nested_raw = try reader.read_slice(nested_length as usize);
-        try apply_code_attribute_info(classfile, nested_name_index, nested_raw, &out);
+        const nested_raw = try reader.read_bytes(nested_length as usize);
+        try apply_code_attribute_info(classfile, nested_name_index, nested_raw[..], &out);
+        drop nested_raw;
         index = index + 1;
     }
+    drop reader;
     return .ok(out);
 }
 
@@ -499,10 +471,12 @@ fn member_code_info(classfile: &ClassFile, attributes: []AttributeInfo): result<
     var out = empty_code_info();
     var index: usize = 0;
     while index < attributes.len() {
-        const current = try code_info_from_attribute(classfile, attributes[index].name_index, attributes[index].raw);
+        const current = try code_info_from_attribute(classfile, attributes[index].name_index, attributes[index].raw[..]);
         if current.code_len != 0 or current.max_stack != 0 or current.max_locals != 0 {
-            out = current;
+            drop out;
+            return .ok(current);
         }
+        drop current;
         index = index + 1;
     }
     return .ok(out);
@@ -513,13 +487,13 @@ fn derive_interfaces(classfile: &ClassFile): result<List<string>, ClassfileError
     const raw_interfaces = classfile.interfaces[..];
     var index: usize = 0;
     while index < raw_interfaces.len() {
-        interfaces.push(string.from(try classfile.class_name(raw_interfaces[index])));
+        interfaces.push(try classfile.class_name(raw_interfaces[index]));
         index = index + 1;
     }
     return .ok(interfaces);
 }
 
-fn derive_fields(classfile: &ClassFile, class_name: []const u8): result<List<Field>, ClassfileError> {
+fn derive_fields(classfile: &ClassFile, class_name: string): result<List<Field>, ClassfileError> {
     var fields: List<Field> = [];
     var static_slot: u16 = 0;
     var instance_slot: u16 = 0;
@@ -527,6 +501,7 @@ fn derive_fields(classfile: &ClassFile, class_name: []const u8): result<List<Fie
     var index: usize = 0;
     while index < field_infos.len() {
         const descriptor = try classfile.utf8(field_infos[index].descriptor_index);
+        const descriptor_bytes = descriptor.bytes();
         const access_flags = field_infos[index].access_flags;
         const is_static = (access_flags & 8) != 0;
         var slot: u16 = instance_slot;
@@ -537,10 +512,10 @@ fn derive_fields(classfile: &ClassFile, class_name: []const u8): result<List<Fie
             instance_slot = instance_slot + 1;
         }
         fields.push(Field {
-            class_name: string.from(class_name),
+            class_name: string.from(class_name.bytes()),
             access_flags: field_access_flags(access_flags),
-            name: string.from(try classfile.utf8(field_infos[index].name_index)),
-            descriptor: string.from(descriptor),
+            name: try classfile.utf8(field_infos[index].name_index),
+            descriptor: descriptor,
             index: index as u16,
             slot: slot,
         });
@@ -575,44 +550,50 @@ fn instance_var_count(fields: &List<Field>): u16 {
     return count;
 }
 
-fn derive_source_file(classfile: &ClassFile): result<[]const u8, ClassfileError> {
+fn derive_source_file(classfile: &ClassFile): result<string, ClassfileError> {
     const attributes = classfile.attributes[..];
     var index: usize = 0;
     while index < attributes.len() {
-        const attribute = attributes[index];
-        const name = try classfile.utf8(attribute.name_index);
-        if bytes_equal(name, "SourceFile".bytes()) {
-            var reader = ByteReader.init(attribute.raw);
+        const name = try classfile.utf8(attributes[index].name_index);
+        if name.bytes() == "SourceFile".bytes() {
+            var reader = ByteReader.init(attributes[index].raw[..]);
             const source_file_index = try reader.read_u2();
-            return .ok(try classfile.utf8(source_file_index));
+            const out = try classfile.utf8(source_file_index);
+            drop reader;
+            drop name;
+            return .ok(out);
         }
+        drop name;
         index = index + 1;
     }
-    return .ok("".bytes());
+    return .ok("");
 }
 
-fn derive_methods(classfile: &ClassFile, class_name: []const u8): result<List<Method>, ClassfileError> {
+fn derive_methods(classfile: &ClassFile, class_name: string): result<List<Method>, ClassfileError> {
     var methods: List<Method> = [];
     const method_infos = classfile.methods[..];
     var index: usize = 0;
     while index < method_infos.len() {
         const descriptor = try classfile.utf8(method_infos[index].descriptor_index);
+        const descriptor_bytes = descriptor.bytes();
         const code = try member_code_info(classfile, method_infos[index].attributes[..]);
+        const method_code = byte_buffer(code.code[..]);
         methods.push(Method {
-            class_name: string.from(class_name),
+            class_name: string.from(class_name.bytes()),
             access_flags: method_access_flags(method_infos[index].access_flags),
-            name: string.from(try classfile.utf8(method_infos[index].name_index)),
-            descriptor: string.from(descriptor),
-            code: code.code,
+            name: try classfile.utf8(method_infos[index].name_index),
+            descriptor: descriptor,
+            code: method_code,
             max_stack: code.max_stack,
             max_locals: code.max_locals,
             code_len: code.code_len,
             exception_count: code.exception_count,
             local_var_count: code.local_var_count,
             line_number_count: code.line_number_count,
-            parameter_count: method_parameter_count(descriptor) as u32,
-            return_descriptor: string.from(method_return_descriptor(descriptor)),
+            parameter_count: method_parameter_count(descriptor_bytes) as u32,
+            return_descriptor: string.from(method_return_descriptor(descriptor_bytes)),
         });
+        drop code;
         index = index + 1;
     }
     return .ok(methods);
@@ -624,10 +605,10 @@ pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
     var methods = try derive_methods(classfile, class_name);
     var super_class = "";
     if classfile.super_class != 0 {
-        super_class = string.from(try classfile.class_name(classfile.super_class));
+        super_class = try classfile.class_name(classfile.super_class);
     }
-    return .ok(Class {
-        name: string.from(class_name),
+    const out = Class {
+        name: string.from(class_name.bytes()),
         descriptor: class_descriptor_from_name(class_name),
         access_flags: class_access_flags(classfile.access_flags),
         super_class: super_class,
@@ -636,7 +617,7 @@ pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
         methods: methods,
         instance_vars: instance_var_count(&fields),
         static_vars: derive_static_vars(&fields),
-        source_file: string.from(try derive_source_file(classfile)),
+        source_file: try derive_source_file(classfile),
         is_array: false,
         component_type: "",
         element_type: "",
@@ -644,7 +625,9 @@ pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
         defined: true,
         linked: false,
         class_object: null_ref,
-    });
+    };
+    drop class_name;
+    return .ok(out);
 }
 
 test "method descriptor parser extracts parameter count and return type" {
@@ -662,7 +645,7 @@ test "method descriptor parser extracts parameter count and return type" {
 }
 
 test "method area parses array class descriptor metadata" {
-    const name = "[[Ljava/lang/String;".bytes();
+    const name = "[[Ljava/lang/String;";
     var class = derive_array_class(name);
 
     assert(class.is_array);
@@ -694,7 +677,7 @@ test "method area defines parsed classes once" {
         major_version: 52,
         constant_pool: [
             .unusable(0),
-            .utf8("Main".bytes()),
+            .utf8("Main"),
             .class_ref(1)
         ],
         access_flags: 33,
@@ -713,14 +696,14 @@ test "method area defines parsed classes once" {
     assert(first == 0);
     assert(second == 0);
     assert(area.classes.len() == 1);
-    assert(area.has_class("Main".bytes()));
+    assert(area.has_class("Main"));
     assert(area.symbols.symbols.len() == 1);
 }
 
 test "method area synthesizes array classes once" {
     var area = new_method_area();
-    const first = area.define_array_class("[I".bytes());
-    const second = area.define_array_class("[I".bytes());
+    const first = area.define_array_class("[I");
+    const second = area.define_array_class("[I");
 
     assert(first == 0);
     assert(second == 0);
@@ -728,7 +711,7 @@ test "method area synthesizes array classes once" {
     assert(area.classes[0].is_array);
     const component_type = area.classes[0].component_type.bytes();
     assert(component_type[0] == 73);
-    assert(area.has_class("[I".bytes()));
+    assert(area.has_class("[I"));
 }
 
 test "method area loads class from bytes" {
@@ -750,7 +733,7 @@ test "method area loads class from bytes" {
     var area = new_method_area();
     const index = try area.load_class_from_bytes(data[..]);
     assert(index == 0);
-    assert(area.has_class("Main".bytes()));
+    assert(area.has_class("Main"));
     assert(area.classes[0].descriptor.len() == 6);
 }
 
@@ -760,14 +743,14 @@ test "method area resolves class field and method refs" {
         major_version: 52,
         constant_pool: [
             .unusable(0),
-            .utf8("Main".bytes()),
+            .utf8("Main"),
             .class_ref(1),
-            .utf8("answer".bytes()),
-            .utf8("I".bytes()),
+            .utf8("answer"),
+            .utf8("I"),
             .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
             .field_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
-            .utf8("run".bytes()),
-            .utf8("()I".bytes()),
+            .utf8("run"),
+            .utf8("()I"),
             .name_and_type(ConstantNameAndType { name_index: 7, descriptor_index: 8 }),
             .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 9 })
         ],
@@ -795,13 +778,13 @@ test "method area resolves class field and method refs" {
 }
 
 test "class file path builds classpath-relative paths" {
-    var relative = class_file_path("classes", "java/lang/Object".bytes());
+    var relative = class_file_path("classes", "java/lang/Object");
     assert(relative == "classes/java/lang/Object.class");
 
-    var rooted = class_file_path("classes/", "Main".bytes());
+    var rooted = class_file_path("classes/", "Main");
     assert(rooted == "classes/Main.class");
 
-    var bare = class_file_path("", "Main".bytes());
+    var bare = class_file_path("", "Main");
     assert(bare == "Main.class");
 
     drop relative;
@@ -839,30 +822,30 @@ test "method area derives class metadata from classfile" {
         major_version: 52,
         constant_pool: [
             .unusable(0),
-            .utf8("Main".bytes()),
+            .utf8("Main"),
             .class_ref(1),
-            .utf8("java/lang/Object".bytes()),
+            .utf8("java/lang/Object"),
             .class_ref(3),
-            .utf8("Runnable".bytes()),
+            .utf8("Runnable"),
             .class_ref(5),
-            .utf8("answer".bytes()),
-            .utf8("I".bytes()),
-            .utf8("value".bytes()),
-            .utf8("run".bytes()),
-            .utf8("()I".bytes()),
-            .utf8("Code".bytes()),
-            .utf8("SourceFile".bytes()),
-            .utf8("Main.java".bytes()),
-            .utf8("LineNumberTable".bytes()),
-            .utf8("LocalVariableTable".bytes())
+            .utf8("answer"),
+            .utf8("I"),
+            .utf8("value"),
+            .utf8("run"),
+            .utf8("()I"),
+            .utf8("Code"),
+            .utf8("SourceFile"),
+            .utf8("Main.java"),
+            .utf8("LineNumberTable"),
+            .utf8("LocalVariableTable")
         ],
         access_flags: 33,
         this_class: 2,
         super_class: 4,
         interfaces: [6],
         fields: [MemberInfo { access_flags: 8, name_index: 7, descriptor_index: 8, attributes: [] }, MemberInfo { access_flags: 1, name_index: 9, descriptor_index: 8, attributes: [] }],
-        methods: [MemberInfo { access_flags: 9, name_index: 10, descriptor_index: 11, attributes: [AttributeInfo { name_index: 12, length: 44, raw: code_raw[..] }] }],
-        attributes: [AttributeInfo { name_index: 13, length: 2, raw: source_raw[..] }],
+        methods: [MemberInfo { access_flags: 9, name_index: 10, descriptor_index: 11, attributes: [AttributeInfo { name_index: 12, length: 44, raw: byte_buffer(code_raw[..]) }] }],
+        attributes: [AttributeInfo { name_index: 13, length: 2, raw: byte_buffer(source_raw[..]) }],
     };
 
     var class = try derive_class(&classfile);
