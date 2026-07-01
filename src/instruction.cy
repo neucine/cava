@@ -2541,7 +2541,7 @@ fn array_component_descriptor_bytes(descriptor: []const u8): []const u8 {
     return descriptor[1..descriptor.len()];
 }
 
-fn allocate_multi_array(context: &Context, descriptor: []const u8, counts: &List<i32>, depth: usize): Reference {
+fn allocate_multi_array(context: &Context, descriptor: []const u8, counts: []i32, depth: usize): Reference {
     const count = counts[counts.len() - 1 - depth];
     if count < 0 {
         assert(false);
@@ -2568,7 +2568,7 @@ fn multianewarray(context: &Context): result<void, InstructionError> {
         return .err(InstructionError.invalid_constant);
     }
 
-    var counts: List<i32> = [];
+    var counts = [: dimensions as usize]i32;
     var index: u8 = 0;
     while index < dimensions {
         const count = expect_int(context.frame.pop());
@@ -2579,7 +2579,7 @@ fn multianewarray(context: &Context): result<void, InstructionError> {
         index = index + 1;
     }
 
-    const reference = allocate_multi_array(context, descriptor.bytes(), &counts, 0);
+    const reference = allocate_multi_array(context, descriptor.bytes(), counts[..], 0);
     context.frame.push(.ref_value(reference));
     drop counts;
     drop descriptor;
