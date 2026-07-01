@@ -1,5 +1,8 @@
+import { Constant } from .classfile;
 import { Context } from .engine;
-import { InstructionError, Reference, Value } from .types;
+import { new_frame } from .engine;
+import { new_heap } from .heap;
+import { Class, Field, InstructionError, Reference, ReferenceKind, Value, class_access_flags, field_access_flags, null_ref, raw_class_access } from .types;
 import { monotonic_ns, now_ns, ns_to_ms } from std.time;
 
 fn ref_arg(arguments: []Value, index: usize): Reference {
@@ -60,6 +63,28 @@ fn identity_hash_code(reference: Reference): i32 {
     return 0;
 }
 
+fn find_loaded_class_index(classes: []Class, name: string): ?usize {
+    var index: usize = 0;
+    while index < classes.len() {
+        if classes[index].name == name {
+            return index;
+        }
+        index = index + 1;
+    }
+    return none;
+}
+
+fn find_class_object_index(context: &Context, class_object: Reference): ?usize {
+    var index: usize = 0;
+    while index < context.classes.len() {
+        if context.classes[index].class_object.equals(class_object) {
+            return index;
+        }
+        index = index + 1;
+    }
+    return none;
+}
+
 fn arraycopy(context: &Context, src: Reference, src_pos: i32, dest: Reference, dest_pos: i32, length: i32): result<void, InstructionError> {
     if src_pos < 0 or dest_pos < 0 or length < 0 {
         return .err(InstructionError.invalid_constant);
@@ -114,6 +139,52 @@ fn arraycopy(context: &Context, src: Reference, src_pos: i32, dest: Reference, d
         index = index + 1;
     }
     return .ok();
+}
+
+fn clone_array(context: &Context, receiver: Reference, class_index: usize): result<Reference, InstructionError> {
+    var length: usize = 0;
+    if context.heap.array_length(receiver) is actual_length {
+        length = actual_length;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+
+    const component_type = context.classes[class_index].component_type;
+    const clone = context.heap.allocate_array(class_index, component_type.bytes(), length);
+    var index: usize = 0;
+    while index < length {
+        var value: Value = .int_value(0);
+        if context.heap.get_element(receiver, index) is actual_value {
+            value = actual_value;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
+        if !context.heap.set_element(clone, index, value) {
+            return .err(InstructionError.invalid_constant);
+        }
+        index = index + 1;
+    }
+    return .ok(clone);
+}
+
+fn clone_object(context: &Context, receiver: Reference, class_index: usize): result<Reference, InstructionError> {
+    var classes = context.classes;
+    const class = &classes[class_index];
+    const clone = context.heap.allocate_object(class_index, class);
+    var slot: u16 = 0;
+    while slot < class.instance_vars {
+        var value: Value = .int_value(0);
+        if context.heap.get_field(receiver, slot) is actual_value {
+            value = actual_value;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
+        if !context.heap.set_field(clone, slot, value) {
+            return .err(InstructionError.invalid_constant);
+        }
+        slot = slot + 1;
+    }
+    return .ok(clone);
 }
 
 struct JavaLangSystem {
@@ -189,6 +260,16 @@ struct JavaLangObject {
         return .err(InstructionError.invalid_constant);
     }
 
+    pub fn clone(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        if context.heap.object_class_index(receiver) is actual_class_index {
+            return return_value(.ref_value(try clone_object(context, receiver, actual_class_index)));
+        }
+        if context.heap.array_class_index(receiver) is actual_class_index {
+            return return_value(.ref_value(try clone_array(context, receiver, actual_class_index)));
+        }
+        return .err(InstructionError.invalid_constant);
+    }
+
     pub fn notify(context: &Context, receiver: Reference): result<?Value, InstructionError> {
         const ignored_receiver = receiver;
         return .ok(none);
@@ -210,11 +291,83 @@ struct JavaLangClass {
     pub fn registerNatives(context: &Context): result<?Value, InstructionError> {
         return .ok(none);
     }
+
+    pub fn desiredAssertionStatus0(context: &Context, class_object: Reference): result<?Value, InstructionError> {
+        const ignored_class_object = class_object;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn isPrimitive(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn isArray(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        if find_class_object_index(context, receiver) is class_index {
+            if context.classes[class_index].is_array {
+                return return_value(.boolean_value(1));
+            }
+            return return_value(.boolean_value(0));
+        }
+        return .err(InstructionError.invalid_constant);
+    }
+
+    pub fn isInterface(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        if find_class_object_index(context, receiver) is class_index {
+            if context.classes[class_index].is_interface() {
+                return return_value(.boolean_value(1));
+            }
+            return return_value(.boolean_value(0));
+        }
+        return .err(InstructionError.invalid_constant);
+    }
+
+    pub fn getModifiers(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        if find_class_object_index(context, receiver) is class_index {
+            return return_value(.int_value(raw_class_access(context.classes[class_index].access_flags) as i32));
+        }
+        return .err(InstructionError.invalid_constant);
+    }
+
+    pub fn getSuperclass(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        if find_class_object_index(context, receiver) is class_index {
+            const super_class = context.classes[class_index].super_class;
+            if super_class == "" {
+                return return_value(.ref_value(null_ref));
+            }
+            if find_loaded_class_index(context.classes, super_class) is super_index {
+                return return_value(.ref_value(context.classes[super_index].class_object));
+            }
+            return return_value(.ref_value(null_ref));
+        }
+        return .err(InstructionError.invalid_constant);
+    }
 }
 
 struct JavaLangClassLoader {
     pub fn registerNatives(context: &Context): result<?Value, InstructionError> {
         return .ok(none);
+    }
+
+    pub fn findBuiltinLib(context: &Context, name: Reference): result<?Value, InstructionError> {
+        const ignored_name = name;
+        return return_value(.ref_value(null_ref));
+    }
+}
+
+struct JavaLangClassLoaderNativeLibrary {
+    pub fn load(context: &Context, receiver: Reference, name: Reference, is_builtin: i32): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_name = name;
+        const ignored_is_builtin = is_builtin;
+        return .ok(none);
+    }
+}
+
+struct JavaLangPackage {
+    pub fn getSystemPackage0(context: &Context, name: Reference): result<?Value, InstructionError> {
+        const ignored_name = name;
+        return return_value(.ref_value(null_ref));
     }
 }
 
@@ -388,6 +541,7 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
         if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangObject.registerNatives(context); }
         if method_is(method_name, descriptor, "hashCode", "()I") { return JavaLangObject.hashCode(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "getClass", "()Ljava/lang/Class;") { return JavaLangObject.getClass(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "clone", "()Ljava/lang/Object;") { return JavaLangObject.clone(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "notify", "()V") { return JavaLangObject.notify(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "notifyAll", "()V") { return JavaLangObject.notifyAll(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "wait", "(J)V") { return JavaLangObject.wait(context, try receiver_ref(receiver), long_arg(arguments, 0)); }
@@ -399,10 +553,25 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/lang/Class" {
         if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangClass.registerNatives(context); }
+        if method_is(method_name, descriptor, "desiredAssertionStatus0", "(Ljava/lang/Class;)Z") { return JavaLangClass.desiredAssertionStatus0(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "isPrimitive", "()Z") { return JavaLangClass.isPrimitive(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "isArray", "()Z") { return JavaLangClass.isArray(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "isInterface", "()Z") { return JavaLangClass.isInterface(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getModifiers", "()I") { return JavaLangClass.getModifiers(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getSuperclass", "()Ljava/lang/Class;") { return JavaLangClass.getSuperclass(context, try receiver_ref(receiver)); }
     }
 
     if class_name == "java/lang/ClassLoader" {
         if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangClassLoader.registerNatives(context); }
+        if method_is(method_name, descriptor, "findBuiltinLib", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangClassLoader.findBuiltinLib(context, ref_arg(arguments, 0)); }
+    }
+
+    if class_name == "java/lang/ClassLoader$NativeLibrary" {
+        if method_is(method_name, descriptor, "load", "(Ljava/lang/String;Z)V") { return JavaLangClassLoaderNativeLibrary.load(context, try receiver_ref(receiver), ref_arg(arguments, 0), int_arg(arguments, 1)); }
+    }
+
+    if class_name == "java/lang/Package" {
+        if method_is(method_name, descriptor, "getSystemPackage0", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangPackage.getSystemPackage0(context, ref_arg(arguments, 0)); }
     }
 
     if class_name == "java/lang/Float" {
@@ -470,4 +639,199 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
     }
 
     return .err(InstructionError.unsupported_native);
+}
+
+test "native Object.clone copies instance fields" {
+    const native_code: [0]u8 = [];
+    const field = Field {
+        class_name: "Example",
+        access_flags: field_access_flags(0x0001),
+        name: "value",
+        descriptor: "I",
+        index: 0,
+        slot: 0,
+    };
+    var classes: [1]Class = [
+        Class {
+            name: "Example",
+            descriptor: "LExample;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [field],
+            methods: [],
+            instance_vars: 1,
+            static_vars: [],
+            source_file: "Example.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+    const original = heap.allocate_object(0, &classes[0]);
+    assert(heap.set_field(original, 0, .int_value(42)));
+    var constant_pool: [:]Constant = [: 0] [];
+    var context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 0),
+        code: native_code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: &heap,
+    };
+
+    const result = try JavaLangObject.clone(&context, original);
+    if result is value {
+        switch value {
+        case .ref_value(clone) {
+            assert(!clone.equals(original));
+            if heap.get_field(clone, 0) is cloned_value {
+                switch cloned_value {
+                case .int_value(actual) { assert(actual == 42); }
+                else { assert(false); }
+                }
+            } else {
+                assert(false);
+            }
+            assert(heap.set_field(original, 0, .int_value(7)));
+            if heap.get_field(clone, 0) is cloned_after_original_update {
+                switch cloned_after_original_update {
+                case .int_value(actual) { assert(actual == 42); }
+                else { assert(false); }
+                }
+            } else {
+                assert(false);
+            }
+        }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
+    drop context;
+    drop classes;
+    drop constant_pool;
+}
+
+test "native Class metadata reads represented class" {
+    const native_code: [0]u8 = [];
+    const example_class_object = Reference {
+        kind: ReferenceKind.object,
+        slot: 0,
+        generation: 1,
+    };
+    const object_class_object = Reference {
+        kind: ReferenceKind.object,
+        slot: 1,
+        generation: 1,
+    };
+    var classes: [3]Class = [
+        Class {
+            name: "Example",
+            descriptor: "LExample;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Example.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: example_class_object,
+        },
+        Class {
+            name: "java/lang/Object",
+            descriptor: "Ljava/lang/Object;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "",
+            interfaces: [],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Object.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: object_class_object,
+        },
+        Class {
+            name: "java/lang/Class",
+            descriptor: "Ljava/lang/Class;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Class.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+    var constant_pool: [:]Constant = [: 0] [];
+    var context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 0),
+        code: native_code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: &heap,
+    };
+
+    const modifiers = try JavaLangClass.getModifiers(&context, classes[0].class_object);
+    if modifiers is modifiers_value {
+        switch modifiers_value {
+        case .int_value(actual) { assert(actual == 0x0021); }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
+
+    const super_class = try JavaLangClass.getSuperclass(&context, classes[0].class_object);
+    if super_class is super_value {
+        switch super_value {
+        case .ref_value(actual) { assert(actual.equals(classes[1].class_object)); }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
+
+    const object_super_class = try JavaLangClass.getSuperclass(&context, classes[1].class_object);
+    if object_super_class is object_super_value {
+        switch object_super_value {
+        case .ref_value(actual) { assert(actual.is_null()); }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
+    drop context;
+    drop classes;
+    drop constant_pool;
 }
