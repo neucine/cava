@@ -381,6 +381,12 @@ fn load_constant(context: &Context, index: u16, wide: bool): result<void, Instru
         context.frame.push(.double_value(wide_bits(bits) as! f64));
         return .ok();
     }
+    case .class_ref(name_index) {
+        if wide {
+            return .err(InstructionError.invalid_constant);
+        }
+        return load_class_constant(context, index, name_index);
+    }
     else {
         return .err(InstructionError.invalid_constant);
     }
@@ -429,6 +435,31 @@ fn constant_utf8_equals(context: &Context, index: u16, expected: []const u8): re
     case .utf8(value) { return .ok(bytes_equal(value.bytes(), expected)); }
     else { return .err(InstructionError.invalid_constant); }
     }
+}
+
+fn find_class_index_by_name_bytes(context: &Context, name: []const u8): result<usize, InstructionError> {
+    var index: usize = 0;
+    while index < context.classes.len() {
+        if bytes_equal(context.classes[index].name.bytes(), name) {
+            return .ok(index);
+        }
+        index = index + 1;
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn load_class_constant(context: &Context, constant_index: u16, name_index: u16): result<void, InstructionError> {
+    const ignored = name_index;
+    const target_class_index = try find_class_index_by_constant(context, constant_index);
+    const class_class_index = try find_class_index_by_name_bytes(context, "java/lang/Class".bytes());
+    var classes = context.classes;
+    const class_class = &classes[class_class_index];
+    const target_class = &classes[target_class_index];
+    if target_class.class_object.is_null() {
+        target_class.class_object = context.heap.allocate_object(class_class_index, class_class);
+    }
+    context.frame.push(.ref_value(target_class.class_object));
+    return .ok();
 }
 
 fn find_class_index_by_constant(context: &Context, index: u16): result<usize, InstructionError> {
@@ -2913,6 +2944,89 @@ test "instruction executes ldc numeric constants" {
     assert_long_result(.return_value(context.frame.pop()), 42);
     assert_int_result(.return_value(context.frame.pop()), 67);
     assert_int_result(.return_value(context.frame.pop()), 42);
+    drop context;
+}
+
+test "instruction caches ldc class constants" {
+    const code: [4]u8 = [
+        18, 2, // ldc #2 Example.class
+        18, 2, // ldc #2 Example.class
+    ];
+    const constant_pool: [3]Constant = [
+        .unusable(0),
+        .utf8("Example"),
+        .class_ref(1),
+    ];
+    var example_class = Class {
+        name: string.from("Example".bytes()),
+        descriptor: "LExample;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [],
+        methods: [],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "Example.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+    var class_class = Class {
+        name: string.from("java/lang/Class".bytes()),
+        descriptor: "Ljava/lang/Class;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [],
+        methods: [],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "Class.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+    var classes: [2]Class = [example_class, class_class];
+    var heap = new_heap();
+    var context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 2),
+        code: code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: &heap,
+    };
+
+    var step: usize = 0;
+    while step < 2 {
+        const step_result = execute_next(&context);
+        switch step_result {
+        case .ok {}
+        case .err(error_value) {
+            const ignored = error_value;
+            assert(false);
+        }
+        }
+        step = step + 1;
+    }
+
+    var context_classes = context.classes;
+    const second = expect_ref(context.frame.pop());
+    const first = expect_ref(context.frame.pop());
+    assert(first.equals(second));
+    assert(context_classes[0].class_object.equals(first));
+    assert(heap.objects.len() == 1);
+    assert(heap.objects[0].object.class_index == 1);
     drop context;
 }
 
