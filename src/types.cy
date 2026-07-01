@@ -62,6 +62,13 @@ pub union Value {
 pub const true_value: boolean = 1;
 pub const false_value: boolean = 0;
 
+pub enum InstructionError: i32 {
+    unsupported_opcode = 0,
+    missing_return,
+    invalid_constant,
+    unsupported_native,
+}
+
 pub type ObjectRef = Reference;
 pub type ArrayRef = Reference;
 pub type JavaLangClass = ObjectRef;
