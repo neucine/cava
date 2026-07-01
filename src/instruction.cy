@@ -1,6 +1,7 @@
-import { Constant, ConstantMemberRef, ConstantMethodHandle, ConstantNameAndType, ConstantWide } from .classfile;
+import { ClassFile, Constant, ConstantMemberRef, ConstantMethodHandle, ConstantNameAndType, ConstantWide } from .classfile;
 import { Context, Frame, FrameResult, new_frame } from .engine;
 import { Heap, new_heap } from .heap;
+import { MethodArea } from .method_area;
 import { execute_native_method } from .native;
 import { Class, ExceptionHandler, Field, InstructionError, Method, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, field_access_flags, method_access_flags, null_ref } from .types;
 
@@ -2231,11 +2232,22 @@ fn apply_method_result(context: &Context, result: FrameResult): result<void, Ins
     return .ok();
 }
 
-fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant, classes: []Class, heap: &Heap): result<FrameResult, InstructionError> {
+pub fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant, classes: []Class, heap: &Heap): result<FrameResult, InstructionError> {
     var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: classes[class_index].methods[method_index].code[..], constant_pool: constant_pool, classes: classes, heap: heap };
 
     while context.frame.pc < classes[class_index].methods[method_index].code_len {
-        try execute_next(&context);
+        const step_result = execute_next(&context);
+        switch step_result {
+        case .ok {}
+        case .err(error_value) {
+            println("instruction failed");
+            println(classes[class_index].name);
+            println(classes[class_index].methods[method_index].name);
+            println(context.frame.pc as i32);
+            println(context.code[context.frame.pc as usize] as i32);
+            return .err(error_value);
+        }
+        }
         if context.frame.result is result {
             const out = result;
             drop context;
@@ -2244,6 +2256,17 @@ fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, c
     }
     drop context;
     return .err(InstructionError.missing_return);
+}
+
+pub fn execute_method_area(class_index: usize, method_index: usize, constant_pool: []const Constant, area: &MethodArea, heap: &Heap): result<FrameResult, InstructionError> {
+    const max_locals = area.method_max_locals(class_index, method_index);
+    const max_stack = area.method_max_stack(class_index, method_index);
+    const frame = new_frame(class_index, method_index, max_locals, max_stack);
+    return execute_method_frame(class_index, method_index, frame, constant_pool, area.classes[..], heap);
+}
+
+pub fn execute_classfile_method_area(class_index: usize, method_index: usize, classfile: &ClassFile, area: &MethodArea, heap: &Heap): result<FrameResult, InstructionError> {
+    return execute_method_area(class_index, method_index, classfile.constant_pool[..], area, heap);
 }
 
 fn native_arguments(arguments: List<Value>): List<Value> {
@@ -3597,7 +3620,7 @@ test "instruction interns ldc string constants" {
     assert(heap.objects.len() == 1);
     assert(heap.objects[0].object.class_index == 1);
     assert(heap.strings.len() == 1);
-    assert(heap.strings[0].value.bytes() == "hello".bytes());
+    assert(heap.strings[0].value[..] == "hello".bytes());
     assert(heap.strings[0].reference.equals(first));
     drop context;
 }

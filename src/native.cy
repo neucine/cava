@@ -12,6 +12,21 @@ fn ref_arg(arguments: &List<Value>, index: usize): Reference {
     }
 }
 
+fn value_ref_or_null(value: Value): Reference {
+    switch value {
+    case .ref_value(actual) { return actual; }
+    case .byte_value(ignored) { const unused = ignored; return null_ref; }
+    case .short_value(ignored) { const unused = ignored; return null_ref; }
+    case .char_value(ignored) { const unused = ignored; return null_ref; }
+    case .int_value(ignored) { const unused = ignored; return null_ref; }
+    case .long_value(ignored) { const unused = ignored; return null_ref; }
+    case .float_value(ignored) { const unused = ignored; return null_ref; }
+    case .double_value(ignored) { const unused = ignored; return null_ref; }
+    case .boolean_value(ignored) { const unused = ignored; return null_ref; }
+    case .return_address_value(ignored) { const unused = ignored; return null_ref; }
+    }
+}
+
 fn int_arg(arguments: &List<Value>, index: usize): i32 {
     switch arguments[index] {
     case .int_value(actual) { return actual; }
@@ -101,6 +116,38 @@ fn java_string(context: &Context, value: []const u8): ?Reference {
         return context.heap.intern_string(string_class_index, &classes[string_class_index], value);
     }
     return none;
+}
+
+fn java_string_buffer(context: &Context, data: [:]u8): result<Reference, InstructionError> {
+    var bytes = data;
+    if find_loaded_class_index(context.classes, "java/lang/String") is string_class_index {
+        var classes = context.classes;
+        return .ok(context.heap.intern_string_buffer(string_class_index, &classes[string_class_index], bytes));
+    }
+    drop bytes;
+    return .err(InstructionError.invalid_constant);
+}
+
+fn concat_java_string(context: &Context, left_reference: Reference, right_reference: Reference): result<Reference, InstructionError> {
+    if find_loaded_class_index(context.classes, "java/lang/String") is string_class_index {
+        var classes = context.classes;
+        return .ok(context.heap.concat_strings(string_class_index, &classes[string_class_index], left_reference, right_reference));
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn print_java_string(context: &Context, reference: Reference): void {
+    var value_option = context.heap.string_bytes(reference);
+    if take value_option is value {
+        const bytes = copy value.value;
+        const text = string.from(bytes[..]);
+        println(text);
+        drop text;
+        drop bytes;
+        drop value;
+        return;
+    }
+    println("");
 }
 
 fn new_thread_group(context: &Context): result<Reference, InstructionError> {
@@ -297,10 +344,23 @@ struct JavaLangSystem {
     pub fn initProperties(context: &Context, properties: Reference): result<?Value, InstructionError> {
         return return_value(.ref_value(properties));
     }
+
+    pub fn getProperty(context: &Context, key: Reference): result<?Value, InstructionError> {
+        const ignored_key = key;
+        if java_string(context, "Cava".bytes()) is value {
+            return return_value(.ref_value(value));
+        }
+        return .err(InstructionError.invalid_constant);
+    }
 }
 
 struct JavaLangObject {
     pub fn registerNatives(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+
+    pub fn init(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
         return .ok(none);
     }
 
@@ -450,8 +510,60 @@ struct JavaLangPackage {
 
 struct JavaLangString {
     pub fn intern(context: &Context, receiver: Reference): result<?Value, InstructionError> {
-        return return_value(.ref_value(receiver));
+        const out: Value = .ref_value(Reference {
+            kind: receiver.kind,
+            slot: receiver.slot,
+            generation: receiver.generation,
+        });
+        return .ok(out);
     }
+}
+
+fn java_lang_string_builder_append(context: &Context, receiver: Reference, value: Reference): result<?Value, InstructionError> {
+    var heap = context.heap;
+    const slot: u16 = 0;
+    var current_ref = null_ref;
+    if heap.get_field(receiver, slot) is current_value {
+        current_ref = value_ref_or_null(current_value);
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    const combined_ref = try concat_java_string(context, current_ref, value);
+    if !heap.set_field(receiver, slot, .ref_value(combined_ref)) {
+        return .err(InstructionError.invalid_constant);
+    }
+    const out: Value = .ref_value(Reference {
+        kind: receiver.kind,
+        slot: receiver.slot,
+        generation: receiver.generation,
+    });
+    return .ok(out);
+}
+
+fn java_lang_string_builder_init(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+    return .ok(none);
+}
+
+fn java_lang_string_builder_to_string(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+    var heap = context.heap;
+    const slot: u16 = 0;
+    if heap.get_field(receiver, slot) is current_value {
+        const actual = value_ref_or_null(current_value);
+        if actual.non_null() {
+            const out: Value = .ref_value(Reference {
+                kind: actual.kind,
+                slot: actual.slot,
+                generation: actual.generation,
+            });
+            return .ok(out);
+        }
+    }
+    return return_value(.ref_value(null_ref));
+}
+
+fn java_io_print_stream_println(context: &Context, receiver: Reference, value: Reference): result<?Value, InstructionError> {
+    print_java_string(context, value);
+    return .ok(none);
 }
 
 struct JavaLangFloat {
@@ -830,9 +942,11 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
         if method_is(method_name, descriptor, "identityHashCode", "(Ljava/lang/Object;)I") { return JavaLangSystem.identityHashCode(context, ref_arg(&args, 0)); }
         if method_is(method_name, descriptor, "mapLibraryName", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangSystem.mapLibraryName(context, ref_arg(&args, 0)); }
         if method_is(method_name, descriptor, "initProperties", "(Ljava/util/Properties;)Ljava/util/Properties;") { return JavaLangSystem.initProperties(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangSystem.getProperty(context, ref_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/Object" {
+        if method_is(method_name, descriptor, "<init>", "()V") { return JavaLangObject.init(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangObject.registerNatives(context); }
         if method_is(method_name, descriptor, "hashCode", "()I") { return JavaLangObject.hashCode(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "getClass", "()Ljava/lang/Class;") { return JavaLangObject.getClass(context, try receiver_ref(receiver)); }
@@ -844,6 +958,12 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/lang/String" {
         if method_is(method_name, descriptor, "intern", "()Ljava/lang/String;") { return JavaLangString.intern(context, try receiver_ref(receiver)); }
+    }
+
+    if class_name == "java/lang/StringBuilder" {
+        if method_is(method_name, descriptor, "<init>", "()V") { return java_lang_string_builder_init(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;") { return java_lang_string_builder_append(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "toString", "()Ljava/lang/String;") { return java_lang_string_builder_to_string(context, try receiver_ref(receiver)); }
     }
 
     if class_name == "java/lang/Class" {
@@ -956,6 +1076,10 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/io/FileDescriptor" {
         if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoFileDescriptor.initIDs(context); }
+    }
+
+    if class_name == "java/io/PrintStream" {
+        if method_is(method_name, descriptor, "println", "(Ljava/lang/String;)V") { return java_io_print_stream_println(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
     }
 
     if class_name == "java/io/FileInputStream" {

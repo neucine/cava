@@ -435,6 +435,10 @@ pub struct MemberInfo {
     pub descriptor_index: u16;
     pub attributes: List<AttributeInfo>;
 
+    pub fn clear(self: &MemberInfo): void {
+        self.attributes.clear();
+    }
+
     pub fn read(self: &MemberInfo, reader: &ByteReader): result<void, ClassfileError> {
         self.access_flags = try reader.read_u2();
         self.name_index = try reader.read_u2();
@@ -476,6 +480,14 @@ pub struct ClassFile {
     pub fields: List<MemberInfo>;
     pub methods: List<MemberInfo>;
     pub attributes: List<AttributeInfo>;
+
+    pub fn clear(self: &ClassFile): void {
+        self.constant_pool.clear();
+        self.interfaces.clear();
+        self.fields.clear();
+        self.methods.clear();
+        self.attributes.clear();
+    }
 
     pub fn read(self: &ClassFile, reader: &ByteReader): result<void, ClassfileError> {
         const header = try read_class_header(reader);

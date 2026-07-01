@@ -1,5 +1,6 @@
 import { AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant, ConstantMemberRef, ConstantNameAndType, MemberInfo, new_classfile, parse_classfile } from .classfile;
-import { Class, ExceptionHandler, Field, Method, Value, byte_buffer, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
+import { Heap } from .heap;
+import { Class, ExceptionHandler, Field, Method, Reference, Value, byte_buffer, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
 import { FsError, read_file } from std.fs;
 
 pub enum MethodAreaError: i32 {
@@ -29,6 +30,10 @@ fn method_area_error_from_fs(err: FsError): MethodAreaError {
 
 pub struct SymbolPool {
     pub symbols: List<string>;
+
+    pub fn clear(self: &SymbolPool): void {
+        self.symbols.clear();
+    }
 
     pub fn contains(self: &SymbolPool, value: []const u8): bool {
         var index: usize = 0;
@@ -60,6 +65,12 @@ pub struct MethodArea {
     pub classes: List<Class>;
     pub symbols: SymbolPool;
     pub class_sources: List<string>;
+
+    pub fn clear(self: &MethodArea): void {
+        self.classes.clear();
+        self.symbols.clear();
+        self.class_sources.clear();
+    }
 
     pub fn find_class_index(self: &MethodArea, name: string): ?usize {
         const name_bytes = name.bytes();
@@ -111,6 +122,14 @@ pub struct MethodArea {
             index = index + 1;
         }
         return none;
+    }
+
+    pub fn method_max_locals(self: &MethodArea, class_index: usize, method_index: usize): u16 {
+        return self.classes[class_index].methods[method_index].max_locals;
+    }
+
+    pub fn method_max_stack(self: &MethodArea, class_index: usize, method_index: usize): u16 {
+        return self.classes[class_index].methods[method_index].max_stack;
     }
 
     pub fn resolve_class_ref(self: &MethodArea, classfile: &ClassFile, constant_index: u16): result<usize, ClassfileError> {
@@ -217,6 +236,53 @@ pub struct MethodArea {
         }
         }
     }
+
+    pub fn define_builtin_class(self: &MethodArea, name: string): usize {
+        if self.find_class_index(name) is existing {
+            return existing;
+        }
+        self.classes.push(builtin_class(name));
+        return self.classes.len() - 1;
+    }
+
+    pub fn define_hello_world_builtins(self: &MethodArea): void {
+        const object_index = self.define_builtin_class_value("java/lang/Object", builtin_object_class());
+        const string_index = self.define_builtin_class("java/lang/String");
+        const print_stream_index = self.define_builtin_class_value("java/io/PrintStream", builtin_print_stream_class());
+        const system_index = self.define_builtin_class_value("java/lang/System", builtin_system_class());
+        const string_builder_index = self.define_builtin_class_value("java/lang/StringBuilder", builtin_string_builder_class());
+        const ignored = object_index + string_index + print_stream_index + system_index + string_builder_index;
+    }
+
+    pub fn define_builtin_class_value(self: &MethodArea, name: string, class: Class): usize {
+        const ignored_name = name;
+        self.classes.push(class);
+        return self.classes.len() - 1;
+    }
+
+    pub fn initialize_system_out(self: &MethodArea, heap: &Heap): void {
+        var system_index: usize = 0;
+        if self.find_class_index("java/lang/System") is actual_system_index {
+            system_index = actual_system_index;
+        } else {
+            return;
+        }
+        var print_stream_index: usize = 0;
+        if self.find_class_index("java/io/PrintStream") is actual_print_stream_index {
+            print_stream_index = actual_print_stream_index;
+        } else {
+            return;
+        }
+        if self.field_index(system_index, "out", "Ljava/io/PrintStream;") is field_index_value {
+            const field = self.classes[system_index].fields[field_index_value as usize];
+            if field.is_static() {
+                var print_stream_class = builtin_print_stream_class();
+                const reference = heap.allocate_object(print_stream_index, &print_stream_class);
+                drop print_stream_class;
+                self.classes[system_index].static_vars[field.slot as usize] = .ref_value(reference);
+            }
+        }
+    }
 }
 
 pub fn new_method_area(): MethodArea {
@@ -224,6 +290,164 @@ pub fn new_method_area(): MethodArea {
         classes: [],
         symbols: new_symbol_pool(),
         class_sources: [],
+    };
+}
+
+fn empty_code(): [:]u8 {
+    const native_code: [0]u8 = [];
+    return byte_buffer(native_code[..]);
+}
+
+fn owned_text(value: []const u8): string {
+    return string.from(value);
+}
+
+fn builtin_field(class_name: string, name: string, descriptor: string, access: u16, index: u16, slot: u16): Field {
+    return Field {
+        class_name: owned_text(class_name.bytes()),
+        access_flags: field_access_flags(access),
+        name: owned_text(name.bytes()),
+        descriptor: owned_text(descriptor.bytes()),
+        index: index,
+        slot: slot,
+    };
+}
+
+fn builtin_method(class_name: string, name: string, descriptor: string, access: u16, parameter_count: u32, return_descriptor: string): Method {
+    return Method {
+        class_name: owned_text(class_name.bytes()),
+        access_flags: method_access_flags(access),
+        name: owned_text(name.bytes()),
+        descriptor: owned_text(descriptor.bytes()),
+        code: empty_code(),
+        max_stack: 0,
+        max_locals: 0,
+        code_len: 0,
+        exception_count: 0,
+        exception_handlers: [],
+        local_var_count: 0,
+        line_number_count: 0,
+        parameter_count: parameter_count,
+        return_descriptor: owned_text(return_descriptor.bytes()),
+    };
+}
+
+fn builtin_object_class(): Class {
+    const class_object = Reference.init_null();
+    var methods: List<Method> = [builtin_method("java/lang/Object", "<init>", "()V", 0x0101, 0, "V")];
+    const out = Class {
+        name: "java/lang/Object",
+        descriptor: "Ljava/lang/Object;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "",
+        interfaces: [],
+        fields: [],
+        methods: methods,
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "Object.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: class_object,
+    };
+    return out;
+}
+
+fn builtin_print_stream_class(): Class {
+    return Class {
+        name: "java/io/PrintStream",
+        descriptor: "Ljava/io/PrintStream;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [],
+        methods: [builtin_method("java/io/PrintStream", "println", "(Ljava/lang/String;)V", 0x0101, 1, "V")],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "PrintStream.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+}
+
+fn builtin_system_class(): Class {
+    const out_field = builtin_field("java/lang/System", "out", "Ljava/io/PrintStream;", 0x0009, 0, 0);
+    return Class {
+        name: "java/lang/System",
+        descriptor: "Ljava/lang/System;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [out_field],
+        methods: [builtin_method("java/lang/System", "getProperty", "(Ljava/lang/String;)Ljava/lang/String;", 0x0109, 1, "Ljava/lang/String;")],
+        instance_vars: 0,
+        static_vars: [.ref_value(null_ref)],
+        source_file: "System.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+}
+
+fn builtin_string_builder_class(): Class {
+    const value_field = builtin_field("java/lang/StringBuilder", "value", "Ljava/lang/String;", 0x0001, 0, 0);
+    return Class {
+        name: "java/lang/StringBuilder",
+        descriptor: "Ljava/lang/StringBuilder;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [value_field],
+        methods: [
+            builtin_method("java/lang/StringBuilder", "<init>", "()V", 0x0101, 0, "V"),
+            builtin_method("java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", 0x0101, 1, "Ljava/lang/StringBuilder;"),
+            builtin_method("java/lang/StringBuilder", "toString", "()Ljava/lang/String;", 0x0101, 0, "Ljava/lang/String;"),
+        ],
+        instance_vars: 1,
+        static_vars: [],
+        source_file: "StringBuilder.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+}
+
+fn builtin_class(name: string): Class {
+    return Class {
+        name: string.from(name.bytes()),
+        descriptor: class_descriptor_from_name(name),
+        access_flags: class_access_flags(0x0021),
+        super_class: owned_text("java/lang/Object".bytes()),
+        interfaces: [],
+        fields: [],
+        methods: [],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: owned_text("".bytes()),
+        is_array: false,
+        component_type: owned_text("".bytes()),
+        element_type: owned_text("".bytes()),
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: Reference.init_null(),
     };
 }
 

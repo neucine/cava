@@ -1,4 +1,4 @@
-import { Class, Field, Method, Reference, ReferenceKind, Value, class_access_flags, default_value, field_access_flags, null_ref } from .types;
+import { Class, Field, Method, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, default_value, field_access_flags, null_ref } from .types;
 
 pub struct Object {
     pub class_index: usize;
@@ -23,8 +23,12 @@ pub struct ArraySlot {
 }
 
 pub struct InternedString {
-    pub value: string;
+    pub value: [:]u8;
     pub reference: Reference;
+}
+
+pub struct InternedStringBytes {
+    pub value: [:]u8;
 }
 
 pub struct InternedMethodType {
@@ -45,6 +49,18 @@ pub struct Heap {
     pub method_types: List<InternedMethodType>;
     pub method_handles: List<InternedMethodHandle>;
     pub current_thread: ?Reference;
+
+    pub fn clear(self: &Heap): void {
+        while self.strings.len() > 0 {
+            const value = self.strings.pop();
+            drop value;
+        }
+        self.objects.clear();
+        self.arrays.clear();
+        self.method_types.clear();
+        self.method_handles.clear();
+        self.current_thread = none;
+    }
 
     pub fn allocate_object(self: &Heap, class_index: usize, class: &Class): Reference {
         var fields: List<Value> = [];
@@ -100,7 +116,7 @@ pub struct Heap {
     pub fn intern_string(self: &Heap, class_index: usize, class: &Class, value: []const u8): Reference {
         var index: usize = 0;
         while index < self.strings.len() {
-            if self.strings[index].value.bytes() == value {
+            if self.strings[index].value[..] == value {
                 return self.strings[index].reference;
             }
             index = index + 1;
@@ -108,10 +124,76 @@ pub struct Heap {
 
         const reference = self.allocate_object(class_index, class);
         self.strings.push(InternedString {
-            value: string.from(value),
+            value: byte_buffer(value),
             reference: reference,
         });
         return reference;
+    }
+
+    pub fn intern_string_buffer(self: &Heap, class_index: usize, class: &Class, data: [:]u8): Reference {
+        var bytes = data;
+        var index: usize = 0;
+        while index < self.strings.len() {
+            if self.strings[index].value[..] == bytes[..] {
+                const existing = self.strings[index].reference;
+                drop bytes;
+                return existing;
+            }
+            index = index + 1;
+        }
+
+        const reference = self.allocate_object(class_index, class);
+        self.strings.push(InternedString {
+            value: bytes,
+            reference: reference,
+        });
+        return reference;
+    }
+
+    pub fn string_bytes(self: &Heap, reference: Reference): ?InternedStringBytes {
+        var index: usize = 0;
+        while index < self.strings.len() {
+            if self.strings[index].reference.equals(reference) {
+                return InternedStringBytes { value: byte_buffer(self.strings[index].value[..]) };
+            }
+            index = index + 1;
+        }
+        return none;
+    }
+
+    pub fn concat_strings(self: &Heap, class_index: usize, class: &Class, left_reference: Reference, right_reference: Reference): Reference {
+        var byte_count: usize = 0;
+        var left_index: ?usize = none;
+        var right_index: ?usize = none;
+        var index: usize = 0;
+        while index < self.strings.len() {
+            if self.strings[index].reference.equals(left_reference) {
+                left_index = index;
+                byte_count = byte_count + self.strings[index].value.len();
+            }
+            if self.strings[index].reference.equals(right_reference) {
+                right_index = index;
+                byte_count = byte_count + self.strings[index].value.len();
+            }
+            index = index + 1;
+        }
+
+        var bytes = [: byte_count]u8;
+        if left_index is actual_left {
+            var left_byte: usize = 0;
+            while left_byte < self.strings[actual_left].value.len() {
+                bytes.push(self.strings[actual_left].value[left_byte]);
+                left_byte = left_byte + 1;
+            }
+        }
+        if right_index is actual_right {
+            var right_byte: usize = 0;
+            while right_byte < self.strings[actual_right].value.len() {
+                bytes.push(self.strings[actual_right].value[right_byte]);
+                right_byte = right_byte + 1;
+            }
+        }
+        return self.intern_string_buffer(class_index, class, bytes);
     }
 
     pub fn intern_method_type(self: &Heap, class_index: usize, class: &Class, descriptor: []const u8): Reference {
@@ -505,8 +587,8 @@ test "heap interns string objects by byte content" {
     assert(!first.equals(third));
     assert(heap.objects.len() == 2);
     assert(heap.strings.len() == 2);
-    assert(heap.strings[0].value.bytes() == "hello".bytes());
-    assert(heap.strings[1].value.bytes() == "world".bytes());
+    assert(heap.strings[0].value[..] == "hello".bytes());
+    assert(heap.strings[1].value[..] == "world".bytes());
 }
 
 test "heap interns method type objects by descriptor" {
