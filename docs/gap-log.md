@@ -85,7 +85,7 @@ Status: Open.
 
 Module: `src/instruction.cy`
 
-Zava construct: `fcmpl`, `fcmpg`, `dcmpl`, `dcmpg`, `f2i`, `f2l`, `d2i`, `d2l`, `f2d`, and `d2f` preserve JVM floating-point edge semantics, including NaN ordering choices, infinities, signed zero, truncation toward zero, and saturation for integer conversions.
+Zava construct: `frem`, `drem`, `fcmpl`, `fcmpg`, `dcmpl`, `dcmpg`, `f2i`, `f2l`, `d2i`, `d2l`, `f2d`, and `d2f` preserve JVM floating-point edge semantics, including IEEE remainder behavior, NaN ordering choices, infinities, signed zero, truncation toward zero, and saturation for integer conversions.
 
 Smallest Cyna reproduction:
 
@@ -97,13 +97,13 @@ fn convert(value: f64): i32 {
 }
 ```
 
-Expected capability: Cava needs either runtime helpers for JVM float comparison/conversion or Cyna primitives that expose unordered/NaN checks and unchecked/saturating float casts.
+Expected capability: Cava needs either runtime helpers for JVM float remainder/comparison/conversion or Cyna primitives that expose fmod-style remainder, unordered/NaN checks, and unchecked/saturating float casts.
 
-Current blocker: Cyna lowers float comparisons to ordered LLVM predicates and checked float casts enforce finite/exact conversion. That is good Cyna semantics, but it cannot directly express JVM bytecode edge behavior.
+Current blocker: Cyna `%` only accepts integer operands, Cyna lowers float comparisons to ordered LLVM predicates, and checked float casts enforce finite/in-range exact conversion. That is good Cyna semantics, but it cannot directly express JVM bytecode edge behavior.
 
 Classification: Cava Runtime Gap with possible Cyna runtime/helper support.
 
-Decision: Implement `i2f`, `i2d`, `l2f`, and `l2d` now because mixed integer/float arithmetic lowers to raw integer-to-float conversion. Keep the NaN-sensitive compare and float-to-int/float-to-float opcodes unsupported until Cava has explicit JVM helpers.
+Decision: Implement `i2f`, `i2d`, `l2f`, and `l2d` now because mixed integer/float arithmetic lowers to raw integer-to-float conversion. Keep `frem`, `drem`, the NaN-sensitive compare opcodes, and float-to-int/float-to-float opcodes unsupported until Cava has explicit JVM helpers.
 
 Status: Open.
 

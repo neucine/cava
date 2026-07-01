@@ -188,6 +188,7 @@ pub enum Opcode: i32 {
     invoke_dynamic,
     new_ = 187,
     newarray = 188,
+    anewarray,
     arraylength = 190,
     athrow = 191,
     wide = 196,
@@ -2393,6 +2394,40 @@ fn newarray(context: &Context): result<void, InstructionError> {
     return .ok();
 }
 
+fn reference_array_component_descriptor(class_name: string): string {
+    const name_bytes = class_name.bytes();
+    if name_bytes.len() > 0 and name_bytes[0] == 91 {
+        return string.from(name_bytes);
+    }
+
+    var bytes = [: name_bytes.len() + 2]u8;
+    bytes.push(76);
+    var index: usize = 0;
+    while index < name_bytes.len() {
+        bytes.push(name_bytes[index]);
+        index = index + 1;
+    }
+    bytes.push(59);
+    const out = string.from(bytes[..]);
+    drop bytes;
+    return out;
+}
+
+fn anewarray(context: &Context): result<void, InstructionError> {
+    const class_name = try constant_class_name(context, context.read_u2());
+    const count = expect_int(context.frame.pop());
+    if count < 0 {
+        assert(false);
+    }
+
+    const descriptor = reference_array_component_descriptor(class_name);
+    const reference = context.heap.allocate_array(0, descriptor, count as usize);
+    context.frame.push(.ref_value(reference));
+    drop descriptor;
+    drop class_name;
+    return .ok();
+}
+
 fn arraylength(context: &Context): result<void, InstructionError> {
     const reference = expect_ref(context.frame.pop());
     if reference.is_null() {
@@ -2673,7 +2708,7 @@ const registry: [256]Instruction = [
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xBA unsupported
     { opcode: .new_, length: 3, execute: new_ }, // 0xBB new
     { opcode: .newarray, length: 2, execute: newarray }, // 0xBC newarray
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xBD unsupported
+    { opcode: .anewarray, length: 3, execute: anewarray }, // 0xBD anewarray
     { opcode: .arraylength, length: 1, execute: arraylength }, // 0xBE arraylength
     { opcode: .athrow, length: 1, execute: athrow }, // 0xBF athrow
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xC0 unsupported
@@ -5452,6 +5487,69 @@ test "instruction executes int array creation load store and length" {
     const result = try execute_method(&method);
     assert_int_result(result, 42);
     drop method;
+}
+
+test "instruction executes anewarray reference array creation" {
+    const code: [8]u8 = [
+        5, // iconst_2
+        189, 0, 2, // anewarray java/lang/Object
+        75, // astore_0
+        42, // aload_0
+        190, // arraylength
+        172, // ireturn
+    ];
+    const constant_pool: [3]Constant = [
+        .unusable(0),
+        .utf8("java/lang/Object"),
+        .class_ref(1),
+    ];
+    var classes: [1]Class = [
+        Class {
+            name: string.from("Main".bytes()),
+            descriptor: "LMain;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Main",
+                    access_flags: method_access_flags(0),
+                    name: "referenceArray",
+                    descriptor: "()I",
+                    code: byte_buffer(code[..]),
+                    max_stack: 2,
+                    max_locals: 1,
+                    code_len: 8,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Main.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+
+    const result = try execute_method_frame(0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..], classes[..], &heap);
+    assert_int_result(result, 2);
+    switch heap.arrays[0].array.elements[0] {
+    case .ref_value(reference) { assert(reference.is_null()); }
+    else { assert(false); }
+    }
+    drop classes;
 }
 
 test "instruction executes wide and floating array load store ops" {
