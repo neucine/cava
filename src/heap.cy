@@ -95,6 +95,13 @@ pub struct Heap {
         return self.object_index(reference) != none;
     }
 
+    pub fn object_class_index(self: &Heap, reference: Reference): ?usize {
+        if self.object_index(reference) is object_index {
+            return self.objects[object_index].object.class_index;
+        }
+        return none;
+    }
+
     pub fn array_index(self: &Heap, reference: Reference): ?usize {
         if reference.kind != ReferenceKind.array {
             return none;

@@ -1956,6 +1956,66 @@ fn invoke_special(context: &Context): result<void, InstructionError> {
     return .ok();
 }
 
+fn invoke_virtual(context: &Context): result<void, InstructionError> {
+    const declared = try resolve_instance_method(context, context.read_u2());
+    var classes = context.classes;
+    const argument_count = try method_argument_count(classes[declared.class_index].methods[declared.method_index].descriptor.bytes());
+    var arguments: List<Value> = [];
+    var index: usize = 0;
+    while index < argument_count {
+        arguments.push(context.frame.pop());
+        index = index + 1;
+    }
+
+    const receiver = expect_ref(context.frame.pop());
+    if receiver.is_null() {
+        assert(false);
+    }
+    var receiver_class_index: usize = 0;
+    if context.heap.object_class_index(receiver) is actual_receiver_class_index {
+        receiver_class_index = actual_receiver_class_index;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    var target_method_index: usize = 0;
+    const target_name = classes[declared.class_index].methods[declared.method_index].name.bytes();
+    const target_descriptor = classes[declared.class_index].methods[declared.method_index].descriptor.bytes();
+    const target_method_index_option = classes[receiver_class_index].method_index(target_name, target_descriptor, false);
+    if target_method_index_option is actual_target_method_index {
+        target_method_index = actual_target_method_index as usize;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    if classes[receiver_class_index].methods[target_method_index].is_native() or classes[receiver_class_index].methods[target_method_index].is_abstract() {
+        return .err(InstructionError.unsupported_opcode);
+    }
+
+    var frame = new_frame(receiver_class_index, target_method_index, classes[receiver_class_index].methods[target_method_index].max_locals, classes[receiver_class_index].methods[target_method_index].max_stack);
+    frame.store(0, .ref_value(receiver));
+    var local_index: u16 = 1;
+    var argument_index = arguments.len();
+    while argument_index > 0 {
+        argument_index = argument_index - 1;
+        const value = arguments[argument_index];
+        frame.store(local_index, value);
+        local_index = local_index + value_local_width(value);
+    }
+    drop arguments;
+
+    const result = try execute_method_frame(receiver_class_index, target_method_index, frame, context.constant_pool, context.classes, context.heap);
+    switch result {
+    case .return_value(value) {
+        if value is actual {
+            context.frame.push(actual);
+        }
+    }
+    case .exception(reference) {
+        context.frame.throw_exception(reference);
+    }
+    }
+    return .ok();
+}
+
 fn new_(context: &Context): result<void, InstructionError> {
     const class_index = try find_class_index_by_constant(context, context.read_u2());
     var classes = context.classes;
@@ -2351,7 +2411,7 @@ const registry: [256]Instruction = [
     { opcode: .putstatic, length: 3, execute: putstatic }, // 0xB3 putstatic
     { opcode: .getfield, length: 3, execute: getfield }, // 0xB4 getfield
     { opcode: .putfield, length: 3, execute: putfield }, // 0xB5 putfield
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xB6 unsupported
+    { opcode: .invoke_virtual, length: 3, execute: invoke_virtual }, // 0xB6 invokevirtual
     { opcode: .invoke_special, length: 3, execute: invoke_special }, // 0xB7 invokespecial
     { opcode: .invoke_static, length: 3, execute: invoke_static }, // 0xB8 invokestatic
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xB9 unsupported
@@ -3066,6 +3126,124 @@ test "instruction executes invokespecial constructor initialization" {
         assert(false);
     }
     }
+    drop classes;
+}
+
+test "instruction executes invokevirtual override dispatch" {
+    const constant_pool: [9]Constant = [
+        .unusable(0),
+        .utf8("Base"),
+        .class_ref(1),
+        .utf8("Child"),
+        .class_ref(3),
+        .utf8("value"),
+        .utf8("()I"),
+        .name_and_type(ConstantNameAndType { name_index: 5, descriptor_index: 6 }),
+        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 7 }),
+    ];
+    const caller_code: [7]u8 = [
+        187, 0, 4, // new Child
+        182, 0, 8, // invokevirtual Base.value:()I
+        172, // ireturn
+    ];
+    const base_value_code: [2]u8 = [
+        4, // iconst_1
+        172, // ireturn
+    ];
+    const child_value_code: [2]u8 = [
+        5, // iconst_2
+        172, // ireturn
+    ];
+    var classes: [2]Class = [
+        Class {
+            name: string.from("Base".bytes()),
+            descriptor: "LBase;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Base",
+                    access_flags: method_access_flags(8),
+                    name: "caller",
+                    descriptor: "()I",
+                    code: byte_buffer(caller_code[..]),
+                    max_stack: 1,
+                    max_locals: 0,
+                    code_len: 7,
+                    exception_count: 0,
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+                Method {
+                    class_name: "Base",
+                    access_flags: method_access_flags(0),
+                    name: "value",
+                    descriptor: "()I",
+                    code: byte_buffer(base_value_code[..]),
+                    max_stack: 1,
+                    max_locals: 1,
+                    code_len: 2,
+                    exception_count: 0,
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Base.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: string.from("Child".bytes()),
+            descriptor: "LChild;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "Base",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Child",
+                    access_flags: method_access_flags(0),
+                    name: "value",
+                    descriptor: "()I",
+                    code: byte_buffer(child_value_code[..]),
+                    max_stack: 1,
+                    max_locals: 1,
+                    code_len: 2,
+                    exception_count: 0,
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Child.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 1), constant_pool[..], classes[..], &heap);
+    assert_int_result(result, 2);
     drop classes;
 }
 
