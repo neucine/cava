@@ -191,6 +191,8 @@ pub enum Opcode: i32 {
     anewarray,
     arraylength = 190,
     athrow = 191,
+    checkcast,
+    instanceof,
     wide = 196,
     ifnull = 198,
     ifnonnull,
@@ -2025,6 +2027,57 @@ fn class_matches(classes: []Class, actual_index: usize, expected_index: usize): 
     return false;
 }
 
+fn class_named(classes: []Class, index: usize, name: []const u8): bool {
+    if index >= classes.len() {
+        return false;
+    }
+    return bytes_equal(classes[index].name.bytes(), name);
+}
+
+fn reference_assignable_to(classes: []Class, actual_index: usize, expected_index: usize): bool {
+    if actual_index >= classes.len() or expected_index >= classes.len() {
+        return false;
+    }
+    if actual_index == expected_index {
+        return true;
+    }
+
+    if classes[expected_index].is_interface() {
+        var interface_index: usize = 0;
+        while interface_index < classes[actual_index].interfaces.len() {
+            if find_loaded_class_index(classes, classes[actual_index].interfaces[interface_index].bytes()) is actual_interface_index {
+                if reference_assignable_to(classes, actual_interface_index, expected_index) {
+                    return true;
+                }
+            } else {
+                if bytes_equal(classes[actual_index].interfaces[interface_index].bytes(), classes[expected_index].name.bytes()) {
+                    return true;
+                }
+            }
+            interface_index = interface_index + 1;
+        }
+        if find_loaded_class_index(classes, classes[actual_index].super_class.bytes()) is super_index {
+            return reference_assignable_to(classes, super_index, expected_index);
+        }
+        return false;
+    }
+
+    if classes[actual_index].is_array {
+        if class_named(classes, expected_index, "java/lang/Object".bytes()) {
+            return true;
+        }
+        if classes[expected_index].is_array {
+            return bytes_equal(classes[actual_index].component_type.bytes(), classes[expected_index].component_type.bytes());
+        }
+        return false;
+    }
+
+    if find_loaded_class_index(classes, classes[actual_index].super_class.bytes()) is super_index {
+        return reference_assignable_to(classes, super_index, expected_index);
+    }
+    return false;
+}
+
 fn handler_matches(context: &Context, handler: ExceptionHandler, exception: Reference): result<bool, InstructionError> {
     if handler.catch_type == 0 {
         return .ok(true);
@@ -2428,6 +2481,40 @@ fn anewarray(context: &Context): result<void, InstructionError> {
     return .ok();
 }
 
+fn checkcast(context: &Context): result<void, InstructionError> {
+    const expected_class_index = try find_class_index_by_constant(context, context.read_u2());
+    const reference = expect_ref(context.frame.pop());
+    if reference.is_null() {
+        context.frame.push(.ref_value(reference));
+        return .ok();
+    }
+    if context.heap.object_class_index(reference) is actual_class_index {
+        if reference_assignable_to(context.classes, actual_class_index, expected_class_index) {
+            context.frame.push(.ref_value(reference));
+            return .ok();
+        }
+    }
+    assert(false);
+    return .ok();
+}
+
+fn instanceof(context: &Context): result<void, InstructionError> {
+    const expected_class_index = try find_class_index_by_constant(context, context.read_u2());
+    const reference = expect_ref(context.frame.pop());
+    if reference.is_null() {
+        push_int(context, 0);
+        return .ok();
+    }
+    if context.heap.object_class_index(reference) is actual_class_index {
+        if reference_assignable_to(context.classes, actual_class_index, expected_class_index) {
+            push_int(context, 1);
+            return .ok();
+        }
+    }
+    push_int(context, 0);
+    return .ok();
+}
+
 fn arraylength(context: &Context): result<void, InstructionError> {
     const reference = expect_ref(context.frame.pop());
     if reference.is_null() {
@@ -2711,8 +2798,8 @@ const registry: [256]Instruction = [
     { opcode: .anewarray, length: 3, execute: anewarray }, // 0xBD anewarray
     { opcode: .arraylength, length: 1, execute: arraylength }, // 0xBE arraylength
     { opcode: .athrow, length: 1, execute: athrow }, // 0xBF athrow
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xC0 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xC1 unsupported
+    { opcode: .checkcast, length: 3, execute: checkcast }, // 0xC0 checkcast
+    { opcode: .instanceof, length: 3, execute: instanceof }, // 0xC1 instanceof
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xC2 unsupported
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xC3 unsupported
     { opcode: .wide, length: 0, execute: wide }, // 0xC4 wide
@@ -5549,6 +5636,191 @@ test "instruction executes anewarray reference array creation" {
     case .ref_value(reference) { assert(reference.is_null()); }
     else { assert(false); }
     }
+    drop classes;
+}
+
+test "instruction executes checkcast and instanceof normal paths" {
+    const pass_code: [10]u8 = [
+        187, 0, 2, // new Child
+        192, 0, 4, // checkcast Base
+        193, 0, 6, // instanceof Iface
+        172, // ireturn
+    ];
+    const null_code: [5]u8 = [
+        1, // aconst_null
+        193, 0, 4, // instanceof Base
+        172, // ireturn
+    ];
+    const miss_code: [7]u8 = [
+        187, 0, 8, // new Other
+        193, 0, 6, // instanceof Iface
+        172, // ireturn
+    ];
+    const constant_pool: [9]Constant = [
+        .unusable(0),
+        .utf8("Child"),
+        .class_ref(1),
+        .utf8("Base"),
+        .class_ref(3),
+        .utf8("Iface"),
+        .class_ref(5),
+        .utf8("Other"),
+        .class_ref(7),
+    ];
+    var classes: [5]Class = [
+        Class {
+            name: string.from("Main".bytes()),
+            descriptor: "LMain;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Main",
+                    access_flags: method_access_flags(0),
+                    name: "pass",
+                    descriptor: "()I",
+                    code: byte_buffer(pass_code[..]),
+                    max_stack: 1,
+                    max_locals: 0,
+                    code_len: 10,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+                Method {
+                    class_name: "Main",
+                    access_flags: method_access_flags(0),
+                    name: "nullCheck",
+                    descriptor: "()I",
+                    code: byte_buffer(null_code[..]),
+                    max_stack: 1,
+                    max_locals: 0,
+                    code_len: 5,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+                Method {
+                    class_name: "Main",
+                    access_flags: method_access_flags(0),
+                    name: "miss",
+                    descriptor: "()I",
+                    code: byte_buffer(miss_code[..]),
+                    max_stack: 1,
+                    max_locals: 0,
+                    code_len: 7,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Main.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: string.from("Base".bytes()),
+            descriptor: "LBase;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Base.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: string.from("Child".bytes()),
+            descriptor: "LChild;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "Base",
+            interfaces: ["Iface"],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Child.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: string.from("Iface".bytes()),
+            descriptor: "LIface;",
+            access_flags: class_access_flags(0x0601),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Iface.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: string.from("Other".bytes()),
+            descriptor: "LOther;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Other.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+
+    const pass_result = try execute_method_frame(0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..], classes[..], &heap);
+    const null_result = try execute_method_frame(0, 1, new_frame(0, 1, classes[0].methods[1].max_locals, classes[0].methods[1].max_stack), constant_pool[..], classes[..], &heap);
+    const miss_result = try execute_method_frame(0, 2, new_frame(0, 2, classes[0].methods[2].max_locals, classes[0].methods[2].max_stack), constant_pool[..], classes[..], &heap);
+    assert_int_result(pass_result, 1);
+    assert_int_result(null_result, 0);
+    assert_int_result(miss_result, 0);
     drop classes;
 }
 
