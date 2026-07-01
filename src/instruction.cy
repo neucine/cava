@@ -148,6 +148,12 @@ pub enum Opcode: i32 {
     l2i = 136,
     l2f,
     l2d,
+    f2i,
+    f2l,
+    f2d,
+    d2i,
+    d2l,
+    d2f,
     i2b = 145,
     i2c,
     i2s,
@@ -1709,6 +1715,97 @@ fn l2d(context: &Context): result<void, InstructionError> {
     return .ok();
 }
 
+fn f2d(context: &Context): result<void, InstructionError> {
+    const value = expect_float(context.frame.pop());
+    context.frame.push(.double_value(value as f64));
+    return .ok();
+}
+
+fn jvm_f2i_value(value: f32): i32 {
+    if value != value {
+        return 0;
+    }
+    const min_value: f32 = -2147483648.0;
+    const upper_value: f32 = 2147483648.0;
+    if value <= min_value {
+        return (0 - 2147483647) - 1;
+    }
+    if value >= upper_value {
+        return 2147483647;
+    }
+    return value as i32;
+}
+
+fn jvm_f2l_value(value: f32): i64 {
+    if value != value {
+        return 0;
+    }
+    const min_value: f32 = -9223372036854775808.0;
+    const upper_value: f32 = 9223372036854775808.0;
+    if value <= min_value {
+        return (0 - 9223372036854775807) - 1;
+    }
+    if value >= upper_value {
+        return 9223372036854775807;
+    }
+    return value as i64;
+}
+
+fn jvm_d2i_value(value: f64): i32 {
+    if value != value {
+        return 0;
+    }
+    const min_value: f64 = -2147483648.0;
+    const upper_value: f64 = 2147483648.0;
+    if value <= min_value {
+        return (0 - 2147483647) - 1;
+    }
+    if value >= upper_value {
+        return 2147483647;
+    }
+    return value as i32;
+}
+
+fn jvm_d2l_value(value: f64): i64 {
+    if value != value {
+        return 0;
+    }
+    const min_value: f64 = -9223372036854775808.0;
+    const upper_value: f64 = 9223372036854775808.0;
+    if value <= min_value {
+        return (0 - 9223372036854775807) - 1;
+    }
+    if value >= upper_value {
+        return 9223372036854775807;
+    }
+    return value as i64;
+}
+
+fn f2i(context: &Context): result<void, InstructionError> {
+    push_int(context, jvm_f2i_value(expect_float(context.frame.pop())));
+    return .ok();
+}
+
+fn f2l(context: &Context): result<void, InstructionError> {
+    context.frame.push(.long_value(jvm_f2l_value(expect_float(context.frame.pop()))));
+    return .ok();
+}
+
+fn d2i(context: &Context): result<void, InstructionError> {
+    push_int(context, jvm_d2i_value(expect_double(context.frame.pop())));
+    return .ok();
+}
+
+fn d2l(context: &Context): result<void, InstructionError> {
+    context.frame.push(.long_value(jvm_d2l_value(expect_double(context.frame.pop()))));
+    return .ok();
+}
+
+fn d2f(context: &Context): result<void, InstructionError> {
+    context.frame.push(.float_value(expect_double(context.frame.pop()) as f32));
+    return .ok();
+}
+
 fn i2b(context: &Context): result<void, InstructionError> {
     const value = expect_int(context.frame.pop());
     const low_bits: u8 = (value & 255) as u8;
@@ -2816,12 +2913,12 @@ const registry: [256]Instruction = [
     { opcode: .l2i, length: 1, execute: l2i }, // 0x88 l2i
     { opcode: .l2f, length: 1, execute: l2f }, // 0x89 l2f
     { opcode: .l2d, length: 1, execute: l2d }, // 0x8A l2d
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x8B unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x8C unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x8D unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x8E unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x8F unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x90 unsupported
+    { opcode: .f2i, length: 1, execute: f2i }, // 0x8B f2i
+    { opcode: .f2l, length: 1, execute: f2l }, // 0x8C f2l
+    { opcode: .f2d, length: 1, execute: f2d }, // 0x8D f2d
+    { opcode: .d2i, length: 1, execute: d2i }, // 0x8E d2i
+    { opcode: .d2l, length: 1, execute: d2l }, // 0x8F d2l
+    { opcode: .d2f, length: 1, execute: d2f }, // 0x90 d2f
     { opcode: .i2b, length: 1, execute: i2b }, // 0x91 i2b
     { opcode: .i2c, length: 1, execute: i2c }, // 0x92 i2c
     { opcode: .i2s, length: 1, execute: i2s }, // 0x93 i2s
@@ -4925,6 +5022,164 @@ test "instruction executes integer to float and double conversions" {
     const long_to_double_result = try execute_method(&long_to_double_method);
     assert_double_result(long_to_double_result, 42.0);
     drop long_to_double_method;
+}
+
+test "instruction executes float and double conversions" {
+    const float_to_int_code: [3]u8 = [
+        13, // fconst_2
+        139, // f2i
+        172, // ireturn
+    ];
+    var float_to_int_method = Method {
+        class_name: "Main",
+        access_flags: method_access_flags(0),
+        name: "floatToInt",
+        descriptor: "()I",
+        code: byte_buffer(float_to_int_code[..]),
+        max_stack: 1,
+        max_locals: 0,
+        code_len: 3,
+        exception_count: 0,
+        exception_handlers: [],
+        local_var_count: 0,
+        line_number_count: 0,
+        parameter_count: 0,
+        return_descriptor: "I",
+    };
+
+    const float_to_int_result = try execute_method(&float_to_int_method);
+    assert_int_result(float_to_int_result, 2);
+    drop float_to_int_method;
+
+    const float_to_long_code: [3]u8 = [
+        13, // fconst_2
+        140, // f2l
+        173, // lreturn
+    ];
+    var float_to_long_method = Method {
+        class_name: "Main",
+        access_flags: method_access_flags(0),
+        name: "floatToLong",
+        descriptor: "()J",
+        code: byte_buffer(float_to_long_code[..]),
+        max_stack: 1,
+        max_locals: 0,
+        code_len: 3,
+        exception_count: 0,
+        exception_handlers: [],
+        local_var_count: 0,
+        line_number_count: 0,
+        parameter_count: 0,
+        return_descriptor: "J",
+    };
+
+    const float_to_long_result = try execute_method(&float_to_long_method);
+    assert_long_result(float_to_long_result, 2);
+    drop float_to_long_method;
+
+    const float_to_double_code: [3]u8 = [
+        13, // fconst_2
+        141, // f2d
+        175, // dreturn
+    ];
+    var float_to_double_method = Method {
+        class_name: "Main",
+        access_flags: method_access_flags(0),
+        name: "floatToDouble",
+        descriptor: "()D",
+        code: byte_buffer(float_to_double_code[..]),
+        max_stack: 1,
+        max_locals: 0,
+        code_len: 3,
+        exception_count: 0,
+        exception_handlers: [],
+        local_var_count: 0,
+        line_number_count: 0,
+        parameter_count: 0,
+        return_descriptor: "D",
+    };
+
+    const float_to_double_result = try execute_method(&float_to_double_method);
+    assert_double_result(float_to_double_result, 2.0);
+    drop float_to_double_method;
+
+    const double_to_int_code: [3]u8 = [
+        15, // dconst_1
+        142, // d2i
+        172, // ireturn
+    ];
+    var double_to_int_method = Method {
+        class_name: "Main",
+        access_flags: method_access_flags(0),
+        name: "doubleToInt",
+        descriptor: "()I",
+        code: byte_buffer(double_to_int_code[..]),
+        max_stack: 2,
+        max_locals: 0,
+        code_len: 3,
+        exception_count: 0,
+        exception_handlers: [],
+        local_var_count: 0,
+        line_number_count: 0,
+        parameter_count: 0,
+        return_descriptor: "I",
+    };
+
+    const double_to_int_result = try execute_method(&double_to_int_method);
+    assert_int_result(double_to_int_result, 1);
+    drop double_to_int_method;
+
+    const double_to_long_code: [3]u8 = [
+        15, // dconst_1
+        143, // d2l
+        173, // lreturn
+    ];
+    var double_to_long_method = Method {
+        class_name: "Main",
+        access_flags: method_access_flags(0),
+        name: "doubleToLong",
+        descriptor: "()J",
+        code: byte_buffer(double_to_long_code[..]),
+        max_stack: 2,
+        max_locals: 0,
+        code_len: 3,
+        exception_count: 0,
+        exception_handlers: [],
+        local_var_count: 0,
+        line_number_count: 0,
+        parameter_count: 0,
+        return_descriptor: "J",
+    };
+
+    const double_to_long_result = try execute_method(&double_to_long_method);
+    assert_long_result(double_to_long_result, 1);
+    drop double_to_long_method;
+
+    const double_to_float_code: [3]u8 = [
+        15, // dconst_1
+        144, // d2f
+        174, // freturn
+    ];
+    var double_to_float_method = Method {
+        class_name: "Main",
+        access_flags: method_access_flags(0),
+        name: "doubleToFloat",
+        descriptor: "()F",
+        code: byte_buffer(double_to_float_code[..]),
+        max_stack: 2,
+        max_locals: 0,
+        code_len: 3,
+        exception_count: 0,
+        exception_handlers: [],
+        local_var_count: 0,
+        line_number_count: 0,
+        parameter_count: 0,
+        return_descriptor: "F",
+    };
+
+    const double_to_float_result = try execute_method(&double_to_float_method);
+    assert_float_result(double_to_float_result, 1.0);
+    drop double_to_float_method;
 }
 
 test "instruction executes int byte char and short conversions" {
