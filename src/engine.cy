@@ -146,7 +146,7 @@ pub struct Context {
     pub code: []const u8;
     pub constant_pool: []const Constant;
     pub classes: []Class;
-    pub heap: Heap;
+    pub heap: &Heap;
 
     pub fn read_u1(self: &Context): u8 {
         const index = (self.frame.pc + self.frame.offset) as usize;
@@ -289,7 +289,8 @@ test "context reads big endian operands and padding" {
     };
     var constant_pool: [:]Constant = [: 0] [];
     var classes: [:]Class = [: 0] [];
-    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, 1, 4), code: method.code[..], constant_pool: constant_pool[..], classes: classes[..], heap: new_heap() };
+    var heap = new_heap();
+    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, 1, 4), code: method.code[..], constant_pool: constant_pool[..], classes: classes[..], heap: &heap };
 
     assert(context.read_u1() == 49);
     assert(context.frame.offset == 2);
@@ -303,6 +304,7 @@ test "context reads big endian operands and padding" {
     assert(context.read_i4() == 0x38394142);
 
     const negative_code: [3]u8 = [0, 255, 243];
+    var negative_heap = new_heap();
     var negative_context = Context {
         class_index: 0,
         method_index: 0,
@@ -310,7 +312,7 @@ test "context reads big endian operands and padding" {
         code: negative_code[..],
         constant_pool: constant_pool[..],
         classes: classes[..],
-        heap: new_heap(),
+        heap: &negative_heap,
     };
     assert(negative_context.read_i2() == (0 - 13));
     drop negative_context;

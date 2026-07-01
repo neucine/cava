@@ -1,6 +1,6 @@
 import { Constant, ConstantMemberRef, ConstantNameAndType, ConstantWide } from .classfile;
 import { Context, Frame, FrameResult, new_frame } from .engine;
-import { new_heap } from .heap;
+import { Heap, new_heap } from .heap;
 import { Class, Field, Method, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, field_access_flags, method_access_flags, null_ref } from .types;
 
 pub enum InstructionError: i32 {
@@ -509,6 +509,19 @@ fn find_static_method_index_by_constants(class: &Class, context: &Context, name_
     return .err(InstructionError.invalid_constant);
 }
 
+fn find_instance_method_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): result<usize, InstructionError> {
+    var index: usize = 0;
+    while index < class.methods.len() {
+        const name_matches = try constant_utf8_equals(context, name_index, class.methods[index].name.bytes());
+        const descriptor_matches = try constant_utf8_equals(context, descriptor_index, class.methods[index].descriptor.bytes());
+        if !class.methods[index].is_static() and name_matches and descriptor_matches {
+            return .ok(index);
+        }
+        index = index + 1;
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
 fn resolve_field(context: &Context, index: u16): result<Field, InstructionError> {
     if index as usize >= context.constant_pool.len() {
         return .err(InstructionError.invalid_constant);
@@ -574,6 +587,40 @@ fn resolve_static_method(context: &Context, index: u16): result<ResolvedMethod, 
     const actual_class_index = try find_class_index_by_constant(context, class_index);
     var classes = context.classes;
     const actual_method_index = try find_static_method_index_by_constants(&classes[actual_class_index], context, name_index, descriptor_index);
+    return .ok(ResolvedMethod { class_index: actual_class_index, method_index: actual_method_index });
+}
+
+fn resolve_instance_method(context: &Context, index: u16): result<ResolvedMethod, InstructionError> {
+    if index as usize >= context.constant_pool.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+
+    var class_index: u16 = 0;
+    var name_and_type_index: u16 = 0;
+    switch context.constant_pool[index as usize] {
+    case .method_ref(member) {
+        class_index = member.class_index;
+        name_and_type_index = member.name_and_type_index;
+    }
+    else { return .err(InstructionError.invalid_constant); }
+    }
+
+    if name_and_type_index as usize >= context.constant_pool.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+    var name_index: u16 = 0;
+    var descriptor_index: u16 = 0;
+    switch context.constant_pool[name_and_type_index as usize] {
+    case .name_and_type(pair) {
+        name_index = pair.name_index;
+        descriptor_index = pair.descriptor_index;
+    }
+    else { return .err(InstructionError.invalid_constant); }
+    }
+
+    const actual_class_index = try find_class_index_by_constant(context, class_index);
+    var classes = context.classes;
+    const actual_method_index = try find_instance_method_index_by_constants(&classes[actual_class_index], context, name_index, descriptor_index);
     return .ok(ResolvedMethod { class_index: actual_class_index, method_index: actual_method_index });
 }
 
@@ -1808,8 +1855,8 @@ fn value_local_width(value: Value): u16 {
     return 1;
 }
 
-fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant, classes: []Class): result<FrameResult, InstructionError> {
-    var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: classes[class_index].methods[method_index].code[..], constant_pool: constant_pool, classes: classes, heap: new_heap() };
+fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant, classes: []Class, heap: &Heap): result<FrameResult, InstructionError> {
+    var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: classes[class_index].methods[method_index].code[..], constant_pool: constant_pool, classes: classes, heap: heap };
 
     while context.frame.pc < classes[class_index].methods[method_index].code_len {
         try execute_next(&context);
@@ -1849,7 +1896,53 @@ fn invoke_static(context: &Context): result<void, InstructionError> {
     }
     drop arguments;
 
-    const result = try execute_method_frame(resolved.class_index, resolved.method_index, frame, context.constant_pool, context.classes);
+    const result = try execute_method_frame(resolved.class_index, resolved.method_index, frame, context.constant_pool, context.classes, context.heap);
+    switch result {
+    case .return_value(value) {
+        if value is actual {
+            context.frame.push(actual);
+        }
+    }
+    case .exception(reference) {
+        context.frame.throw_exception(reference);
+    }
+    }
+    return .ok();
+}
+
+fn invoke_special(context: &Context): result<void, InstructionError> {
+    const resolved = try resolve_instance_method(context, context.read_u2());
+    var classes = context.classes;
+    if classes[resolved.class_index].methods[resolved.method_index].is_native() or classes[resolved.class_index].methods[resolved.method_index].is_abstract() {
+        return .err(InstructionError.unsupported_opcode);
+    }
+
+    const argument_count = try method_argument_count(classes[resolved.class_index].methods[resolved.method_index].descriptor.bytes());
+    var arguments: List<Value> = [];
+    var index: usize = 0;
+    while index < argument_count {
+        arguments.push(context.frame.pop());
+        index = index + 1;
+    }
+
+    const receiver = expect_ref(context.frame.pop());
+    if receiver.is_null() {
+        assert(false);
+    }
+
+    var frame = new_frame(resolved.class_index, resolved.method_index, classes[resolved.class_index].methods[resolved.method_index].max_locals, classes[resolved.class_index].methods[resolved.method_index].max_stack);
+    frame.store(0, .ref_value(receiver));
+    var local_index: u16 = 1;
+    var argument_index = arguments.len();
+    while argument_index > 0 {
+        argument_index = argument_index - 1;
+        const value = arguments[argument_index];
+        frame.store(local_index, value);
+        local_index = local_index + value_local_width(value);
+    }
+    drop arguments;
+
+    const result = try execute_method_frame(resolved.class_index, resolved.method_index, frame, context.constant_pool, context.classes, context.heap);
     switch result {
     case .return_value(value) {
         if value is actual {
@@ -2259,7 +2352,7 @@ const registry: [256]Instruction = [
     { opcode: .getfield, length: 3, execute: getfield }, // 0xB4 getfield
     { opcode: .putfield, length: 3, execute: putfield }, // 0xB5 putfield
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xB6 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xB7 unsupported
+    { opcode: .invoke_special, length: 3, execute: invoke_special }, // 0xB7 invokespecial
     { opcode: .invoke_static, length: 3, execute: invoke_static }, // 0xB8 invokestatic
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xB9 unsupported
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xBA unsupported
@@ -2359,7 +2452,8 @@ pub fn execute_next(context: &Context): result<void, InstructionError> {
 pub fn execute_method(method: &Method): result<FrameResult, InstructionError> {
     var constant_pool: [:]Constant = [: 0] [];
     var classes: [:]Class = [: 0] [];
-    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, method.max_locals, method.max_stack), code: method.code[..], constant_pool: constant_pool[..], classes: classes[..], heap: new_heap() };
+    var heap = new_heap();
+    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, method.max_locals, method.max_stack), code: method.code[..], constant_pool: constant_pool[..], classes: classes[..], heap: &heap };
 
     while context.frame.pc < method.code_len {
         try execute_next(&context);
@@ -2572,6 +2666,7 @@ test "instruction executes ldc numeric constants" {
         .unusable(0),
     ];
     var classes: [:]Class = [: 0] [];
+    var heap = new_heap();
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -2579,7 +2674,7 @@ test "instruction executes ldc numeric constants" {
         code: code[..],
         constant_pool: constant_pool[..],
         classes: classes[..],
-        heap: new_heap(),
+        heap: &heap,
     };
 
     var step: usize = 0;
@@ -2658,6 +2753,7 @@ test "instruction executes field access ops" {
         class_object: null_ref,
     };
     var classes: [1]Class = [class];
+    var heap = new_heap();
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -2665,7 +2761,7 @@ test "instruction executes field access ops" {
         code: code[..],
         constant_pool: constant_pool[..],
         classes: classes[..],
-        heap: new_heap(),
+        heap: &heap,
     };
     var context_classes = context.classes;
     const reference = context.heap.allocate_object(0, &context_classes[0]);
@@ -2790,7 +2886,8 @@ test "instruction executes invokestatic int method" {
         },
     ];
 
-    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 2), constant_pool[..], classes[..]);
+    var heap = new_heap();
+    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 2), constant_pool[..], classes[..], &heap);
     assert_int_result(result, 5);
     drop classes;
 }
@@ -2833,6 +2930,7 @@ test "instruction executes new object allocation" {
             class_object: null_ref,
         },
     ];
+    var heap = new_heap();
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -2840,7 +2938,7 @@ test "instruction executes new object allocation" {
         code: code[..],
         constant_pool: constant_pool[..],
         classes: classes[..],
-        heap: new_heap(),
+        heap: &heap,
     };
 
     const execute_result = execute_next(&context);
@@ -2859,6 +2957,116 @@ test "instruction executes new object allocation" {
         assert(false);
     }
     drop context;
+}
+
+test "instruction executes invokespecial constructor initialization" {
+    const constant_pool: [11]Constant = [
+        .unusable(0),
+        .utf8("Example"),
+        .class_ref(1),
+        .utf8("value"),
+        .utf8("I"),
+        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
+        .field_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+        .utf8("<init>"),
+        .utf8("(I)V"),
+        .name_and_type(ConstantNameAndType { name_index: 7, descriptor_index: 8 }),
+        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 9 }),
+    ];
+    const caller_code: [9]u8 = [
+        187, 0, 2, // new Example
+        89, // dup
+        8, // iconst_5
+        183, 0, 10, // invokespecial Example.<init>:(I)V
+        176, // areturn
+    ];
+    const init_code: [6]u8 = [
+        42, // aload_0
+        27, // iload_1
+        181, 0, 6, // putfield Example.value:I
+        177, // return
+    ];
+    const instance_field = Field {
+        class_name: "Example",
+        access_flags: field_access_flags(1),
+        name: "value",
+        descriptor: "I",
+        index: 0,
+        slot: 0,
+    };
+    var classes: [1]Class = [
+        Class {
+            name: string.from("Example".bytes()),
+            descriptor: "LExample;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [instance_field],
+            methods: [
+                Method {
+                    class_name: "Example",
+                    access_flags: method_access_flags(8),
+                    name: "caller",
+                    descriptor: "()LExample;",
+                    code: byte_buffer(caller_code[..]),
+                    max_stack: 3,
+                    max_locals: 0,
+                    code_len: 9,
+                    exception_count: 0,
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "LExample;",
+                },
+                Method {
+                    class_name: "Example",
+                    access_flags: method_access_flags(0),
+                    name: "<init>",
+                    descriptor: "(I)V",
+                    code: byte_buffer(init_code[..]),
+                    max_stack: 2,
+                    max_locals: 2,
+                    code_len: 6,
+                    exception_count: 0,
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 1,
+                    return_descriptor: "V",
+                },
+            ],
+            instance_vars: 1,
+            static_vars: [],
+            source_file: "Example.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 3), constant_pool[..], classes[..], &heap);
+    switch result {
+    case .return_value(value) {
+        if value is actual {
+            const reference = expect_ref(actual);
+            if heap.get_field(reference, 0) is field_value {
+                assert_int_result(.return_value(field_value), 5);
+            } else {
+                assert(false);
+            }
+        } else {
+            assert(false);
+        }
+    }
+    case .exception(reference) {
+        const ignored = reference;
+        assert(false);
+    }
+    }
+    drop classes;
 }
 
 test "instruction executes int local shorthand load store and add" {
@@ -4012,6 +4220,7 @@ test "instruction executes athrow with existing exception reference" {
     const code: [1]u8 = [191];
     var constant_pool: [:]Constant = [: 0] [];
     var classes: [:]Class = [: 0] [];
+    var heap = new_heap();
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -4019,7 +4228,7 @@ test "instruction executes athrow with existing exception reference" {
         code: code[..],
         constant_pool: constant_pool[..],
         classes: classes[..],
-        heap: new_heap(),
+        heap: &heap,
     };
     const exception = Reference {
         kind: ReferenceKind.object,
@@ -4325,6 +4534,7 @@ test "instruction executes reference array load store ops" {
     const store_code: [1]u8 = [83];
     var constant_pool: [:]Constant = [: 0] [];
     var classes: [:]Class = [: 0] [];
+    var heap = new_heap();
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -4332,7 +4542,7 @@ test "instruction executes reference array load store ops" {
         code: store_code[..],
         constant_pool: constant_pool[..],
         classes: classes[..],
-        heap: new_heap(),
+        heap: &heap,
     };
     const reference = context.heap.allocate_array(0, "Ljava/lang/Object;", 1);
 
