@@ -624,6 +624,40 @@ fn resolve_instance_method(context: &Context, index: u16): result<ResolvedMethod
     return .ok(ResolvedMethod { class_index: actual_class_index, method_index: actual_method_index });
 }
 
+fn resolve_interface_method(context: &Context, index: u16): result<ResolvedMethod, InstructionError> {
+    if index as usize >= context.constant_pool.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+
+    var class_index: u16 = 0;
+    var name_and_type_index: u16 = 0;
+    switch context.constant_pool[index as usize] {
+    case .interface_method_ref(member) {
+        class_index = member.class_index;
+        name_and_type_index = member.name_and_type_index;
+    }
+    else { return .err(InstructionError.invalid_constant); }
+    }
+
+    if name_and_type_index as usize >= context.constant_pool.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+    var name_index: u16 = 0;
+    var descriptor_index: u16 = 0;
+    switch context.constant_pool[name_and_type_index as usize] {
+    case .name_and_type(pair) {
+        name_index = pair.name_index;
+        descriptor_index = pair.descriptor_index;
+    }
+    else { return .err(InstructionError.invalid_constant); }
+    }
+
+    const actual_class_index = try find_class_index_by_constant(context, class_index);
+    var classes = context.classes;
+    const actual_method_index = try find_instance_method_index_by_constants(&classes[actual_class_index], context, name_index, descriptor_index);
+    return .ok(ResolvedMethod { class_index: actual_class_index, method_index: actual_method_index });
+}
+
 fn unsupported(context: &Context): result<void, InstructionError> {
     return .err(InstructionError.unsupported_opcode);
 }
@@ -2016,6 +2050,72 @@ fn invoke_virtual(context: &Context): result<void, InstructionError> {
     return .ok();
 }
 
+fn invoke_interface(context: &Context): result<void, InstructionError> {
+    const declared = try resolve_interface_method(context, context.read_u2());
+    const count = context.read_u1();
+    const zero = context.read_u1();
+    if count == 0 or zero != 0 {
+        return .err(InstructionError.invalid_constant);
+    }
+
+    var classes = context.classes;
+    const argument_count = try method_argument_count(classes[declared.class_index].methods[declared.method_index].descriptor.bytes());
+    var arguments: List<Value> = [];
+    var index: usize = 0;
+    while index < argument_count {
+        arguments.push(context.frame.pop());
+        index = index + 1;
+    }
+
+    const receiver = expect_ref(context.frame.pop());
+    if receiver.is_null() {
+        assert(false);
+    }
+    var receiver_class_index: usize = 0;
+    if context.heap.object_class_index(receiver) is actual_receiver_class_index {
+        receiver_class_index = actual_receiver_class_index;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    var target_method_index: usize = 0;
+    const target_name = classes[declared.class_index].methods[declared.method_index].name.bytes();
+    const target_descriptor = classes[declared.class_index].methods[declared.method_index].descriptor.bytes();
+    const target_method_index_option = classes[receiver_class_index].method_index(target_name, target_descriptor, false);
+    if target_method_index_option is actual_target_method_index {
+        target_method_index = actual_target_method_index as usize;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    if classes[receiver_class_index].methods[target_method_index].is_native() or classes[receiver_class_index].methods[target_method_index].is_abstract() {
+        return .err(InstructionError.unsupported_opcode);
+    }
+
+    var frame = new_frame(receiver_class_index, target_method_index, classes[receiver_class_index].methods[target_method_index].max_locals, classes[receiver_class_index].methods[target_method_index].max_stack);
+    frame.store(0, .ref_value(receiver));
+    var local_index: u16 = 1;
+    var argument_index = arguments.len();
+    while argument_index > 0 {
+        argument_index = argument_index - 1;
+        const value = arguments[argument_index];
+        frame.store(local_index, value);
+        local_index = local_index + value_local_width(value);
+    }
+    drop arguments;
+
+    const result = try execute_method_frame(receiver_class_index, target_method_index, frame, context.constant_pool, context.classes, context.heap);
+    switch result {
+    case .return_value(value) {
+        if value is actual {
+            context.frame.push(actual);
+        }
+    }
+    case .exception(reference) {
+        context.frame.throw_exception(reference);
+    }
+    }
+    return .ok();
+}
+
 fn new_(context: &Context): result<void, InstructionError> {
     const class_index = try find_class_index_by_constant(context, context.read_u2());
     var classes = context.classes;
@@ -2414,7 +2514,7 @@ const registry: [256]Instruction = [
     { opcode: .invoke_virtual, length: 3, execute: invoke_virtual }, // 0xB6 invokevirtual
     { opcode: .invoke_special, length: 3, execute: invoke_special }, // 0xB7 invokespecial
     { opcode: .invoke_static, length: 3, execute: invoke_static }, // 0xB8 invokestatic
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xB9 unsupported
+    { opcode: .invoke_interface, length: 5, execute: invoke_interface }, // 0xB9 invokeinterface
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xBA unsupported
     { opcode: .new_, length: 3, execute: new_ }, // 0xBB new
     { opcode: .newarray, length: 2, execute: newarray }, // 0xBC newarray
@@ -3244,6 +3344,121 @@ test "instruction executes invokevirtual override dispatch" {
     var heap = new_heap();
     const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 1), constant_pool[..], classes[..], &heap);
     assert_int_result(result, 2);
+    drop classes;
+}
+
+test "instruction executes invokeinterface implementation dispatch" {
+    const constant_pool: [9]Constant = [
+        .unusable(0),
+        .utf8("Iface"),
+        .class_ref(1),
+        .utf8("Impl"),
+        .class_ref(3),
+        .utf8("value"),
+        .utf8("()I"),
+        .name_and_type(ConstantNameAndType { name_index: 5, descriptor_index: 6 }),
+        .interface_method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 7 }),
+    ];
+    const caller_code: [9]u8 = [
+        187, 0, 4, // new Impl
+        185, 0, 8, 1, 0, // invokeinterface Iface.value:()I
+        172, // ireturn
+    ];
+    const impl_value_code: [2]u8 = [
+        6, // iconst_3
+        172, // ireturn
+    ];
+    const interface_code: [0]u8 = [];
+    var classes: [2]Class = [
+        Class {
+            name: string.from("Iface".bytes()),
+            descriptor: "LIface;",
+            access_flags: class_access_flags(0x0601),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Iface",
+                    access_flags: method_access_flags(0x0401),
+                    name: "value",
+                    descriptor: "()I",
+                    code: byte_buffer(interface_code[..]),
+                    max_stack: 0,
+                    max_locals: 1,
+                    code_len: 0,
+                    exception_count: 0,
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Iface.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: string.from("Impl".bytes()),
+            descriptor: "LImpl;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: ["Iface"],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Impl",
+                    access_flags: method_access_flags(8),
+                    name: "caller",
+                    descriptor: "()I",
+                    code: byte_buffer(caller_code[..]),
+                    max_stack: 1,
+                    max_locals: 0,
+                    code_len: 9,
+                    exception_count: 0,
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+                Method {
+                    class_name: "Impl",
+                    access_flags: method_access_flags(0),
+                    name: "value",
+                    descriptor: "()I",
+                    code: byte_buffer(impl_value_code[..]),
+                    max_stack: 1,
+                    max_locals: 1,
+                    code_len: 2,
+                    exception_count: 0,
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Impl.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+    const result = try execute_method_frame(1, 0, new_frame(1, 0, 0, 1), constant_pool[..], classes[..], &heap);
+    assert_int_result(result, 3);
     drop classes;
 }
 
