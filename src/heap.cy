@@ -27,10 +27,16 @@ pub struct InternedString {
     pub reference: Reference;
 }
 
+pub struct InternedMethodType {
+    pub descriptor: string;
+    pub reference: Reference;
+}
+
 pub struct Heap {
     pub objects: List<ObjectSlot>;
     pub arrays: List<ArraySlot>;
     pub strings: List<InternedString>;
+    pub method_types: List<InternedMethodType>;
 
     pub fn allocate_object(self: &Heap, class_index: usize, class: &Class): Reference {
         var fields: List<Value> = [];
@@ -95,6 +101,23 @@ pub struct Heap {
         const reference = self.allocate_object(class_index, class);
         self.strings.push(InternedString {
             value: string.from(value),
+            reference: reference,
+        });
+        return reference;
+    }
+
+    pub fn intern_method_type(self: &Heap, class_index: usize, class: &Class, descriptor: []const u8): Reference {
+        var index: usize = 0;
+        while index < self.method_types.len() {
+            if self.method_types[index].descriptor.bytes() == descriptor {
+                return self.method_types[index].reference;
+            }
+            index = index + 1;
+        }
+
+        const reference = self.allocate_object(class_index, class);
+        self.method_types.push(InternedMethodType {
+            descriptor: string.from(descriptor),
             reference: reference,
         });
         return reference;
@@ -196,6 +219,7 @@ pub fn new_heap(): Heap {
         objects: [],
         arrays: [],
         strings: [],
+        method_types: [],
     };
 }
 
@@ -440,4 +464,38 @@ test "heap interns string objects by byte content" {
     assert(heap.strings.len() == 2);
     assert(heap.strings[0].value.bytes() == "hello".bytes());
     assert(heap.strings[1].value.bytes() == "world".bytes());
+}
+
+test "heap interns method type objects by descriptor" {
+    var method_type_class = Class {
+        name: string.from("java/lang/invoke/MethodType".bytes()),
+        descriptor: "Ljava/lang/invoke/MethodType;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [],
+        methods: [],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "MethodType.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+    var heap = new_heap();
+
+    const first = heap.intern_method_type(0, &method_type_class, "(I)V".bytes());
+    const second = heap.intern_method_type(0, &method_type_class, "(I)V".bytes());
+    const third = heap.intern_method_type(0, &method_type_class, "()V".bytes());
+
+    assert(first.equals(second));
+    assert(!first.equals(third));
+    assert(heap.objects.len() == 2);
+    assert(heap.method_types.len() == 2);
+    assert(heap.method_types[0].descriptor.bytes() == "(I)V".bytes());
+    assert(heap.method_types[1].descriptor.bytes() == "()V".bytes());
 }
