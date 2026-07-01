@@ -196,6 +196,7 @@ pub enum Opcode: i32 {
     monitorenter,
     monitorexit,
     wide = 196,
+    multianewarray,
     ifnull = 198,
     ifnonnull,
     goto_w = 200,
@@ -2444,7 +2445,7 @@ fn newarray(context: &Context): result<void, InstructionError> {
         assert(false);
     }
 
-    const reference = context.heap.allocate_array(0, descriptor, count as usize);
+    const reference = context.heap.allocate_array(0, descriptor.bytes(), count as usize);
     context.frame.push(.ref_value(reference));
     return .ok();
 }
@@ -2476,7 +2477,7 @@ fn anewarray(context: &Context): result<void, InstructionError> {
     }
 
     const descriptor = reference_array_component_descriptor(class_name);
-    const reference = context.heap.allocate_array(0, descriptor, count as usize);
+    const reference = context.heap.allocate_array(0, descriptor.bytes(), count as usize);
     context.frame.push(.ref_value(reference));
     drop descriptor;
     drop class_name;
@@ -2530,6 +2531,58 @@ fn monitorexit(context: &Context): result<void, InstructionError> {
     if reference.is_null() {
         assert(false);
     }
+    return .ok();
+}
+
+fn array_component_descriptor_bytes(descriptor: []const u8): []const u8 {
+    if descriptor.len() == 0 or descriptor[0] != 91 {
+        return descriptor[0..0];
+    }
+    return descriptor[1..descriptor.len()];
+}
+
+fn allocate_multi_array(context: &Context, descriptor: []const u8, counts: &List<i32>, depth: usize): Reference {
+    const count = counts[counts.len() - 1 - depth];
+    if count < 0 {
+        assert(false);
+    }
+    const component_bytes = array_component_descriptor_bytes(descriptor);
+    const reference = context.heap.allocate_array(0, component_bytes, count as usize);
+    if depth + 1 < counts.len() {
+        var index: usize = 0;
+        while index < count as usize {
+            const nested = allocate_multi_array(context, component_bytes, counts, depth + 1);
+            if !context.heap.set_element(reference, index, .ref_value(nested)) {
+                assert(false);
+            }
+            index = index + 1;
+        }
+    }
+    return reference;
+}
+
+fn multianewarray(context: &Context): result<void, InstructionError> {
+    const descriptor = try constant_class_name(context, context.read_u2());
+    const dimensions = context.read_u1();
+    if dimensions == 0 {
+        return .err(InstructionError.invalid_constant);
+    }
+
+    var counts: List<i32> = [];
+    var index: u8 = 0;
+    while index < dimensions {
+        const count = expect_int(context.frame.pop());
+        if count < 0 {
+            assert(false);
+        }
+        counts.push(count);
+        index = index + 1;
+    }
+
+    const reference = allocate_multi_array(context, descriptor.bytes(), &counts, 0);
+    context.frame.push(.ref_value(reference));
+    drop counts;
+    drop descriptor;
     return .ok();
 }
 
@@ -2821,7 +2874,7 @@ const registry: [256]Instruction = [
     { opcode: .monitorenter, length: 1, execute: monitorenter }, // 0xC2 monitorenter
     { opcode: .monitorexit, length: 1, execute: monitorexit }, // 0xC3 monitorexit
     { opcode: .wide, length: 0, execute: wide }, // 0xC4 wide
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xC5 unsupported
+    { opcode: .multianewarray, length: 4, execute: multianewarray }, // 0xC5 multianewarray
     { opcode: .ifnull, length: 3, execute: ifnull }, // 0xC6 ifnull
     { opcode: .ifnonnull, length: 3, execute: ifnonnull }, // 0xC7 ifnonnull
     { opcode: .goto_w, length: 5, execute: goto_w }, // 0xC8 goto_w
@@ -5654,6 +5707,7 @@ test "instruction executes anewarray reference array creation" {
     case .ref_value(reference) { assert(reference.is_null()); }
     else { assert(false); }
     }
+    drop heap;
     drop classes;
 }
 
@@ -5899,6 +5953,80 @@ test "instruction executes monitorenter and monitorexit normal paths" {
     const result = try execute_method_frame(0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..], classes[..], &heap);
     assert_int_result(result, 1);
     assert(heap.objects.len() == 1);
+    drop classes;
+}
+
+test "instruction executes multianewarray normal path" {
+    const code: [8]u8 = [
+        5, // iconst_2 outer length
+        6, // iconst_3 inner length
+        197, 0, 2, 2, // multianewarray [[I, 2 dimensions
+        190, // arraylength
+        172, // ireturn
+    ];
+    const constant_pool: [3]Constant = [
+        .unusable(0),
+        .utf8("[[I"),
+        .class_ref(1),
+    ];
+    var classes: [1]Class = [
+        Class {
+            name: string.from("Main".bytes()),
+            descriptor: "LMain;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Main",
+                    access_flags: method_access_flags(0),
+                    name: "multiArray",
+                    descriptor: "()I",
+                    code: byte_buffer(code[..]),
+                    max_stack: 2,
+                    max_locals: 0,
+                    code_len: 8,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Main.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+
+    const result = try execute_method_frame(0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..], classes[..], &heap);
+    assert_int_result(result, 2);
+    assert(heap.arrays.len() == 3);
+    if heap.get_element(Reference { kind: ReferenceKind.array, slot: 0, generation: 1 }, 0) is value {
+        switch value {
+        case .ref_value(reference) {
+            if heap.array_length(reference) is length {
+                assert(length == 3);
+            } else {
+                assert(false);
+            }
+        }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
+    drop heap;
     drop classes;
 }
 
@@ -6159,7 +6287,7 @@ test "instruction executes reference array load store ops" {
         classes: classes[..],
         heap: &heap,
     };
-    const reference = context.heap.allocate_array(0, "Ljava/lang/Object;", 1);
+    const reference = context.heap.allocate_array(0, "Ljava/lang/Object;".bytes(), 1);
 
     context.frame.push(.ref_value(reference));
     push_int(&context, 0);
