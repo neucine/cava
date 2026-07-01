@@ -2241,11 +2241,246 @@ fn is_register_natives(method_name: []const u8, descriptor: []const u8): bool {
     return bytes_equal(method_name, "registerNatives".bytes()) and bytes_equal(descriptor, "()V".bytes());
 }
 
+fn native_ref_arg(arguments: []Value, index: usize): Reference {
+    return expect_ref(arguments[index]);
+}
+
+fn native_int_arg(arguments: []Value, index: usize): i32 {
+    return expect_int(arguments[index]);
+}
+
+fn native_long_arg(arguments: []Value, index: usize): i64 {
+    return expect_long(arguments[index]);
+}
+
+fn native_float_arg(arguments: []Value, index: usize): f32 {
+    return expect_float(arguments[index]);
+}
+
+fn native_double_arg(arguments: []Value, index: usize): f64 {
+    return expect_double(arguments[index]);
+}
+
+fn native_receiver(receiver: ?Reference): result<Reference, InstructionError> {
+    if receiver is actual {
+        return .ok(actual);
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn identity_hash_code(reference: Reference): i32 {
+    if reference.slot is slot {
+        const mixed = (slot as u64) +% (reference.generation *% 1103515245);
+        return (mixed & 2147483647) as i32;
+    }
+    return 0;
+}
+
+fn native_arraycopy(context: &Context, arguments: []Value): result<void, InstructionError> {
+    if arguments.len() < 5 {
+        return .err(InstructionError.invalid_constant);
+    }
+    const src = native_ref_arg(arguments, 0);
+    const src_pos = native_int_arg(arguments, 1);
+    const dest = native_ref_arg(arguments, 2);
+    const dest_pos = native_int_arg(arguments, 3);
+    const length = native_int_arg(arguments, 4);
+    if src_pos < 0 or dest_pos < 0 or length < 0 {
+        return .err(InstructionError.invalid_constant);
+    }
+    const src_start = src_pos as usize;
+    const dest_start = dest_pos as usize;
+    const count = length as usize;
+    var src_len: usize = 0;
+    if context.heap.array_length(src) is actual_src_len {
+        src_len = actual_src_len;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    var dest_len: usize = 0;
+    if context.heap.array_length(dest) is actual_dest_len {
+        dest_len = actual_dest_len;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    if src_start + count > src_len or dest_start + count > dest_len {
+        return .err(InstructionError.invalid_constant);
+    }
+
+    if src.equals(dest) and dest_start > src_start {
+        var index = count;
+        while index > 0 {
+            index = index - 1;
+            var value: Value = .int_value(0);
+            if context.heap.get_element(src, src_start + index) is actual_value {
+                value = actual_value;
+            } else {
+                return .err(InstructionError.invalid_constant);
+            }
+            if !context.heap.set_element(dest, dest_start + index, value) {
+                return .err(InstructionError.invalid_constant);
+            }
+        }
+        return .ok();
+    }
+
+    var index: usize = 0;
+    while index < count {
+        var value: Value = .int_value(0);
+        if context.heap.get_element(src, src_start + index) is actual_value {
+            value = actual_value;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
+        if !context.heap.set_element(dest, dest_start + index, value) {
+            return .err(InstructionError.invalid_constant);
+        }
+        index = index + 1;
+    }
+    return .ok();
+}
+
+fn native_return(value: Value): result<?Value, InstructionError> {
+    return .ok(value);
+}
+
 fn execute_native_method(context: &Context, class_index: usize, method_index: usize, receiver: ?Reference, arguments: []Value): result<?Value, InstructionError> {
-    const unused_receiver = receiver;
-    const unused_argument_count = arguments.len();
-    if is_register_natives(context.classes[class_index].methods[method_index].name.bytes(), context.classes[class_index].methods[method_index].descriptor.bytes()) {
+    const class_name = context.classes[class_index].name.bytes();
+    const method_name = context.classes[class_index].methods[method_index].name.bytes();
+    const descriptor = context.classes[class_index].methods[method_index].descriptor.bytes();
+    if is_register_natives(method_name, descriptor) {
         return .ok(none);
+    }
+    if bytes_equal(class_name, "java/lang/System".bytes()) {
+        if bytes_equal(method_name, "setIn0".bytes()) and bytes_equal(descriptor, "(Ljava/io/InputStream;)V".bytes()) {
+            const ignored = native_ref_arg(arguments, 0);
+            return .ok(none);
+        }
+        if bytes_equal(method_name, "setOut0".bytes()) and bytes_equal(descriptor, "(Ljava/io/PrintStream;)V".bytes()) {
+            const ignored = native_ref_arg(arguments, 0);
+            return .ok(none);
+        }
+        if bytes_equal(method_name, "setErr0".bytes()) and bytes_equal(descriptor, "(Ljava/io/PrintStream;)V".bytes()) {
+            const ignored = native_ref_arg(arguments, 0);
+            return .ok(none);
+        }
+        if bytes_equal(method_name, "arraycopy".bytes()) and bytes_equal(descriptor, "(Ljava/lang/Object;ILjava/lang/Object;II)V".bytes()) {
+            try native_arraycopy(context, arguments);
+            return .ok(none);
+        }
+        if bytes_equal(method_name, "identityHashCode".bytes()) and bytes_equal(descriptor, "(Ljava/lang/Object;)I".bytes()) {
+            return native_return(.int_value(identity_hash_code(native_ref_arg(arguments, 0))));
+        }
+    }
+    if bytes_equal(class_name, "java/lang/Object".bytes()) {
+        if bytes_equal(method_name, "hashCode".bytes()) and bytes_equal(descriptor, "()I".bytes()) {
+            return native_return(.int_value(identity_hash_code(try native_receiver(receiver))));
+        }
+        if bytes_equal(method_name, "getClass".bytes()) and bytes_equal(descriptor, "()Ljava/lang/Class;".bytes()) {
+            const actual_receiver = try native_receiver(receiver);
+            if context.heap.object_class_index(actual_receiver) is actual_class_index {
+                return native_return(.ref_value(context.classes[actual_class_index].class_object));
+            }
+            if context.heap.array_class_index(actual_receiver) is actual_class_index {
+                return native_return(.ref_value(context.classes[actual_class_index].class_object));
+            }
+            return .err(InstructionError.invalid_constant);
+        }
+        if bytes_equal(method_name, "notify".bytes()) and bytes_equal(descriptor, "()V".bytes()) {
+            const ignored = try native_receiver(receiver);
+            return .ok(none);
+        }
+        if bytes_equal(method_name, "notifyAll".bytes()) and bytes_equal(descriptor, "()V".bytes()) {
+            const ignored = try native_receiver(receiver);
+            return .ok(none);
+        }
+        if bytes_equal(method_name, "wait".bytes()) and bytes_equal(descriptor, "(J)V".bytes()) {
+            const ignored_receiver = try native_receiver(receiver);
+            const ignored_millis = native_long_arg(arguments, 0);
+            return .ok(none);
+        }
+    }
+    if bytes_equal(class_name, "java/lang/String".bytes()) {
+        if bytes_equal(method_name, "intern".bytes()) and bytes_equal(descriptor, "()Ljava/lang/String;".bytes()) {
+            return native_return(.ref_value(try native_receiver(receiver)));
+        }
+    }
+    if bytes_equal(class_name, "java/lang/Float".bytes()) {
+        if bytes_equal(method_name, "floatToRawIntBits".bytes()) and bytes_equal(descriptor, "(F)I".bytes()) {
+            return native_return(.int_value(native_float_arg(arguments, 0) as! i32));
+        }
+        if bytes_equal(method_name, "intBitsToFloat".bytes()) and bytes_equal(descriptor, "(I)F".bytes()) {
+            return native_return(.float_value(native_int_arg(arguments, 0) as! f32));
+        }
+    }
+    if bytes_equal(class_name, "java/lang/Double".bytes()) {
+        if bytes_equal(method_name, "doubleToRawLongBits".bytes()) and bytes_equal(descriptor, "(D)J".bytes()) {
+            return native_return(.long_value(native_double_arg(arguments, 0) as! i64));
+        }
+        if bytes_equal(method_name, "longBitsToDouble".bytes()) and bytes_equal(descriptor, "(J)D".bytes()) {
+            return native_return(.double_value(native_long_arg(arguments, 0) as! f64));
+        }
+    }
+    if bytes_equal(class_name, "java/lang/Thread".bytes()) {
+        if bytes_equal(method_name, "isAlive".bytes()) and bytes_equal(descriptor, "()Z".bytes()) {
+            const ignored = try native_receiver(receiver);
+            return native_return(.boolean_value(0));
+        }
+        if bytes_equal(method_name, "setPriority0".bytes()) and bytes_equal(descriptor, "(I)V".bytes()) {
+            const ignored_receiver = try native_receiver(receiver);
+            const ignored_priority = native_int_arg(arguments, 0);
+            return .ok(none);
+        }
+        if bytes_equal(method_name, "start0".bytes()) and bytes_equal(descriptor, "()V".bytes()) {
+            const ignored = try native_receiver(receiver);
+            return .ok(none);
+        }
+        if bytes_equal(method_name, "sleep".bytes()) and bytes_equal(descriptor, "(J)V".bytes()) {
+            const ignored_millis = native_long_arg(arguments, 0);
+            return .ok(none);
+        }
+        if bytes_equal(method_name, "interrupt0".bytes()) and bytes_equal(descriptor, "()V".bytes()) {
+            const ignored = try native_receiver(receiver);
+            return .ok(none);
+        }
+        if bytes_equal(method_name, "isInterrupted".bytes()) and bytes_equal(descriptor, "(Z)Z".bytes()) {
+            const ignored_receiver = try native_receiver(receiver);
+            const ignored_clear_interrupted = native_int_arg(arguments, 0);
+            return native_return(.boolean_value(0));
+        }
+    }
+    if bytes_equal(class_name, "java/lang/Throwable".bytes()) {
+        if bytes_equal(method_name, "getStackTraceDepth".bytes()) and bytes_equal(descriptor, "()I".bytes()) {
+            const ignored = try native_receiver(receiver);
+            return native_return(.int_value(0));
+        }
+        if bytes_equal(method_name, "fillInStackTrace".bytes()) and bytes_equal(descriptor, "(I)Ljava/lang/Throwable;".bytes()) {
+            const actual_receiver = try native_receiver(receiver);
+            const ignored_dummy = native_int_arg(arguments, 0);
+            return native_return(.ref_value(actual_receiver));
+        }
+    }
+    if bytes_equal(class_name, "java/lang/Runtime".bytes()) {
+        if bytes_equal(method_name, "availableProcessors".bytes()) and bytes_equal(descriptor, "()I".bytes()) {
+            const ignored = try native_receiver(receiver);
+            return native_return(.int_value(1));
+        }
+    }
+    if bytes_equal(class_name, "sun/misc/VM".bytes()) {
+        if bytes_equal(method_name, "initialize".bytes()) and bytes_equal(descriptor, "()V".bytes()) {
+            return .ok(none);
+        }
+    }
+    if bytes_equal(class_name, "sun/misc/Unsafe".bytes()) {
+        if bytes_equal(method_name, "arrayBaseOffset".bytes()) and bytes_equal(descriptor, "(Ljava/lang/Class;)I".bytes()) {
+            return native_return(.int_value(0));
+        }
+        if bytes_equal(method_name, "arrayIndexScale".bytes()) and bytes_equal(descriptor, "(Ljava/lang/Class;)I".bytes()) {
+            return native_return(.int_value(1));
+        }
+        if bytes_equal(method_name, "addressSize".bytes()) and bytes_equal(descriptor, "()I".bytes()) {
+            return native_return(.int_value(8));
+        }
     }
     return .err(InstructionError.unsupported_native);
 }
@@ -4048,6 +4283,206 @@ test "instruction reports unsupported native method" {
     }
     }
     drop classes;
+}
+
+test "instruction executes System.arraycopy native" {
+    const native_code: [0]u8 = [];
+    var classes: [1]Class = [
+        Class {
+            name: string.from("java/lang/System".bytes()),
+            descriptor: "Ljava/lang/System;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "java/lang/System",
+                    access_flags: method_access_flags(0x0108),
+                    name: "arraycopy",
+                    descriptor: "(Ljava/lang/Object;ILjava/lang/Object;II)V",
+                    code: byte_buffer(native_code[..]),
+                    max_stack: 0,
+                    max_locals: 0,
+                    code_len: 0,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 5,
+                    return_descriptor: "V",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "System.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+    const src = heap.allocate_array(0, "I".bytes(), 3);
+    const dest = heap.allocate_array(0, "I".bytes(), 3);
+    assert(heap.set_element(src, 0, .int_value(7)));
+    assert(heap.set_element(src, 1, .int_value(8)));
+    assert(heap.set_element(src, 2, .int_value(9)));
+    var constant_pool: [:]Constant = [: 0] [];
+    var context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 0),
+        code: native_code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: &heap,
+    };
+    var arguments: [5]Value = [
+        .ref_value(src),
+        .int_value(1),
+        .ref_value(dest),
+        .int_value(0),
+        .int_value(2),
+    ];
+
+    const result = try execute_native_method(&context, 0, 0, none, arguments[..]);
+    assert(result == none);
+    if heap.get_element(dest, 0) is first {
+        assert_int_result(.return_value(first), 8);
+    } else {
+        assert(false);
+    }
+    if heap.get_element(dest, 1) is second {
+        assert_int_result(.return_value(second), 9);
+    } else {
+        assert(false);
+    }
+    drop context;
+    drop classes;
+    drop constant_pool;
+}
+
+test "instruction executes float and double raw bit natives" {
+    const native_code: [0]u8 = [];
+    var classes: [2]Class = [
+        Class {
+            name: string.from("java/lang/Float".bytes()),
+            descriptor: "Ljava/lang/Float;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "java/lang/Float",
+                    access_flags: method_access_flags(0x0108),
+                    name: "floatToRawIntBits",
+                    descriptor: "(F)I",
+                    code: byte_buffer(native_code[..]),
+                    max_stack: 0,
+                    max_locals: 0,
+                    code_len: 0,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 1,
+                    return_descriptor: "I",
+                },
+                Method {
+                    class_name: "java/lang/Float",
+                    access_flags: method_access_flags(0x0108),
+                    name: "intBitsToFloat",
+                    descriptor: "(I)F",
+                    code: byte_buffer(native_code[..]),
+                    max_stack: 0,
+                    max_locals: 0,
+                    code_len: 0,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 1,
+                    return_descriptor: "F",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Float.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: string.from("java/lang/Double".bytes()),
+            descriptor: "Ljava/lang/Double;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "java/lang/Double",
+                    access_flags: method_access_flags(0x0108),
+                    name: "longBitsToDouble",
+                    descriptor: "(J)D",
+                    code: byte_buffer(native_code[..]),
+                    max_stack: 0,
+                    max_locals: 0,
+                    code_len: 0,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 1,
+                    return_descriptor: "D",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Double.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+    var constant_pool: [:]Constant = [: 0] [];
+    var context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 0),
+        code: native_code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: &heap,
+    };
+    var float_args: [1]Value = [.float_value(1.0)];
+    const float_bits = try execute_native_method(&context, 0, 0, none, float_args[..]);
+    assert_int_result(.return_value(float_bits), 1065353216);
+
+    var int_args: [1]Value = [.int_value(1073741824)];
+    const float_value = try execute_native_method(&context, 0, 1, none, int_args[..]);
+    assert_float_result(.return_value(float_value), 2.0);
+
+    var long_args: [1]Value = [.long_value(4611686018427387904)];
+    const double_value = try execute_native_method(&context, 1, 0, none, long_args[..]);
+    assert_double_result(.return_value(double_value), 2.0);
+    drop context;
+    drop classes;
+    drop constant_pool;
 }
 
 test "instruction executes new object allocation" {

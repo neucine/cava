@@ -198,6 +198,13 @@ pub struct Heap {
         return none;
     }
 
+    pub fn array_class_index(self: &Heap, reference: Reference): ?usize {
+        if self.array_index(reference) is array_index_value {
+            return self.arrays[array_index_value].array.class_index;
+        }
+        return none;
+    }
+
     pub fn get_element(self: &Heap, reference: Reference, index: usize): ?Value {
         if self.array_index(reference) is array_index_value {
             if index < self.arrays[array_index_value].array.elements.len() {
