@@ -186,6 +186,7 @@ pub enum Opcode: i32 {
     invoke_static,
     invoke_interface,
     invoke_dynamic,
+    new_ = 187,
     newarray = 188,
     arraylength = 190,
     athrow = 191,
@@ -1862,6 +1863,14 @@ fn invoke_static(context: &Context): result<void, InstructionError> {
     return .ok();
 }
 
+fn new_(context: &Context): result<void, InstructionError> {
+    const class_index = try find_class_index_by_constant(context, context.read_u2());
+    var classes = context.classes;
+    const reference = context.heap.allocate_object(class_index, &classes[class_index]);
+    context.frame.push(.ref_value(reference));
+    return .ok();
+}
+
 fn getstatic(context: &Context): result<void, InstructionError> {
     const field = try resolve_field(context, context.read_u2());
     if !field.is_static() {
@@ -2254,7 +2263,7 @@ const registry: [256]Instruction = [
     { opcode: .invoke_static, length: 3, execute: invoke_static }, // 0xB8 invokestatic
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xB9 unsupported
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xBA unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xBB unsupported
+    { opcode: .new_, length: 3, execute: new_ }, // 0xBB new
     { opcode: .newarray, length: 2, execute: newarray }, // 0xBC newarray
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xBD unsupported
     { opcode: .arraylength, length: 1, execute: arraylength }, // 0xBE arraylength
@@ -2784,6 +2793,72 @@ test "instruction executes invokestatic int method" {
     const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 2), constant_pool[..], classes[..]);
     assert_int_result(result, 5);
     drop classes;
+}
+
+test "instruction executes new object allocation" {
+    const code: [3]u8 = [
+        187, 0, 2, // new Example
+    ];
+    const constant_pool: [3]Constant = [
+        .unusable(0),
+        .utf8("Example"),
+        .class_ref(1),
+    ];
+    const instance_field = Field {
+        class_name: "Example",
+        access_flags: field_access_flags(1),
+        name: "value",
+        descriptor: "I",
+        index: 0,
+        slot: 0,
+    };
+    var classes: [1]Class = [
+        Class {
+            name: string.from("Example".bytes()),
+            descriptor: "LExample;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [instance_field],
+            methods: [],
+            instance_vars: 1,
+            static_vars: [],
+            source_file: "Example.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 1),
+        code: code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: new_heap(),
+    };
+
+    const execute_result = execute_next(&context);
+    switch execute_result {
+    case .ok {}
+    case .err(error_value) {
+        const ignored = error_value;
+        assert(false);
+    }
+    }
+    const reference = expect_ref(context.frame.pop());
+    assert(context.heap.has_object(reference));
+    if context.heap.get_field(reference, 0) is value {
+        assert_int_result(.return_value(value), 0);
+    } else {
+        assert(false);
+    }
+    drop context;
 }
 
 test "instruction executes int local shorthand load store and add" {
