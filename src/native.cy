@@ -239,6 +239,10 @@ struct JavaLangSystem {
     pub fn mapLibraryName(context: &Context, name: Reference): result<?Value, InstructionError> {
         return return_value(.ref_value(name));
     }
+
+    pub fn initProperties(context: &Context, properties: Reference): result<?Value, InstructionError> {
+        return return_value(.ref_value(properties));
+    }
 }
 
 struct JavaLangObject {
@@ -342,6 +346,25 @@ struct JavaLangClass {
         }
         return .err(InstructionError.invalid_constant);
     }
+
+    pub fn getClassAccessFlagsRaw0(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        return JavaLangClass.getModifiers(context, receiver);
+    }
+
+    pub fn getClassFileVersion0(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        return return_value(.int_value(52));
+    }
+
+    pub fn isHidden(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn isRecord0(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        return return_value(.boolean_value(0));
+    }
 }
 
 struct JavaLangClassLoader {
@@ -433,6 +456,25 @@ struct JavaLangThread {
         const ignored_clear_interrupted = clear_interrupted;
         return return_value(.boolean_value(0));
     }
+
+    pub fn holdsLock(context: &Context, object: Reference): result<?Value, InstructionError> {
+        const ignored_object = object;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn yield0(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+
+    pub fn clearInterruptEvent(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+
+    pub fn setNativeName(context: &Context, receiver: Reference, name: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_name = name;
+        return .ok(none);
+    }
 }
 
 struct JavaLangThrowable {
@@ -451,6 +493,97 @@ struct JavaLangRuntime {
     pub fn availableProcessors(context: &Context, receiver: Reference): result<?Value, InstructionError> {
         const ignored_receiver = receiver;
         return return_value(.int_value(1));
+    }
+
+    pub fn freeMemory(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        return return_value(.long_value(16 * 1024 * 1024));
+    }
+
+    pub fn totalMemory(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        return return_value(.long_value(16 * 1024 * 1024));
+    }
+
+    pub fn maxMemory(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        return return_value(.long_value(256 * 1024 * 1024));
+    }
+
+    pub fn gc(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        return .ok(none);
+    }
+}
+
+struct JavaLangShutdown {
+    pub fn beforeHalt(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+
+    pub fn halt0(context: &Context, status: i32): result<?Value, InstructionError> {
+        const ignored_status = status;
+        return .ok(none);
+    }
+}
+
+struct JavaLangRefFinalizer {
+    pub fn isFinalizationEnabled(context: &Context): result<?Value, InstructionError> {
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn reportComplete(context: &Context, finalizer: Reference): result<?Value, InstructionError> {
+        const ignored_finalizer = finalizer;
+        return .ok(none);
+    }
+}
+
+struct JavaLangRefReference {
+    pub fn getAndClearReferencePendingList(context: &Context): result<?Value, InstructionError> {
+        return return_value(.ref_value(null_ref));
+    }
+
+    pub fn hasReferencePendingList(context: &Context): result<?Value, InstructionError> {
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn waitForReferencePendingList(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+
+    pub fn refersTo0(context: &Context, receiver: Reference, object: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_object = object;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn clear0(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        return .ok(none);
+    }
+}
+
+struct SunReflectReflection {
+    pub fn getCallerClass(context: &Context): result<?Value, InstructionError> {
+        const class_object = context.classes[context.class_index].class_object;
+        return return_value(.ref_value(class_object));
+    }
+
+    pub fn getClassAccessFlags(context: &Context, class_object: Reference): result<?Value, InstructionError> {
+        if find_class_object_index(context, class_object) is class_index {
+            return return_value(.int_value(raw_class_access(context.classes[class_index].access_flags) as i32));
+        }
+        return .err(InstructionError.invalid_constant);
+    }
+}
+
+struct JdkInternalReflectReflection {
+    pub fn getCallerClass(context: &Context): result<?Value, InstructionError> {
+        return SunReflectReflection.getCallerClass(context);
+    }
+
+    pub fn getClassAccessFlags(context: &Context, class_object: Reference): result<?Value, InstructionError> {
+        return SunReflectReflection.getClassAccessFlags(context, class_object);
     }
 }
 
@@ -502,6 +635,102 @@ struct JavaIoUnixFileSystem {
     pub fn initIDs(context: &Context): result<?Value, InstructionError> {
         return .ok(none);
     }
+
+    pub fn canonicalize0(context: &Context, receiver: Reference, path: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        return return_value(.ref_value(path));
+    }
+
+    pub fn getBooleanAttributes0(context: &Context, receiver: Reference, file: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        return return_value(.int_value(0));
+    }
+
+    pub fn checkAccess0(context: &Context, receiver: Reference, file: Reference, access: i32): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        const ignored_access = access;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn getLastModifiedTime0(context: &Context, receiver: Reference, file: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        return return_value(.long_value(0));
+    }
+
+    pub fn getLength0(context: &Context, receiver: Reference, file: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        return return_value(.long_value(0));
+    }
+
+    pub fn setPermission0(context: &Context, receiver: Reference, file: Reference, access: i32, enable: i32, owneronly: i32): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        const ignored_access = access;
+        const ignored_enable = enable;
+        const ignored_owneronly = owneronly;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn createFileExclusively0(context: &Context, receiver: Reference, path: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_path = path;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn delete0(context: &Context, receiver: Reference, file: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn list0(context: &Context, receiver: Reference, file: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        return return_value(.ref_value(null_ref));
+    }
+
+    pub fn createDirectory0(context: &Context, receiver: Reference, file: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn rename0(context: &Context, receiver: Reference, from_file: Reference, to_file: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_from_file = from_file;
+        const ignored_to_file = to_file;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn setLastModifiedTime0(context: &Context, receiver: Reference, file: Reference, time: i64): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        const ignored_time = time;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn setReadOnly0(context: &Context, receiver: Reference, file: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        return return_value(.boolean_value(0));
+    }
+
+    pub fn getSpace0(context: &Context, receiver: Reference, file: Reference, t: i32): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_file = file;
+        const ignored_t = t;
+        return return_value(.long_value(0));
+    }
+
+    pub fn getNameMax0(context: &Context, receiver: Reference, path: Reference): result<?Value, InstructionError> {
+        const ignored_receiver = receiver;
+        const ignored_path = path;
+        return return_value(.long_value(255));
+    }
 }
 
 struct JavaUtilConcurrentAtomicAtomicLong {
@@ -535,6 +764,7 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
         if method_is(method_name, descriptor, "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V") { return JavaLangSystem.arraycopy(context, ref_arg(arguments, 0), int_arg(arguments, 1), ref_arg(arguments, 2), int_arg(arguments, 3), int_arg(arguments, 4)); }
         if method_is(method_name, descriptor, "identityHashCode", "(Ljava/lang/Object;)I") { return JavaLangSystem.identityHashCode(context, ref_arg(arguments, 0)); }
         if method_is(method_name, descriptor, "mapLibraryName", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangSystem.mapLibraryName(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "initProperties", "(Ljava/util/Properties;)Ljava/util/Properties;") { return JavaLangSystem.initProperties(context, ref_arg(arguments, 0)); }
     }
 
     if class_name == "java/lang/Object" {
@@ -559,6 +789,10 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
         if method_is(method_name, descriptor, "isInterface", "()Z") { return JavaLangClass.isInterface(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "getModifiers", "()I") { return JavaLangClass.getModifiers(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "getSuperclass", "()Ljava/lang/Class;") { return JavaLangClass.getSuperclass(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getClassAccessFlagsRaw0", "()I") { return JavaLangClass.getClassAccessFlagsRaw0(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getClassFileVersion0", "()I") { return JavaLangClass.getClassFileVersion0(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "isHidden", "()Z") { return JavaLangClass.isHidden(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "isRecord0", "()Z") { return JavaLangClass.isRecord0(context, try receiver_ref(receiver)); }
     }
 
     if class_name == "java/lang/ClassLoader" {
@@ -592,6 +826,10 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
         if method_is(method_name, descriptor, "sleep", "(J)V") { return JavaLangThread.sleep(context, long_arg(arguments, 0)); }
         if method_is(method_name, descriptor, "interrupt0", "()V") { return JavaLangThread.interrupt0(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "isInterrupted", "(Z)Z") { return JavaLangThread.isInterrupted(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "holdsLock", "(Ljava/lang/Object;)Z") { return JavaLangThread.holdsLock(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "yield0", "()V") { return JavaLangThread.yield0(context); }
+        if method_is(method_name, descriptor, "clearInterruptEvent", "()V") { return JavaLangThread.clearInterruptEvent(context); }
+        if method_is(method_name, descriptor, "setNativeName", "(Ljava/lang/String;)V") { return JavaLangThread.setNativeName(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
     }
 
     if class_name == "java/lang/Throwable" {
@@ -601,6 +839,38 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/lang/Runtime" {
         if method_is(method_name, descriptor, "availableProcessors", "()I") { return JavaLangRuntime.availableProcessors(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "freeMemory", "()J") { return JavaLangRuntime.freeMemory(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "totalMemory", "()J") { return JavaLangRuntime.totalMemory(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "maxMemory", "()J") { return JavaLangRuntime.maxMemory(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "gc", "()V") { return JavaLangRuntime.gc(context, try receiver_ref(receiver)); }
+    }
+
+    if class_name == "java/lang/Shutdown" {
+        if method_is(method_name, descriptor, "beforeHalt", "()V") { return JavaLangShutdown.beforeHalt(context); }
+        if method_is(method_name, descriptor, "halt0", "(I)V") { return JavaLangShutdown.halt0(context, int_arg(arguments, 0)); }
+    }
+
+    if class_name == "java/lang/ref/Finalizer" {
+        if method_is(method_name, descriptor, "isFinalizationEnabled", "()Z") { return JavaLangRefFinalizer.isFinalizationEnabled(context); }
+        if method_is(method_name, descriptor, "reportComplete", "(Ljava/lang/Object;)V") { return JavaLangRefFinalizer.reportComplete(context, ref_arg(arguments, 0)); }
+    }
+
+    if class_name == "java/lang/ref/Reference" {
+        if method_is(method_name, descriptor, "getAndClearReferencePendingList", "()Ljava/lang/ref/Reference;") { return JavaLangRefReference.getAndClearReferencePendingList(context); }
+        if method_is(method_name, descriptor, "hasReferencePendingList", "()Z") { return JavaLangRefReference.hasReferencePendingList(context); }
+        if method_is(method_name, descriptor, "waitForReferencePendingList", "()V") { return JavaLangRefReference.waitForReferencePendingList(context); }
+        if method_is(method_name, descriptor, "refersTo0", "(Ljava/lang/Object;)Z") { return JavaLangRefReference.refersTo0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "clear0", "()V") { return JavaLangRefReference.clear0(context, try receiver_ref(receiver)); }
+    }
+
+    if class_name == "sun/reflect/Reflection" {
+        if method_is(method_name, descriptor, "getCallerClass", "()Ljava/lang/Class;") { return SunReflectReflection.getCallerClass(context); }
+        if method_is(method_name, descriptor, "getClassAccessFlags", "(Ljava/lang/Class;)I") { return SunReflectReflection.getClassAccessFlags(context, ref_arg(arguments, 0)); }
+    }
+
+    if class_name == "jdk/internal/reflect/Reflection" {
+        if method_is(method_name, descriptor, "getCallerClass", "()Ljava/lang/Class;") { return JdkInternalReflectReflection.getCallerClass(context); }
+        if method_is(method_name, descriptor, "getClassAccessFlags", "(Ljava/lang/Class;)I") { return JdkInternalReflectReflection.getClassAccessFlags(context, ref_arg(arguments, 0)); }
     }
 
     if class_name == "sun/misc/VM" {
@@ -628,6 +898,21 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/io/UnixFileSystem" {
         if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoUnixFileSystem.initIDs(context); }
+        if method_is(method_name, descriptor, "canonicalize0", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaIoUnixFileSystem.canonicalize0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "getBooleanAttributes0", "(Ljava/io/File;)I") { return JavaIoUnixFileSystem.getBooleanAttributes0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "checkAccess0", "(Ljava/io/File;I)Z") { return JavaIoUnixFileSystem.checkAccess0(context, try receiver_ref(receiver), ref_arg(arguments, 0), int_arg(arguments, 1)); }
+        if method_is(method_name, descriptor, "getLastModifiedTime0", "(Ljava/io/File;)J") { return JavaIoUnixFileSystem.getLastModifiedTime0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "getLength0", "(Ljava/io/File;)J") { return JavaIoUnixFileSystem.getLength0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "setPermission0", "(Ljava/io/File;IZZ)Z") { return JavaIoUnixFileSystem.setPermission0(context, try receiver_ref(receiver), ref_arg(arguments, 0), int_arg(arguments, 1), int_arg(arguments, 2), int_arg(arguments, 3)); }
+        if method_is(method_name, descriptor, "createFileExclusively0", "(Ljava/lang/String;)Z") { return JavaIoUnixFileSystem.createFileExclusively0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "delete0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.delete0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "list0", "(Ljava/io/File;)[Ljava/lang/String;") { return JavaIoUnixFileSystem.list0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "createDirectory0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.createDirectory0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "rename0", "(Ljava/io/File;Ljava/io/File;)Z") { return JavaIoUnixFileSystem.rename0(context, try receiver_ref(receiver), ref_arg(arguments, 0), ref_arg(arguments, 1)); }
+        if method_is(method_name, descriptor, "setLastModifiedTime0", "(Ljava/io/File;J)Z") { return JavaIoUnixFileSystem.setLastModifiedTime0(context, try receiver_ref(receiver), ref_arg(arguments, 0), long_arg(arguments, 1)); }
+        if method_is(method_name, descriptor, "setReadOnly0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.setReadOnly0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "getSpace0", "(Ljava/io/File;I)J") { return JavaIoUnixFileSystem.getSpace0(context, try receiver_ref(receiver), ref_arg(arguments, 0), int_arg(arguments, 1)); }
+        if method_is(method_name, descriptor, "getNameMax0", "(Ljava/lang/String;)J") { return JavaIoUnixFileSystem.getNameMax0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
     }
 
     if class_name == "java/util/concurrent/atomic/AtomicLong" {
@@ -826,6 +1111,100 @@ test "native Class metadata reads represented class" {
     if object_super_class is object_super_value {
         switch object_super_value {
         case .ref_value(actual) { assert(actual.is_null()); }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
+    drop context;
+    drop classes;
+    drop constant_pool;
+}
+
+test "native bootstrap helpers return conservative values" {
+    const native_code: [0]u8 = [];
+    const class_object = Reference {
+        kind: ReferenceKind.object,
+        slot: 7,
+        generation: 1,
+    };
+    var classes: [1]Class = [
+        Class {
+            name: "Example",
+            descriptor: "LExample;",
+            access_flags: class_access_flags(0x0421),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Example.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: class_object,
+        },
+    ];
+    var heap = new_heap();
+    var constant_pool: [:]Constant = [: 0] [];
+    var context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 0),
+        code: native_code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: &heap,
+    };
+
+    const runtime = Reference {
+        kind: ReferenceKind.object,
+        slot: 8,
+        generation: 1,
+    };
+    const free_memory = try JavaLangRuntime.freeMemory(&context, runtime);
+    if free_memory is free_value {
+        switch free_value {
+        case .long_value(actual) { assert(actual > 0); }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
+
+    const access_flags_value = try SunReflectReflection.getClassAccessFlags(&context, class_object);
+    if access_flags_value is flags_value {
+        switch flags_value {
+        case .int_value(actual) { assert(actual == 0x0421); }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
+
+    const path = Reference {
+        kind: ReferenceKind.object,
+        slot: 9,
+        generation: 1,
+    };
+    const canonicalized = try JavaIoUnixFileSystem.canonicalize0(&context, runtime, path);
+    if canonicalized is canonicalized_value {
+        switch canonicalized_value {
+        case .ref_value(actual) { assert(actual.equals(path)); }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
+
+    const pending = try JavaLangRefReference.hasReferencePendingList(&context);
+    if pending is pending_value {
+        switch pending_value {
+        case .boolean_value(actual) { assert(actual == 0); }
         else { assert(false); }
         }
     } else {

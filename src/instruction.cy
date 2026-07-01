@@ -3947,7 +3947,7 @@ test "instruction executes registerNatives native no-op" {
     drop classes;
 }
 
-test "instruction reports unsupported native method" {
+test "instruction executes System.initProperties native" {
     const constant_pool: [7]Constant = [
         .unusable(0),
         .utf8("java/lang/System"),
@@ -4019,16 +4019,8 @@ test "instruction reports unsupported native method" {
     ];
 
     var heap = new_heap();
-    const result = execute_method_frame(0, 0, new_frame(0, 0, 0, 1), constant_pool[..], classes[..], &heap);
-    switch result {
-    case .ok(value) {
-        const ignored = value;
-        assert(false);
-    }
-    case .err(error_value) {
-        assert(error_value == InstructionError.unsupported_native);
-    }
-    }
+    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 1), constant_pool[..], classes[..], &heap);
+    assert_null_ref_result(result);
     drop classes;
 }
 
