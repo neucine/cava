@@ -5,14 +5,14 @@ import { new_heap } from .heap;
 import { Class, Field, InstructionError, Reference, ReferenceKind, Value, class_access_flags, field_access_flags, null_ref, raw_class_access } from .types;
 import { monotonic_ns, now_ns, ns_to_ms } from std.time;
 
-fn ref_arg(arguments: []Value, index: usize): Reference {
+fn ref_arg(arguments: &List<Value>, index: usize): Reference {
     switch arguments[index] {
     case .ref_value(actual) { return actual; }
     else { return Reference.init_null(); }
     }
 }
 
-fn int_arg(arguments: []Value, index: usize): i32 {
+fn int_arg(arguments: &List<Value>, index: usize): i32 {
     switch arguments[index] {
     case .int_value(actual) { return actual; }
     case .boolean_value(actual) { return actual as i32; }
@@ -23,21 +23,21 @@ fn int_arg(arguments: []Value, index: usize): i32 {
     }
 }
 
-fn long_arg(arguments: []Value, index: usize): i64 {
+fn long_arg(arguments: &List<Value>, index: usize): i64 {
     switch arguments[index] {
     case .long_value(actual) { return actual; }
     else { return 0; }
     }
 }
 
-fn float_arg(arguments: []Value, index: usize): f32 {
+fn float_arg(arguments: &List<Value>, index: usize): f32 {
     switch arguments[index] {
     case .float_value(actual) { return actual; }
     else { return 0.0; }
     }
 }
 
-fn double_arg(arguments: []Value, index: usize): f64 {
+fn double_arg(arguments: &List<Value>, index: usize): f64 {
     switch arguments[index] {
     case .double_value(actual) { return actual; }
     else { return 0.0; }
@@ -645,6 +645,12 @@ struct JdkInternalReflectReflection {
     }
 }
 
+struct JavaSecurityAccessController {
+    pub fn getStackAccessControlContext(context: &Context): result<?Value, InstructionError> {
+        return return_value(.ref_value(null_ref));
+    }
+}
+
 struct SunMiscVM {
     pub fn initialize(context: &Context): result<?Value, InstructionError> {
         return .ok(none);
@@ -807,22 +813,23 @@ fn method_is(method_name: string, method_descriptor: string, name: string, descr
     return method_name == name and method_descriptor == descriptor;
 }
 
-pub fn execute_native_method(context: &Context, class_index: usize, method_index: usize, receiver: ?Reference, arguments: []Value): result<?Value, InstructionError> {
+pub fn execute_native_method(context: &Context, class_index: usize, method_index: usize, receiver: ?Reference, arguments: List<Value>): result<?Value, InstructionError> {
+    var args = arguments;
     const class_name = context.classes[class_index].name;
     const method_name = context.classes[class_index].methods[method_index].name;
     const descriptor = context.classes[class_index].methods[method_index].descriptor;
 
     if class_name == "java/lang/System" {
         if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangSystem.registerNatives(context); }
-        if method_is(method_name, descriptor, "setIn0", "(Ljava/io/InputStream;)V") { return JavaLangSystem.setIn0(context, ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "setOut0", "(Ljava/io/PrintStream;)V") { return JavaLangSystem.setOut0(context, ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "setErr0", "(Ljava/io/PrintStream;)V") { return JavaLangSystem.setErr0(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "setIn0", "(Ljava/io/InputStream;)V") { return JavaLangSystem.setIn0(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "setOut0", "(Ljava/io/PrintStream;)V") { return JavaLangSystem.setOut0(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "setErr0", "(Ljava/io/PrintStream;)V") { return JavaLangSystem.setErr0(context, ref_arg(&args, 0)); }
         if method_is(method_name, descriptor, "currentTimeMillis", "()J") { return JavaLangSystem.currentTimeMillis(context); }
         if method_is(method_name, descriptor, "nanoTime", "()J") { return JavaLangSystem.nanoTime(context); }
-        if method_is(method_name, descriptor, "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V") { return JavaLangSystem.arraycopy(context, ref_arg(arguments, 0), int_arg(arguments, 1), ref_arg(arguments, 2), int_arg(arguments, 3), int_arg(arguments, 4)); }
-        if method_is(method_name, descriptor, "identityHashCode", "(Ljava/lang/Object;)I") { return JavaLangSystem.identityHashCode(context, ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "mapLibraryName", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangSystem.mapLibraryName(context, ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "initProperties", "(Ljava/util/Properties;)Ljava/util/Properties;") { return JavaLangSystem.initProperties(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V") { return JavaLangSystem.arraycopy(context, ref_arg(&args, 0), int_arg(&args, 1), ref_arg(&args, 2), int_arg(&args, 3), int_arg(&args, 4)); }
+        if method_is(method_name, descriptor, "identityHashCode", "(Ljava/lang/Object;)I") { return JavaLangSystem.identityHashCode(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "mapLibraryName", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangSystem.mapLibraryName(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "initProperties", "(Ljava/util/Properties;)Ljava/util/Properties;") { return JavaLangSystem.initProperties(context, ref_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/Object" {
@@ -832,7 +839,7 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
         if method_is(method_name, descriptor, "clone", "()Ljava/lang/Object;") { return JavaLangObject.clone(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "notify", "()V") { return JavaLangObject.notify(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "notifyAll", "()V") { return JavaLangObject.notifyAll(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "wait", "(J)V") { return JavaLangObject.wait(context, try receiver_ref(receiver), long_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "wait", "(J)V") { return JavaLangObject.wait(context, try receiver_ref(receiver), long_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/String" {
@@ -841,7 +848,7 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/lang/Class" {
         if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangClass.registerNatives(context); }
-        if method_is(method_name, descriptor, "desiredAssertionStatus0", "(Ljava/lang/Class;)Z") { return JavaLangClass.desiredAssertionStatus0(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "desiredAssertionStatus0", "(Ljava/lang/Class;)Z") { return JavaLangClass.desiredAssertionStatus0(context, ref_arg(&args, 0)); }
         if method_is(method_name, descriptor, "isPrimitive", "()Z") { return JavaLangClass.isPrimitive(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "isArray", "()Z") { return JavaLangClass.isArray(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "isInterface", "()Z") { return JavaLangClass.isInterface(context, try receiver_ref(receiver)); }
@@ -855,45 +862,45 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/lang/ClassLoader" {
         if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangClassLoader.registerNatives(context); }
-        if method_is(method_name, descriptor, "findBuiltinLib", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangClassLoader.findBuiltinLib(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "findBuiltinLib", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangClassLoader.findBuiltinLib(context, ref_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/ClassLoader$NativeLibrary" {
-        if method_is(method_name, descriptor, "load", "(Ljava/lang/String;Z)V") { return JavaLangClassLoaderNativeLibrary.load(context, try receiver_ref(receiver), ref_arg(arguments, 0), int_arg(arguments, 1)); }
+        if method_is(method_name, descriptor, "load", "(Ljava/lang/String;Z)V") { return JavaLangClassLoaderNativeLibrary.load(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1)); }
     }
 
     if class_name == "java/lang/Package" {
-        if method_is(method_name, descriptor, "getSystemPackage0", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangPackage.getSystemPackage0(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "getSystemPackage0", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangPackage.getSystemPackage0(context, ref_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/Float" {
-        if method_is(method_name, descriptor, "floatToRawIntBits", "(F)I") { return JavaLangFloat.floatToRawIntBits(context, float_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "intBitsToFloat", "(I)F") { return JavaLangFloat.intBitsToFloat(context, int_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "floatToRawIntBits", "(F)I") { return JavaLangFloat.floatToRawIntBits(context, float_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "intBitsToFloat", "(I)F") { return JavaLangFloat.intBitsToFloat(context, int_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/Double" {
-        if method_is(method_name, descriptor, "doubleToRawLongBits", "(D)J") { return JavaLangDouble.doubleToRawLongBits(context, double_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "longBitsToDouble", "(J)D") { return JavaLangDouble.longBitsToDouble(context, long_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "doubleToRawLongBits", "(D)J") { return JavaLangDouble.doubleToRawLongBits(context, double_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "longBitsToDouble", "(J)D") { return JavaLangDouble.longBitsToDouble(context, long_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/Thread" {
         if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangThread.registerNatives(context); }
         if method_is(method_name, descriptor, "currentThread", "()Ljava/lang/Thread;") { return JavaLangThread.currentThread(context); }
         if method_is(method_name, descriptor, "isAlive", "()Z") { return JavaLangThread.isAlive(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "setPriority0", "(I)V") { return JavaLangThread.setPriority0(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "setPriority0", "(I)V") { return JavaLangThread.setPriority0(context, try receiver_ref(receiver), int_arg(&args, 0)); }
         if method_is(method_name, descriptor, "start0", "()V") { return JavaLangThread.start0(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "sleep", "(J)V") { return JavaLangThread.sleep(context, long_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "sleep", "(J)V") { return JavaLangThread.sleep(context, long_arg(&args, 0)); }
         if method_is(method_name, descriptor, "interrupt0", "()V") { return JavaLangThread.interrupt0(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "isInterrupted", "(Z)Z") { return JavaLangThread.isInterrupted(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "holdsLock", "(Ljava/lang/Object;)Z") { return JavaLangThread.holdsLock(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "isInterrupted", "(Z)Z") { return JavaLangThread.isInterrupted(context, try receiver_ref(receiver), int_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "holdsLock", "(Ljava/lang/Object;)Z") { return JavaLangThread.holdsLock(context, ref_arg(&args, 0)); }
         if method_is(method_name, descriptor, "yield0", "()V") { return JavaLangThread.yield0(context); }
         if method_is(method_name, descriptor, "clearInterruptEvent", "()V") { return JavaLangThread.clearInterruptEvent(context); }
-        if method_is(method_name, descriptor, "setNativeName", "(Ljava/lang/String;)V") { return JavaLangThread.setNativeName(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "setNativeName", "(Ljava/lang/String;)V") { return JavaLangThread.setNativeName(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/Throwable" {
         if method_is(method_name, descriptor, "getStackTraceDepth", "()I") { return JavaLangThrowable.getStackTraceDepth(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "fillInStackTrace", "(I)Ljava/lang/Throwable;") { return JavaLangThrowable.fillInStackTrace(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "fillInStackTrace", "(I)Ljava/lang/Throwable;") { return JavaLangThrowable.fillInStackTrace(context, try receiver_ref(receiver), int_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/Runtime" {
@@ -906,30 +913,34 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/lang/Shutdown" {
         if method_is(method_name, descriptor, "beforeHalt", "()V") { return JavaLangShutdown.beforeHalt(context); }
-        if method_is(method_name, descriptor, "halt0", "(I)V") { return JavaLangShutdown.halt0(context, int_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "halt0", "(I)V") { return JavaLangShutdown.halt0(context, int_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/ref/Finalizer" {
         if method_is(method_name, descriptor, "isFinalizationEnabled", "()Z") { return JavaLangRefFinalizer.isFinalizationEnabled(context); }
-        if method_is(method_name, descriptor, "reportComplete", "(Ljava/lang/Object;)V") { return JavaLangRefFinalizer.reportComplete(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "reportComplete", "(Ljava/lang/Object;)V") { return JavaLangRefFinalizer.reportComplete(context, ref_arg(&args, 0)); }
     }
 
     if class_name == "java/lang/ref/Reference" {
         if method_is(method_name, descriptor, "getAndClearReferencePendingList", "()Ljava/lang/ref/Reference;") { return JavaLangRefReference.getAndClearReferencePendingList(context); }
         if method_is(method_name, descriptor, "hasReferencePendingList", "()Z") { return JavaLangRefReference.hasReferencePendingList(context); }
         if method_is(method_name, descriptor, "waitForReferencePendingList", "()V") { return JavaLangRefReference.waitForReferencePendingList(context); }
-        if method_is(method_name, descriptor, "refersTo0", "(Ljava/lang/Object;)Z") { return JavaLangRefReference.refersTo0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "refersTo0", "(Ljava/lang/Object;)Z") { return JavaLangRefReference.refersTo0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
         if method_is(method_name, descriptor, "clear0", "()V") { return JavaLangRefReference.clear0(context, try receiver_ref(receiver)); }
     }
 
     if class_name == "sun/reflect/Reflection" {
         if method_is(method_name, descriptor, "getCallerClass", "()Ljava/lang/Class;") { return SunReflectReflection.getCallerClass(context); }
-        if method_is(method_name, descriptor, "getClassAccessFlags", "(Ljava/lang/Class;)I") { return SunReflectReflection.getClassAccessFlags(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "getClassAccessFlags", "(Ljava/lang/Class;)I") { return SunReflectReflection.getClassAccessFlags(context, ref_arg(&args, 0)); }
     }
 
     if class_name == "jdk/internal/reflect/Reflection" {
         if method_is(method_name, descriptor, "getCallerClass", "()Ljava/lang/Class;") { return JdkInternalReflectReflection.getCallerClass(context); }
-        if method_is(method_name, descriptor, "getClassAccessFlags", "(Ljava/lang/Class;)I") { return JdkInternalReflectReflection.getClassAccessFlags(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "getClassAccessFlags", "(Ljava/lang/Class;)I") { return JdkInternalReflectReflection.getClassAccessFlags(context, ref_arg(&args, 0)); }
+    }
+
+    if class_name == "java/security/AccessController" {
+        if method_is(method_name, descriptor, "getStackAccessControlContext", "()Ljava/security/AccessControlContext;") { return JavaSecurityAccessController.getStackAccessControlContext(context); }
     }
 
     if class_name == "sun/misc/VM" {
@@ -938,8 +949,8 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "sun/misc/Unsafe" {
         if method_is(method_name, descriptor, "registerNatives", "()V") { return SunMiscUnsafe.registerNatives(context); }
-        if method_is(method_name, descriptor, "arrayBaseOffset", "(Ljava/lang/Class;)I") { return SunMiscUnsafe.arrayBaseOffset(context, ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "arrayIndexScale", "(Ljava/lang/Class;)I") { return SunMiscUnsafe.arrayIndexScale(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "arrayBaseOffset", "(Ljava/lang/Class;)I") { return SunMiscUnsafe.arrayBaseOffset(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "arrayIndexScale", "(Ljava/lang/Class;)I") { return SunMiscUnsafe.arrayIndexScale(context, ref_arg(&args, 0)); }
         if method_is(method_name, descriptor, "addressSize", "()I") { return SunMiscUnsafe.addressSize(context); }
     }
 
@@ -957,21 +968,21 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/io/UnixFileSystem" {
         if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoUnixFileSystem.initIDs(context); }
-        if method_is(method_name, descriptor, "canonicalize0", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaIoUnixFileSystem.canonicalize0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "getBooleanAttributes0", "(Ljava/io/File;)I") { return JavaIoUnixFileSystem.getBooleanAttributes0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "checkAccess0", "(Ljava/io/File;I)Z") { return JavaIoUnixFileSystem.checkAccess0(context, try receiver_ref(receiver), ref_arg(arguments, 0), int_arg(arguments, 1)); }
-        if method_is(method_name, descriptor, "getLastModifiedTime0", "(Ljava/io/File;)J") { return JavaIoUnixFileSystem.getLastModifiedTime0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "getLength0", "(Ljava/io/File;)J") { return JavaIoUnixFileSystem.getLength0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "setPermission0", "(Ljava/io/File;IZZ)Z") { return JavaIoUnixFileSystem.setPermission0(context, try receiver_ref(receiver), ref_arg(arguments, 0), int_arg(arguments, 1), int_arg(arguments, 2), int_arg(arguments, 3)); }
-        if method_is(method_name, descriptor, "createFileExclusively0", "(Ljava/lang/String;)Z") { return JavaIoUnixFileSystem.createFileExclusively0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "delete0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.delete0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "list0", "(Ljava/io/File;)[Ljava/lang/String;") { return JavaIoUnixFileSystem.list0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "createDirectory0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.createDirectory0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "rename0", "(Ljava/io/File;Ljava/io/File;)Z") { return JavaIoUnixFileSystem.rename0(context, try receiver_ref(receiver), ref_arg(arguments, 0), ref_arg(arguments, 1)); }
-        if method_is(method_name, descriptor, "setLastModifiedTime0", "(Ljava/io/File;J)Z") { return JavaIoUnixFileSystem.setLastModifiedTime0(context, try receiver_ref(receiver), ref_arg(arguments, 0), long_arg(arguments, 1)); }
-        if method_is(method_name, descriptor, "setReadOnly0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.setReadOnly0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
-        if method_is(method_name, descriptor, "getSpace0", "(Ljava/io/File;I)J") { return JavaIoUnixFileSystem.getSpace0(context, try receiver_ref(receiver), ref_arg(arguments, 0), int_arg(arguments, 1)); }
-        if method_is(method_name, descriptor, "getNameMax0", "(Ljava/lang/String;)J") { return JavaIoUnixFileSystem.getNameMax0(context, try receiver_ref(receiver), ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "canonicalize0", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaIoUnixFileSystem.canonicalize0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "getBooleanAttributes0", "(Ljava/io/File;)I") { return JavaIoUnixFileSystem.getBooleanAttributes0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "checkAccess0", "(Ljava/io/File;I)Z") { return JavaIoUnixFileSystem.checkAccess0(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1)); }
+        if method_is(method_name, descriptor, "getLastModifiedTime0", "(Ljava/io/File;)J") { return JavaIoUnixFileSystem.getLastModifiedTime0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "getLength0", "(Ljava/io/File;)J") { return JavaIoUnixFileSystem.getLength0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "setPermission0", "(Ljava/io/File;IZZ)Z") { return JavaIoUnixFileSystem.setPermission0(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1), int_arg(&args, 2), int_arg(&args, 3)); }
+        if method_is(method_name, descriptor, "createFileExclusively0", "(Ljava/lang/String;)Z") { return JavaIoUnixFileSystem.createFileExclusively0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "delete0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.delete0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "list0", "(Ljava/io/File;)[Ljava/lang/String;") { return JavaIoUnixFileSystem.list0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "createDirectory0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.createDirectory0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "rename0", "(Ljava/io/File;Ljava/io/File;)Z") { return JavaIoUnixFileSystem.rename0(context, try receiver_ref(receiver), ref_arg(&args, 0), ref_arg(&args, 1)); }
+        if method_is(method_name, descriptor, "setLastModifiedTime0", "(Ljava/io/File;J)Z") { return JavaIoUnixFileSystem.setLastModifiedTime0(context, try receiver_ref(receiver), ref_arg(&args, 0), long_arg(&args, 1)); }
+        if method_is(method_name, descriptor, "setReadOnly0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.setReadOnly0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "getSpace0", "(Ljava/io/File;I)J") { return JavaIoUnixFileSystem.getSpace0(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1)); }
+        if method_is(method_name, descriptor, "getNameMax0", "(Ljava/lang/String;)J") { return JavaIoUnixFileSystem.getNameMax0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
     }
 
     if class_name == "java/util/concurrent/atomic/AtomicLong" {

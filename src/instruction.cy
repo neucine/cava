@@ -2246,6 +2246,58 @@ fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, c
     return .err(InstructionError.missing_return);
 }
 
+fn native_arguments(arguments: List<Value>): List<Value> {
+    var in_args = arguments;
+    var out: List<Value> = [];
+    while in_args.len() > 0 {
+        out.push(in_args.pop());
+    }
+    return out;
+}
+
+fn is_access_controller_do_privileged(classes: []Class, class_index: usize, method_index: usize): bool {
+    if classes[class_index].name != "java/security/AccessController" {
+        return false;
+    }
+    const method_name = classes[class_index].methods[method_index].name;
+    const descriptor = classes[class_index].methods[method_index].descriptor;
+    if method_name != "doPrivileged" {
+        return false;
+    }
+    return descriptor == "(Ljava/security/PrivilegedAction;)Ljava/lang/Object;"
+        or descriptor == "(Ljava/security/PrivilegedExceptionAction;)Ljava/lang/Object;"
+        or descriptor == "(Ljava/security/PrivilegedAction;Ljava/security/AccessControlContext;)Ljava/lang/Object;"
+        or descriptor == "(Ljava/security/PrivilegedExceptionAction;Ljava/security/AccessControlContext;)Ljava/lang/Object;";
+}
+
+fn invoke_privileged_action(context: &Context, action: Reference): result<?Value, InstructionError> {
+    if action.is_null() {
+        return .err(InstructionError.invalid_constant);
+    }
+    var action_class_index: usize = 0;
+    if context.heap.object_class_index(action) is actual_class_index {
+        action_class_index = actual_class_index;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    var run_method_index: usize = 0;
+    if context.classes[action_class_index].method_index("run".bytes(), "()Ljava/lang/Object;".bytes(), false) is actual_run_method_index {
+        run_method_index = actual_run_method_index as usize;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    var frame = new_frame(action_class_index, run_method_index, context.classes[action_class_index].methods[run_method_index].max_locals, context.classes[action_class_index].methods[run_method_index].max_stack);
+    frame.store(0, .ref_value(action));
+    const result = try execute_method_frame(action_class_index, run_method_index, frame, context.constant_pool, context.classes, context.heap);
+    switch result {
+    case .return_value(value) { return .ok(value); }
+    case .exception(reference) {
+        const ignored = reference;
+        return .err(InstructionError.invalid_constant);
+    }
+    }
+}
+
 fn invoke_static(context: &Context): result<void, InstructionError> {
     const resolved = try resolve_static_method(context, context.read_u2());
     var classes = context.classes;
@@ -2262,26 +2314,52 @@ fn invoke_static(context: &Context): result<void, InstructionError> {
     }
 
     if classes[resolved.class_index].methods[resolved.method_index].is_native() {
-        const value = try execute_native_method(context, resolved.class_index, resolved.method_index, none, arguments[..]);
-        if value is actual {
-            context.frame.push(actual);
+        if is_access_controller_do_privileged(classes, resolved.class_index, resolved.method_index) {
+            var native_args = native_arguments(copy arguments);
+            const result = invoke_privileged_action(context, expect_ref(native_args[0]));
+            drop native_args;
+            drop arguments;
+            switch result {
+            case .ok(value) {
+                if value is actual {
+                    context.frame.push(actual);
+                }
+                return .ok();
+            }
+            case .err(error_value) {
+                return .err(error_value);
+            }
+            }
+        } else {
+            const result = execute_native_method(context, resolved.class_index, resolved.method_index, none, native_arguments(copy arguments));
+            drop arguments;
+            switch result {
+            case .ok(value) {
+                if value is actual {
+                    context.frame.push(actual);
+                }
+                return .ok();
+            }
+            case .err(error_value) {
+                return .err(error_value);
+            }
+            }
         }
-        return .ok();
-    }
+    } else {
+        var frame = new_frame(resolved.class_index, resolved.method_index, classes[resolved.class_index].methods[resolved.method_index].max_locals, classes[resolved.class_index].methods[resolved.method_index].max_stack);
+        var local_index: u16 = 0;
+        var argument_index = arguments.len();
+        while argument_index > 0 {
+            argument_index = argument_index - 1;
+            const value = arguments[argument_index];
+            frame.store(local_index, value);
+            local_index = local_index + value_local_width(value);
+        }
+        drop arguments;
 
-    var frame = new_frame(resolved.class_index, resolved.method_index, classes[resolved.class_index].methods[resolved.method_index].max_locals, classes[resolved.class_index].methods[resolved.method_index].max_stack);
-    var local_index: u16 = 0;
-    var argument_index = arguments.len();
-    while argument_index > 0 {
-        argument_index = argument_index - 1;
-        const value = arguments[argument_index];
-        frame.store(local_index, value);
-        local_index = local_index + value_local_width(value);
+        const result = try execute_method_frame(resolved.class_index, resolved.method_index, frame, context.constant_pool, context.classes, context.heap);
+        return apply_method_result(context, result);
     }
-    drop arguments;
-
-    const result = try execute_method_frame(resolved.class_index, resolved.method_index, frame, context.constant_pool, context.classes, context.heap);
-    return apply_method_result(context, result);
 }
 
 fn invoke_special(context: &Context): result<void, InstructionError> {
@@ -2305,27 +2383,35 @@ fn invoke_special(context: &Context): result<void, InstructionError> {
     }
 
     if classes[resolved.class_index].methods[resolved.method_index].is_native() {
-        const value = try execute_native_method(context, resolved.class_index, resolved.method_index, receiver, arguments[..]);
-        if value is actual {
-            context.frame.push(actual);
+        const result = execute_native_method(context, resolved.class_index, resolved.method_index, receiver, native_arguments(copy arguments));
+        drop arguments;
+        switch result {
+        case .ok(value) {
+            if value is actual {
+                context.frame.push(actual);
+            }
+            return .ok();
         }
-        return .ok();
-    }
+        case .err(error_value) {
+            return .err(error_value);
+        }
+        }
+    } else {
+        var frame = new_frame(resolved.class_index, resolved.method_index, classes[resolved.class_index].methods[resolved.method_index].max_locals, classes[resolved.class_index].methods[resolved.method_index].max_stack);
+        frame.store(0, .ref_value(receiver));
+        var local_index: u16 = 1;
+        var argument_index = arguments.len();
+        while argument_index > 0 {
+            argument_index = argument_index - 1;
+            const value = arguments[argument_index];
+            frame.store(local_index, value);
+            local_index = local_index + value_local_width(value);
+        }
+        drop arguments;
 
-    var frame = new_frame(resolved.class_index, resolved.method_index, classes[resolved.class_index].methods[resolved.method_index].max_locals, classes[resolved.class_index].methods[resolved.method_index].max_stack);
-    frame.store(0, .ref_value(receiver));
-    var local_index: u16 = 1;
-    var argument_index = arguments.len();
-    while argument_index > 0 {
-        argument_index = argument_index - 1;
-        const value = arguments[argument_index];
-        frame.store(local_index, value);
-        local_index = local_index + value_local_width(value);
+        const result = try execute_method_frame(resolved.class_index, resolved.method_index, frame, context.constant_pool, context.classes, context.heap);
+        return apply_method_result(context, result);
     }
-    drop arguments;
-
-    const result = try execute_method_frame(resolved.class_index, resolved.method_index, frame, context.constant_pool, context.classes, context.heap);
-    return apply_method_result(context, result);
 }
 
 fn invoke_virtual(context: &Context): result<void, InstructionError> {
@@ -2363,27 +2449,35 @@ fn invoke_virtual(context: &Context): result<void, InstructionError> {
     }
 
     if classes[receiver_class_index].methods[target_method_index].is_native() {
-        const value = try execute_native_method(context, receiver_class_index, target_method_index, receiver, arguments[..]);
-        if value is actual {
-            context.frame.push(actual);
+        const result = execute_native_method(context, receiver_class_index, target_method_index, receiver, native_arguments(copy arguments));
+        drop arguments;
+        switch result {
+        case .ok(value) {
+            if value is actual {
+                context.frame.push(actual);
+            }
+            return .ok();
         }
-        return .ok();
-    }
+        case .err(error_value) {
+            return .err(error_value);
+        }
+        }
+    } else {
+        var frame = new_frame(receiver_class_index, target_method_index, classes[receiver_class_index].methods[target_method_index].max_locals, classes[receiver_class_index].methods[target_method_index].max_stack);
+        frame.store(0, .ref_value(receiver));
+        var local_index: u16 = 1;
+        var argument_index = arguments.len();
+        while argument_index > 0 {
+            argument_index = argument_index - 1;
+            const value = arguments[argument_index];
+            frame.store(local_index, value);
+            local_index = local_index + value_local_width(value);
+        }
+        drop arguments;
 
-    var frame = new_frame(receiver_class_index, target_method_index, classes[receiver_class_index].methods[target_method_index].max_locals, classes[receiver_class_index].methods[target_method_index].max_stack);
-    frame.store(0, .ref_value(receiver));
-    var local_index: u16 = 1;
-    var argument_index = arguments.len();
-    while argument_index > 0 {
-        argument_index = argument_index - 1;
-        const value = arguments[argument_index];
-        frame.store(local_index, value);
-        local_index = local_index + value_local_width(value);
+        const result = try execute_method_frame(receiver_class_index, target_method_index, frame, context.constant_pool, context.classes, context.heap);
+        return apply_method_result(context, result);
     }
-    drop arguments;
-
-    const result = try execute_method_frame(receiver_class_index, target_method_index, frame, context.constant_pool, context.classes, context.heap);
-    return apply_method_result(context, result);
 }
 
 fn invoke_interface(context: &Context): result<void, InstructionError> {
@@ -2427,27 +2521,35 @@ fn invoke_interface(context: &Context): result<void, InstructionError> {
     }
 
     if classes[receiver_class_index].methods[target_method_index].is_native() {
-        const value = try execute_native_method(context, receiver_class_index, target_method_index, receiver, arguments[..]);
-        if value is actual {
-            context.frame.push(actual);
+        const result = execute_native_method(context, receiver_class_index, target_method_index, receiver, native_arguments(copy arguments));
+        drop arguments;
+        switch result {
+        case .ok(value) {
+            if value is actual {
+                context.frame.push(actual);
+            }
+            return .ok();
         }
-        return .ok();
-    }
+        case .err(error_value) {
+            return .err(error_value);
+        }
+        }
+    } else {
+        var frame = new_frame(receiver_class_index, target_method_index, classes[receiver_class_index].methods[target_method_index].max_locals, classes[receiver_class_index].methods[target_method_index].max_stack);
+        frame.store(0, .ref_value(receiver));
+        var local_index: u16 = 1;
+        var argument_index = arguments.len();
+        while argument_index > 0 {
+            argument_index = argument_index - 1;
+            const value = arguments[argument_index];
+            frame.store(local_index, value);
+            local_index = local_index + value_local_width(value);
+        }
+        drop arguments;
 
-    var frame = new_frame(receiver_class_index, target_method_index, classes[receiver_class_index].methods[target_method_index].max_locals, classes[receiver_class_index].methods[target_method_index].max_stack);
-    frame.store(0, .ref_value(receiver));
-    var local_index: u16 = 1;
-    var argument_index = arguments.len();
-    while argument_index > 0 {
-        argument_index = argument_index - 1;
-        const value = arguments[argument_index];
-        frame.store(local_index, value);
-        local_index = local_index + value_local_width(value);
+        const result = try execute_method_frame(receiver_class_index, target_method_index, frame, context.constant_pool, context.classes, context.heap);
+        return apply_method_result(context, result);
     }
-    drop arguments;
-
-    const result = try execute_method_frame(receiver_class_index, target_method_index, frame, context.constant_pool, context.classes, context.heap);
-    return apply_method_result(context, result);
 }
 
 fn new_(context: &Context): result<void, InstructionError> {
@@ -4024,6 +4126,175 @@ test "instruction executes System.initProperties native" {
     drop classes;
 }
 
+test "instruction executes native AccessController.doPrivileged callback" {
+    const constant_pool: [15]Constant = [
+        .unusable(0),
+        .utf8("Action"),
+        .class_ref(1),
+        .utf8("<init>"),
+        .utf8("()V"),
+        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
+        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+        .utf8("java/security/AccessController"),
+        .class_ref(7),
+        .utf8("doPrivileged"),
+        .utf8("(Ljava/security/PrivilegedAction;Ljava/security/AccessControlContext;)Ljava/lang/Object;"),
+        .name_and_type(ConstantNameAndType { name_index: 9, descriptor_index: 10 }),
+        .method_ref(ConstantMemberRef { class_index: 8, name_and_type_index: 11 }),
+        .utf8("run"),
+        .utf8("()Ljava/lang/Object;"),
+    ];
+    const caller_code: [12]u8 = [
+        187, 0, 2, // new Action
+        89, // dup
+        183, 0, 6, // invokespecial Action.<init>:()V
+        1, // aconst_null
+        184, 0, 12, // invokestatic AccessController.doPrivileged:(PrivilegedAction,AccessControlContext)Object
+        176, // areturn
+    ];
+    const init_code: [1]u8 = [
+        177, // return
+    ];
+    const run_code: [2]u8 = [
+        42, // aload_0
+        176, // areturn
+    ];
+    const native_code: [0]u8 = [];
+    var classes: [2]Class = [
+        Class {
+            name: "java/security/AccessController",
+            descriptor: "Ljava/security/AccessController;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "java/security/AccessController",
+                    access_flags: method_access_flags(8),
+                    name: "caller",
+                    descriptor: "()Ljava/lang/Object;",
+                    code: byte_buffer(caller_code[..]),
+                    max_stack: 3,
+                    max_locals: 0,
+                    code_len: 12,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "Ljava/lang/Object;",
+                },
+                Method {
+                    class_name: "java/security/AccessController",
+                    access_flags: method_access_flags(0x0108),
+                    name: "doPrivileged",
+                    descriptor: "(Ljava/security/PrivilegedAction;Ljava/security/AccessControlContext;)Ljava/lang/Object;",
+                    code: byte_buffer(native_code[..]),
+                    max_stack: 0,
+                    max_locals: 0,
+                    code_len: 0,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 2,
+                    return_descriptor: "Ljava/lang/Object;",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "AccessController.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: "Action",
+            descriptor: "LAction;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: ["java/security/PrivilegedAction"],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Action",
+                    access_flags: method_access_flags(0),
+                    name: "<init>",
+                    descriptor: "()V",
+                    code: byte_buffer(init_code[..]),
+                    max_stack: 0,
+                    max_locals: 1,
+                    code_len: 1,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "V",
+                },
+                Method {
+                    class_name: "Action",
+                    access_flags: method_access_flags(0x0001),
+                    name: "run",
+                    descriptor: "()Ljava/lang/Object;",
+                    code: byte_buffer(run_code[..]),
+                    max_stack: 1,
+                    max_locals: 1,
+                    code_len: 2,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "Ljava/lang/Object;",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Action.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+
+    var heap = new_heap();
+    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 3), constant_pool[..], classes[..], &heap);
+    switch result {
+    case .return_value(value) {
+        if value is actual {
+            switch actual {
+            case .ref_value(reference) {
+                assert(reference.non_null());
+                if heap.object_class_index(reference) is class_index {
+                    assert(class_index == 1);
+                } else {
+                    assert(false);
+                }
+            }
+            else { assert(false); }
+            }
+        } else {
+            assert(false);
+        }
+    }
+    case .exception(reference) {
+        const ignored = reference;
+        assert(false);
+    }
+    }
+    drop classes;
+}
+
 test "instruction executes System.arraycopy native" {
     const native_code: [0]u8 = [];
     var classes: [1]Class = [
@@ -4080,15 +4351,14 @@ test "instruction executes System.arraycopy native" {
         classes: classes[..],
         heap: &heap,
     };
-    var arguments: [5]Value = [
-        .ref_value(src),
-        .int_value(1),
-        .ref_value(dest),
-        .int_value(0),
-        .int_value(2),
-    ];
+    var arguments: List<Value> = [];
+    arguments.push(.ref_value(src));
+    arguments.push(.int_value(1));
+    arguments.push(.ref_value(dest));
+    arguments.push(.int_value(0));
+    arguments.push(.int_value(2));
 
-    const result = try execute_native_method(&context, 0, 0, none, arguments[..]);
+    const result = try execute_native_method(&context, 0, 0, none, arguments);
     assert(result == none);
     if heap.get_element(dest, 0) is first {
         assert_int_result(.return_value(first), 8);
@@ -4208,16 +4478,19 @@ test "instruction executes float and double raw bit natives" {
         classes: classes[..],
         heap: &heap,
     };
-    var float_args: [1]Value = [.float_value(1.0)];
-    const float_bits = try execute_native_method(&context, 0, 0, none, float_args[..]);
+    var float_args: List<Value> = [];
+    float_args.push(.float_value(1.0));
+    const float_bits = try execute_native_method(&context, 0, 0, none, float_args);
     assert_int_result(.return_value(float_bits), 1065353216);
 
-    var int_args: [1]Value = [.int_value(1073741824)];
-    const float_value = try execute_native_method(&context, 0, 1, none, int_args[..]);
+    var int_args: List<Value> = [];
+    int_args.push(.int_value(1073741824));
+    const float_value = try execute_native_method(&context, 0, 1, none, int_args);
     assert_float_result(.return_value(float_value), 2.0);
 
-    var long_args: [1]Value = [.long_value(4611686018427387904)];
-    const double_value = try execute_native_method(&context, 1, 0, none, long_args[..]);
+    var long_args: List<Value> = [];
+    long_args.push(.long_value(4611686018427387904));
+    const double_value = try execute_native_method(&context, 1, 0, none, long_args);
     assert_double_result(.return_value(double_value), 2.0);
     drop context;
     drop classes;
