@@ -1,5 +1,6 @@
 import { Context } from .engine;
 import { InstructionError, Reference, Value } from .types;
+import { monotonic_ns, now_ns, ns_to_ms } from std.time;
 
 fn ref_arg(arguments: []Value, index: usize): Reference {
     switch arguments[index] {
@@ -143,6 +144,30 @@ struct JavaLangSystem {
     pub fn identityHashCode(context: &Context, reference: Reference): result<?Value, InstructionError> {
         return return_value(.int_value(identity_hash_code(reference)));
     }
+
+    pub fn currentTimeMillis(context: &Context): result<?Value, InstructionError> {
+        switch now_ns() {
+        case .ok(ns) { return return_value(.long_value(ns_to_ms(ns))); }
+        case .err(error_value) {
+            const ignored_error = error_value;
+            return .err(InstructionError.invalid_constant);
+        }
+        }
+    }
+
+    pub fn nanoTime(context: &Context): result<?Value, InstructionError> {
+        switch monotonic_ns() {
+        case .ok(ns) { return return_value(.long_value(ns)); }
+        case .err(error_value) {
+            const ignored_error = error_value;
+            return .err(InstructionError.invalid_constant);
+        }
+        }
+    }
+
+    pub fn mapLibraryName(context: &Context, name: Reference): result<?Value, InstructionError> {
+        return return_value(.ref_value(name));
+    }
 }
 
 struct JavaLangObject {
@@ -177,6 +202,18 @@ struct JavaLangObject {
     pub fn wait(context: &Context, receiver: Reference, millis: i64): result<?Value, InstructionError> {
         const ignored_receiver = receiver;
         const ignored_millis = millis;
+        return .ok(none);
+    }
+}
+
+struct JavaLangClass {
+    pub fn registerNatives(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+}
+
+struct JavaLangClassLoader {
+    pub fn registerNatives(context: &Context): result<?Value, InstructionError> {
         return .ok(none);
     }
 }
@@ -290,6 +327,42 @@ struct SunMiscUnsafe {
     }
 }
 
+struct JavaIoFileDescriptor {
+    pub fn initIDs(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+}
+
+struct JavaIoFileInputStream {
+    pub fn initIDs(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+}
+
+struct JavaIoFileOutputStream {
+    pub fn initIDs(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+}
+
+struct JavaIoUnixFileSystem {
+    pub fn initIDs(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+}
+
+struct JavaUtilConcurrentAtomicAtomicLong {
+    pub fn VMSupportsCS8(context: &Context): result<?Value, InstructionError> {
+        return return_value(.boolean_value(1));
+    }
+}
+
+struct JavaUtilZipZipFile {
+    pub fn initIDs(context: &Context): result<?Value, InstructionError> {
+        return .ok(none);
+    }
+}
+
 fn method_is(method_name: string, method_descriptor: string, name: string, descriptor: string): bool {
     return method_name == name and method_descriptor == descriptor;
 }
@@ -304,8 +377,11 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
         if method_is(method_name, descriptor, "setIn0", "(Ljava/io/InputStream;)V") { return JavaLangSystem.setIn0(context, ref_arg(arguments, 0)); }
         if method_is(method_name, descriptor, "setOut0", "(Ljava/io/PrintStream;)V") { return JavaLangSystem.setOut0(context, ref_arg(arguments, 0)); }
         if method_is(method_name, descriptor, "setErr0", "(Ljava/io/PrintStream;)V") { return JavaLangSystem.setErr0(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "currentTimeMillis", "()J") { return JavaLangSystem.currentTimeMillis(context); }
+        if method_is(method_name, descriptor, "nanoTime", "()J") { return JavaLangSystem.nanoTime(context); }
         if method_is(method_name, descriptor, "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V") { return JavaLangSystem.arraycopy(context, ref_arg(arguments, 0), int_arg(arguments, 1), ref_arg(arguments, 2), int_arg(arguments, 3), int_arg(arguments, 4)); }
         if method_is(method_name, descriptor, "identityHashCode", "(Ljava/lang/Object;)I") { return JavaLangSystem.identityHashCode(context, ref_arg(arguments, 0)); }
+        if method_is(method_name, descriptor, "mapLibraryName", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangSystem.mapLibraryName(context, ref_arg(arguments, 0)); }
     }
 
     if class_name == "java/lang/Object" {
@@ -319,6 +395,14 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/lang/String" {
         if method_is(method_name, descriptor, "intern", "()Ljava/lang/String;") { return JavaLangString.intern(context, try receiver_ref(receiver)); }
+    }
+
+    if class_name == "java/lang/Class" {
+        if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangClass.registerNatives(context); }
+    }
+
+    if class_name == "java/lang/ClassLoader" {
+        if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangClassLoader.registerNatives(context); }
     }
 
     if class_name == "java/lang/Float" {
@@ -359,6 +443,30 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
         if method_is(method_name, descriptor, "arrayBaseOffset", "(Ljava/lang/Class;)I") { return SunMiscUnsafe.arrayBaseOffset(context, ref_arg(arguments, 0)); }
         if method_is(method_name, descriptor, "arrayIndexScale", "(Ljava/lang/Class;)I") { return SunMiscUnsafe.arrayIndexScale(context, ref_arg(arguments, 0)); }
         if method_is(method_name, descriptor, "addressSize", "()I") { return SunMiscUnsafe.addressSize(context); }
+    }
+
+    if class_name == "java/io/FileDescriptor" {
+        if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoFileDescriptor.initIDs(context); }
+    }
+
+    if class_name == "java/io/FileInputStream" {
+        if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoFileInputStream.initIDs(context); }
+    }
+
+    if class_name == "java/io/FileOutputStream" {
+        if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoFileOutputStream.initIDs(context); }
+    }
+
+    if class_name == "java/io/UnixFileSystem" {
+        if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoUnixFileSystem.initIDs(context); }
+    }
+
+    if class_name == "java/util/concurrent/atomic/AtomicLong" {
+        if method_is(method_name, descriptor, "VMSupportsCS8", "()Z") { return JavaUtilConcurrentAtomicAtomicLong.VMSupportsCS8(context); }
+    }
+
+    if class_name == "java/util/zip/ZipFile" {
+        if method_is(method_name, descriptor, "initIDs", "()V") { return JavaUtilZipZipFile.initIDs(context); }
     }
 
     return .err(InstructionError.unsupported_native);

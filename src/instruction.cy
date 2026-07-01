@@ -3952,14 +3952,15 @@ test "instruction reports unsupported native method" {
         .unusable(0),
         .utf8("java/lang/System"),
         .class_ref(1),
-        .utf8("currentTimeMillis"),
-        .utf8("()J"),
+        .utf8("initProperties"),
+        .utf8("(Ljava/util/Properties;)Ljava/util/Properties;"),
         .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
         .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
     ];
-    const caller_code: [4]u8 = [
-        184, 0, 6, // invokestatic java/lang/System.currentTimeMillis:()J
-        173, // lreturn
+    const caller_code: [5]u8 = [
+        1, // aconst_null
+        184, 0, 6, // invokestatic java/lang/System.initProperties:(Ljava/util/Properties;)Ljava/util/Properties;
+        176, // areturn
     ];
     const native_code: [0]u8 = [];
     var classes: [1]Class = [
@@ -3975,23 +3976,23 @@ test "instruction reports unsupported native method" {
                     class_name: "java/lang/System",
                     access_flags: method_access_flags(8),
                     name: "caller",
-                    descriptor: "()J",
+                    descriptor: "()Ljava/util/Properties;",
                     code: byte_buffer(caller_code[..]),
-                    max_stack: 2,
+                    max_stack: 1,
                     max_locals: 0,
-                    code_len: 4,
+                    code_len: 5,
                     exception_count: 0,
                     exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
-                    return_descriptor: "J",
+                    return_descriptor: "Ljava/util/Properties;",
                 },
                 Method {
                     class_name: "java/lang/System",
                     access_flags: method_access_flags(0x0108),
-                    name: "currentTimeMillis",
-                    descriptor: "()J",
+                    name: "initProperties",
+                    descriptor: "(Ljava/util/Properties;)Ljava/util/Properties;",
                     code: byte_buffer(native_code[..]),
                     max_stack: 0,
                     max_locals: 0,
@@ -4000,8 +4001,8 @@ test "instruction reports unsupported native method" {
                     exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
-                    parameter_count: 0,
-                    return_descriptor: "J",
+                    parameter_count: 1,
+                    return_descriptor: "Ljava/util/Properties;",
                 },
             ],
             instance_vars: 0,
@@ -4018,7 +4019,7 @@ test "instruction reports unsupported native method" {
     ];
 
     var heap = new_heap();
-    const result = execute_method_frame(0, 0, new_frame(0, 0, 0, 2), constant_pool[..], classes[..], &heap);
+    const result = execute_method_frame(0, 0, new_frame(0, 0, 0, 1), constant_pool[..], classes[..], &heap);
     switch result {
     case .ok(value) {
         const ignored = value;
