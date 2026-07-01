@@ -7,6 +7,7 @@ pub enum InstructionError: i32 {
     unsupported_opcode = 0,
     missing_return,
     invalid_constant,
+    unsupported_native,
 }
 
 pub enum Opcode: i32 {
@@ -2236,6 +2237,19 @@ fn apply_method_result(context: &Context, result: FrameResult): result<void, Ins
     return .ok();
 }
 
+fn is_register_natives(method_name: []const u8, descriptor: []const u8): bool {
+    return bytes_equal(method_name, "registerNatives".bytes()) and bytes_equal(descriptor, "()V".bytes());
+}
+
+fn execute_native_method(context: &Context, class_index: usize, method_index: usize, receiver: ?Reference, arguments: []Value): result<?Value, InstructionError> {
+    const unused_receiver = receiver;
+    const unused_argument_count = arguments.len();
+    if is_register_natives(context.classes[class_index].methods[method_index].name.bytes(), context.classes[class_index].methods[method_index].descriptor.bytes()) {
+        return .ok(none);
+    }
+    return .err(InstructionError.unsupported_native);
+}
+
 fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant, classes: []Class, heap: &Heap): result<FrameResult, InstructionError> {
     var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: classes[class_index].methods[method_index].code[..], constant_pool: constant_pool, classes: classes, heap: heap };
 
@@ -2254,7 +2268,7 @@ fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, c
 fn invoke_static(context: &Context): result<void, InstructionError> {
     const resolved = try resolve_static_method(context, context.read_u2());
     var classes = context.classes;
-    if classes[resolved.class_index].methods[resolved.method_index].is_native() or classes[resolved.class_index].methods[resolved.method_index].is_abstract() {
+    if classes[resolved.class_index].methods[resolved.method_index].is_abstract() {
         return .err(InstructionError.unsupported_opcode);
     }
 
@@ -2264,6 +2278,14 @@ fn invoke_static(context: &Context): result<void, InstructionError> {
     while index < argument_count {
         arguments.push(context.frame.pop());
         index = index + 1;
+    }
+
+    if classes[resolved.class_index].methods[resolved.method_index].is_native() {
+        const value = try execute_native_method(context, resolved.class_index, resolved.method_index, none, arguments[..]);
+        if value is actual {
+            context.frame.push(actual);
+        }
+        return .ok();
     }
 
     var frame = new_frame(resolved.class_index, resolved.method_index, classes[resolved.class_index].methods[resolved.method_index].max_locals, classes[resolved.class_index].methods[resolved.method_index].max_stack);
@@ -2284,7 +2306,7 @@ fn invoke_static(context: &Context): result<void, InstructionError> {
 fn invoke_special(context: &Context): result<void, InstructionError> {
     const resolved = try resolve_instance_method(context, context.read_u2());
     var classes = context.classes;
-    if classes[resolved.class_index].methods[resolved.method_index].is_native() or classes[resolved.class_index].methods[resolved.method_index].is_abstract() {
+    if classes[resolved.class_index].methods[resolved.method_index].is_abstract() {
         return .err(InstructionError.unsupported_opcode);
     }
 
@@ -2299,6 +2321,14 @@ fn invoke_special(context: &Context): result<void, InstructionError> {
     const receiver = expect_ref(context.frame.pop());
     if receiver.is_null() {
         assert(false);
+    }
+
+    if classes[resolved.class_index].methods[resolved.method_index].is_native() {
+        const value = try execute_native_method(context, resolved.class_index, resolved.method_index, receiver, arguments[..]);
+        if value is actual {
+            context.frame.push(actual);
+        }
+        return .ok();
     }
 
     var frame = new_frame(resolved.class_index, resolved.method_index, classes[resolved.class_index].methods[resolved.method_index].max_locals, classes[resolved.class_index].methods[resolved.method_index].max_stack);
@@ -2347,8 +2377,16 @@ fn invoke_virtual(context: &Context): result<void, InstructionError> {
     } else {
         return .err(InstructionError.invalid_constant);
     }
-    if classes[receiver_class_index].methods[target_method_index].is_native() or classes[receiver_class_index].methods[target_method_index].is_abstract() {
+    if classes[receiver_class_index].methods[target_method_index].is_abstract() {
         return .err(InstructionError.unsupported_opcode);
+    }
+
+    if classes[receiver_class_index].methods[target_method_index].is_native() {
+        const value = try execute_native_method(context, receiver_class_index, target_method_index, receiver, arguments[..]);
+        if value is actual {
+            context.frame.push(actual);
+        }
+        return .ok();
     }
 
     var frame = new_frame(receiver_class_index, target_method_index, classes[receiver_class_index].methods[target_method_index].max_locals, classes[receiver_class_index].methods[target_method_index].max_stack);
@@ -2403,8 +2441,16 @@ fn invoke_interface(context: &Context): result<void, InstructionError> {
     } else {
         return .err(InstructionError.invalid_constant);
     }
-    if classes[receiver_class_index].methods[target_method_index].is_native() or classes[receiver_class_index].methods[target_method_index].is_abstract() {
+    if classes[receiver_class_index].methods[target_method_index].is_abstract() {
         return .err(InstructionError.unsupported_opcode);
+    }
+
+    if classes[receiver_class_index].methods[target_method_index].is_native() {
+        const value = try execute_native_method(context, receiver_class_index, target_method_index, receiver, arguments[..]);
+        if value is actual {
+            context.frame.push(actual);
+        }
+        return .ok();
     }
 
     var frame = new_frame(receiver_class_index, target_method_index, classes[receiver_class_index].methods[target_method_index].max_locals, classes[receiver_class_index].methods[target_method_index].max_stack);
@@ -3840,6 +3886,167 @@ test "instruction executes invokestatic int method" {
     var heap = new_heap();
     const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 2), constant_pool[..], classes[..], &heap);
     assert_int_result(result, 5);
+    drop classes;
+}
+
+test "instruction executes registerNatives native no-op" {
+    const constant_pool: [7]Constant = [
+        .unusable(0),
+        .utf8("java/lang/System"),
+        .class_ref(1),
+        .utf8("registerNatives"),
+        .utf8("()V"),
+        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
+        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+    ];
+    const caller_code: [5]u8 = [
+        184, 0, 6, // invokestatic java/lang/System.registerNatives:()V
+        8, // iconst_5
+        172, // ireturn
+    ];
+    const native_code: [0]u8 = [];
+    var classes: [1]Class = [
+        Class {
+            name: string.from("java/lang/System".bytes()),
+            descriptor: "Ljava/lang/System;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "java/lang/System",
+                    access_flags: method_access_flags(8),
+                    name: "caller",
+                    descriptor: "()I",
+                    code: byte_buffer(caller_code[..]),
+                    max_stack: 1,
+                    max_locals: 0,
+                    code_len: 5,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+                Method {
+                    class_name: "java/lang/System",
+                    access_flags: method_access_flags(0x0108),
+                    name: "registerNatives",
+                    descriptor: "()V",
+                    code: byte_buffer(native_code[..]),
+                    max_stack: 0,
+                    max_locals: 0,
+                    code_len: 0,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "V",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "System.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+
+    var heap = new_heap();
+    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 1), constant_pool[..], classes[..], &heap);
+    assert_int_result(result, 5);
+    drop classes;
+}
+
+test "instruction reports unsupported native method" {
+    const constant_pool: [7]Constant = [
+        .unusable(0),
+        .utf8("java/lang/System"),
+        .class_ref(1),
+        .utf8("currentTimeMillis"),
+        .utf8("()J"),
+        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
+        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+    ];
+    const caller_code: [4]u8 = [
+        184, 0, 6, // invokestatic java/lang/System.currentTimeMillis:()J
+        173, // lreturn
+    ];
+    const native_code: [0]u8 = [];
+    var classes: [1]Class = [
+        Class {
+            name: string.from("java/lang/System".bytes()),
+            descriptor: "Ljava/lang/System;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "java/lang/System",
+                    access_flags: method_access_flags(8),
+                    name: "caller",
+                    descriptor: "()J",
+                    code: byte_buffer(caller_code[..]),
+                    max_stack: 2,
+                    max_locals: 0,
+                    code_len: 4,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "J",
+                },
+                Method {
+                    class_name: "java/lang/System",
+                    access_flags: method_access_flags(0x0108),
+                    name: "currentTimeMillis",
+                    descriptor: "()J",
+                    code: byte_buffer(native_code[..]),
+                    max_stack: 0,
+                    max_locals: 0,
+                    code_len: 0,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "J",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "System.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+
+    var heap = new_heap();
+    const result = execute_method_frame(0, 0, new_frame(0, 0, 0, 2), constant_pool[..], classes[..], &heap);
+    switch result {
+    case .ok(value) {
+        const ignored = value;
+        assert(false);
+    }
+    case .err(error_value) {
+        assert(error_value == InstructionError.unsupported_native);
+    }
+    }
     drop classes;
 }
 
