@@ -32,11 +32,18 @@ pub struct InternedMethodType {
     pub reference: Reference;
 }
 
+pub struct InternedMethodHandle {
+    pub reference_kind: u8;
+    pub reference_index: u16;
+    pub reference: Reference;
+}
+
 pub struct Heap {
     pub objects: List<ObjectSlot>;
     pub arrays: List<ArraySlot>;
     pub strings: List<InternedString>;
     pub method_types: List<InternedMethodType>;
+    pub method_handles: List<InternedMethodHandle>;
 
     pub fn allocate_object(self: &Heap, class_index: usize, class: &Class): Reference {
         var fields: List<Value> = [];
@@ -118,6 +125,24 @@ pub struct Heap {
         const reference = self.allocate_object(class_index, class);
         self.method_types.push(InternedMethodType {
             descriptor: string.from(descriptor),
+            reference: reference,
+        });
+        return reference;
+    }
+
+    pub fn intern_method_handle(self: &Heap, class_index: usize, class: &Class, reference_kind: u8, reference_index: u16): Reference {
+        var index: usize = 0;
+        while index < self.method_handles.len() {
+            if self.method_handles[index].reference_kind == reference_kind and self.method_handles[index].reference_index == reference_index {
+                return self.method_handles[index].reference;
+            }
+            index = index + 1;
+        }
+
+        const reference = self.allocate_object(class_index, class);
+        self.method_handles.push(InternedMethodHandle {
+            reference_kind: reference_kind,
+            reference_index: reference_index,
             reference: reference,
         });
         return reference;
@@ -220,6 +245,7 @@ pub fn new_heap(): Heap {
         arrays: [],
         strings: [],
         method_types: [],
+        method_handles: [],
     };
 }
 
@@ -498,4 +524,40 @@ test "heap interns method type objects by descriptor" {
     assert(heap.method_types.len() == 2);
     assert(heap.method_types[0].descriptor.bytes() == "(I)V".bytes());
     assert(heap.method_types[1].descriptor.bytes() == "()V".bytes());
+}
+
+test "heap interns method handle objects by reference kind and index" {
+    var method_handle_class = Class {
+        name: string.from("java/lang/invoke/MethodHandle".bytes()),
+        descriptor: "Ljava/lang/invoke/MethodHandle;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [],
+        methods: [],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "MethodHandle.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+    var heap = new_heap();
+
+    const first = heap.intern_method_handle(0, &method_handle_class, 6, 7);
+    const second = heap.intern_method_handle(0, &method_handle_class, 6, 7);
+    const third = heap.intern_method_handle(0, &method_handle_class, 5, 7);
+    const fourth = heap.intern_method_handle(0, &method_handle_class, 6, 8);
+
+    assert(first.equals(second));
+    assert(!first.equals(third));
+    assert(!first.equals(fourth));
+    assert(heap.objects.len() == 3);
+    assert(heap.method_handles.len() == 3);
+    assert(heap.method_handles[0].reference_kind == 6);
+    assert(heap.method_handles[0].reference_index == 7);
 }

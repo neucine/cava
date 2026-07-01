@@ -1,4 +1,4 @@
-import { Constant, ConstantMemberRef, ConstantNameAndType, ConstantWide } from .classfile;
+import { Constant, ConstantMemberRef, ConstantMethodHandle, ConstantNameAndType, ConstantWide } from .classfile;
 import { Context, Frame, FrameResult, new_frame } from .engine;
 import { Heap, new_heap } from .heap;
 import { Class, ExceptionHandler, Field, Method, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, field_access_flags, method_access_flags, null_ref } from .types;
@@ -399,6 +399,12 @@ fn load_constant(context: &Context, index: u16, wide: bool): result<void, Instru
         }
         return load_method_type_constant(context, descriptor_index);
     }
+    case .method_handle(handle) {
+        if wide {
+            return .err(InstructionError.invalid_constant);
+        }
+        return load_method_handle_constant(context, handle);
+    }
     else {
         return .err(InstructionError.invalid_constant);
     }
@@ -506,6 +512,21 @@ fn load_method_type_constant(context: &Context, descriptor_index: u16): result<v
     const method_type_class_index = try find_class_index_by_name_bytes(context, "java/lang/invoke/MethodType".bytes());
     var classes = context.classes;
     const reference = context.heap.intern_method_type(method_type_class_index, &classes[method_type_class_index], descriptor);
+    context.frame.push(.ref_value(reference));
+    return .ok();
+}
+
+fn load_method_handle_constant(context: &Context, handle: ConstantMethodHandle): result<void, InstructionError> {
+    if handle.reference_kind < 1 or handle.reference_kind > 9 {
+        return .err(InstructionError.invalid_constant);
+    }
+    if handle.reference_index as usize >= context.constant_pool.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+
+    const method_handle_class_index = try find_class_index_by_name_bytes(context, "java/lang/invoke/MethodHandle".bytes());
+    var classes = context.classes;
+    const reference = context.heap.intern_method_handle(method_handle_class_index, &classes[method_handle_class_index], handle.reference_kind, handle.reference_index);
     context.frame.push(.ref_value(reference));
     return .ok();
 }
@@ -3243,6 +3264,96 @@ test "instruction interns ldc method type constants" {
     assert(heap.method_types.len() == 1);
     assert(heap.method_types[0].descriptor.bytes() == "(I)V".bytes());
     assert(heap.method_types[0].reference.equals(first));
+    drop context;
+}
+
+test "instruction interns ldc method handle constants" {
+    const code: [4]u8 = [
+        18, 7, // ldc #7 REF_invokeStatic Main.run:()I
+        18, 7, // ldc #7 REF_invokeStatic Main.run:()I
+    ];
+    const constant_pool: [8]Constant = [
+        .unusable(0),
+        .utf8("Main"),
+        .class_ref(1),
+        .utf8("run"),
+        .utf8("()I"),
+        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
+        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+        .method_handle(ConstantMethodHandle { reference_kind: 6, reference_index: 6 }),
+    ];
+    var main_class = Class {
+        name: string.from("Main".bytes()),
+        descriptor: "LMain;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [],
+        methods: [],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "Main.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+    var method_handle_class = Class {
+        name: string.from("java/lang/invoke/MethodHandle".bytes()),
+        descriptor: "Ljava/lang/invoke/MethodHandle;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [],
+        methods: [],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "MethodHandle.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+    var classes: [2]Class = [main_class, method_handle_class];
+    var heap = new_heap();
+    var context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 2),
+        code: code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: &heap,
+    };
+
+    var step: usize = 0;
+    while step < 2 {
+        const step_result = execute_next(&context);
+        switch step_result {
+        case .ok {}
+        case .err(error_value) {
+            const ignored = error_value;
+            assert(false);
+        }
+        }
+        step = step + 1;
+    }
+
+    const second = expect_ref(context.frame.pop());
+    const first = expect_ref(context.frame.pop());
+    assert(first.equals(second));
+    assert(heap.objects.len() == 1);
+    assert(heap.objects[0].object.class_index == 1);
+    assert(heap.method_handles.len() == 1);
+    assert(heap.method_handles[0].reference_kind == 6);
+    assert(heap.method_handles[0].reference_index == 6);
+    assert(heap.method_handles[0].reference.equals(first));
     drop context;
 }
 

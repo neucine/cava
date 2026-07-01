@@ -45,11 +45,11 @@ fn load_string_constant(index: u16): Reference {
 
 Expected capability: Cava needs method-area/class context and Java object construction for constant-pool entries whose JVM value is a heap object or dynamically linked value.
 
-Current blocker: `Context` now carries a constant-pool view, and Cava can construct `java/lang/String`, class mirror, and `java/lang/invoke/MethodType` constants. It does not yet construct method handles or dynamic constants.
+Current blocker: `Context` now carries a constant-pool view, and Cava can construct `java/lang/String`, class mirror, `java/lang/invoke/MethodType`, and `java/lang/invoke/MethodHandle` constants. It does not yet construct dynamic constants.
 
 Classification: Cava Runtime Gap.
 
-Decision: Implement `ldc`/`ldc_w` primitive numeric constants, `CONSTANT_Class`, `CONSTANT_String`, and `CONSTANT_MethodType`; implement `ldc2_w` primitive wide numeric constants. Return `InstructionError.invalid_constant` for method handles and dynamic constants until method-handle and bootstrap linking are designed.
+Decision: Implement `ldc`/`ldc_w` primitive numeric constants, `CONSTANT_Class`, `CONSTANT_String`, `CONSTANT_MethodType`, and `CONSTANT_MethodHandle`; implement `ldc2_w` primitive wide numeric constants. Return `InstructionError.invalid_constant` for dynamic constants until bootstrap linking is designed.
 
 Status: Open.
 
