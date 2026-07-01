@@ -1,7 +1,7 @@
 import { Constant, ConstantMemberRef, ConstantNameAndType, ConstantWide } from .classfile;
 import { Context, Frame, FrameResult, new_frame } from .engine;
 import { Heap, new_heap } from .heap;
-import { Class, Field, Method, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, field_access_flags, method_access_flags, null_ref } from .types;
+import { Class, ExceptionHandler, Field, Method, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, field_access_flags, method_access_flags, null_ref } from .types;
 
 pub enum InstructionError: i32 {
     unsupported_opcode = 0,
@@ -1889,6 +1889,99 @@ fn value_local_width(value: Value): u16 {
     return 1;
 }
 
+fn find_loaded_class_index(classes: []Class, name: []const u8): ?usize {
+    var index: usize = 0;
+    while index < classes.len() {
+        if bytes_equal(classes[index].name.bytes(), name) {
+            return index;
+        }
+        index = index + 1;
+    }
+    return none;
+}
+
+fn class_matches(classes: []Class, actual_index: usize, expected_index: usize): bool {
+    var current = actual_index;
+    while current < classes.len() {
+        if current == expected_index {
+            return true;
+        }
+
+        var interface_index: usize = 0;
+        while interface_index < classes[current].interfaces.len() {
+            if bytes_equal(classes[current].interfaces[interface_index].bytes(), classes[expected_index].name.bytes()) {
+                return true;
+            }
+            interface_index = interface_index + 1;
+        }
+
+        if find_loaded_class_index(classes, classes[current].super_class.bytes()) is super_index {
+            current = super_index;
+        } else {
+            return false;
+        }
+    }
+    return false;
+}
+
+fn handler_matches(context: &Context, handler: ExceptionHandler, exception: Reference): result<bool, InstructionError> {
+    if handler.catch_type == 0 {
+        return .ok(true);
+    }
+    var exception_class_index: usize = 0;
+    if context.heap.object_class_index(exception) is actual_exception_class_index {
+        exception_class_index = actual_exception_class_index;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    const catch_class_index = try find_class_index_by_constant(context, handler.catch_type);
+    return .ok(class_matches(context.classes, exception_class_index, catch_class_index));
+}
+
+fn dispatch_exception(context: &Context, exception: Reference): result<bool, InstructionError> {
+    if context.class_index >= context.classes.len() {
+        return .ok(false);
+    }
+    if context.method_index >= context.classes[context.class_index].methods.len() {
+        return .ok(false);
+    }
+
+    const pc = context.frame.pc as u16;
+    var classes = context.classes;
+    var index: usize = 0;
+    while index < classes[context.class_index].methods[context.method_index].exception_handlers.len() {
+        const handler = classes[context.class_index].methods[context.method_index].exception_handlers[index];
+        if pc >= handler.start_pc and pc < handler.end_pc {
+            if try handler_matches(context, handler, exception) {
+                context.frame.clear();
+                context.frame.push(.ref_value(exception));
+                context.frame.pc = handler.handle_pc as u32;
+                context.frame.offset = 1;
+                context.frame.result = none;
+                return .ok(true);
+            }
+        }
+        index = index + 1;
+    }
+    return .ok(false);
+}
+
+fn apply_method_result(context: &Context, result: FrameResult): result<void, InstructionError> {
+    switch result {
+    case .return_value(value) {
+        if value is actual {
+            context.frame.push(actual);
+        }
+    }
+    case .exception(reference) {
+        if !(try dispatch_exception(context, reference)) {
+            context.frame.throw_exception(reference);
+        }
+    }
+    }
+    return .ok();
+}
+
 fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant, classes: []Class, heap: &Heap): result<FrameResult, InstructionError> {
     var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: classes[class_index].methods[method_index].code[..], constant_pool: constant_pool, classes: classes, heap: heap };
 
@@ -1931,17 +2024,7 @@ fn invoke_static(context: &Context): result<void, InstructionError> {
     drop arguments;
 
     const result = try execute_method_frame(resolved.class_index, resolved.method_index, frame, context.constant_pool, context.classes, context.heap);
-    switch result {
-    case .return_value(value) {
-        if value is actual {
-            context.frame.push(actual);
-        }
-    }
-    case .exception(reference) {
-        context.frame.throw_exception(reference);
-    }
-    }
-    return .ok();
+    return apply_method_result(context, result);
 }
 
 fn invoke_special(context: &Context): result<void, InstructionError> {
@@ -1977,17 +2060,7 @@ fn invoke_special(context: &Context): result<void, InstructionError> {
     drop arguments;
 
     const result = try execute_method_frame(resolved.class_index, resolved.method_index, frame, context.constant_pool, context.classes, context.heap);
-    switch result {
-    case .return_value(value) {
-        if value is actual {
-            context.frame.push(actual);
-        }
-    }
-    case .exception(reference) {
-        context.frame.throw_exception(reference);
-    }
-    }
-    return .ok();
+    return apply_method_result(context, result);
 }
 
 fn invoke_virtual(context: &Context): result<void, InstructionError> {
@@ -2037,17 +2110,7 @@ fn invoke_virtual(context: &Context): result<void, InstructionError> {
     drop arguments;
 
     const result = try execute_method_frame(receiver_class_index, target_method_index, frame, context.constant_pool, context.classes, context.heap);
-    switch result {
-    case .return_value(value) {
-        if value is actual {
-            context.frame.push(actual);
-        }
-    }
-    case .exception(reference) {
-        context.frame.throw_exception(reference);
-    }
-    }
-    return .ok();
+    return apply_method_result(context, result);
 }
 
 fn invoke_interface(context: &Context): result<void, InstructionError> {
@@ -2103,17 +2166,7 @@ fn invoke_interface(context: &Context): result<void, InstructionError> {
     drop arguments;
 
     const result = try execute_method_frame(receiver_class_index, target_method_index, frame, context.constant_pool, context.classes, context.heap);
-    switch result {
-    case .return_value(value) {
-        if value is actual {
-            context.frame.push(actual);
-        }
-    }
-    case .exception(reference) {
-        context.frame.throw_exception(reference);
-    }
-    }
-    return .ok();
+    return apply_method_result(context, result);
 }
 
 fn new_(context: &Context): result<void, InstructionError> {
@@ -2189,7 +2242,9 @@ fn athrow(context: &Context): result<void, InstructionError> {
     if reference.is_null() {
         assert(false);
     }
-    context.frame.throw_exception(reference);
+    if !(try dispatch_exception(context, reference)) {
+        context.frame.throw_exception(reference);
+    }
     return .ok();
 }
 
@@ -2754,6 +2809,7 @@ test "instruction executes iconst and ireturn" {
         max_locals: 0,
         code_len: 2,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -2778,6 +2834,7 @@ test "instruction executes bipush sipush and ireturn" {
         max_locals: 0,
         code_len: 3,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -2793,6 +2850,7 @@ test "instruction executes bipush sipush and ireturn" {
         max_locals: 0,
         code_len: 4,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3012,6 +3070,7 @@ test "instruction executes invokestatic int method" {
                     max_locals: 0,
                     code_len: 6,
                     exception_count: 0,
+        exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -3027,6 +3086,7 @@ test "instruction executes invokestatic int method" {
                     max_locals: 2,
                     code_len: 4,
                     exception_count: 0,
+        exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 2,
@@ -3173,6 +3233,7 @@ test "instruction executes invokespecial constructor initialization" {
                     max_locals: 0,
                     code_len: 9,
                     exception_count: 0,
+        exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -3188,6 +3249,7 @@ test "instruction executes invokespecial constructor initialization" {
                     max_locals: 2,
                     code_len: 6,
                     exception_count: 0,
+        exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 1,
@@ -3273,6 +3335,7 @@ test "instruction executes invokevirtual override dispatch" {
                     max_locals: 0,
                     code_len: 7,
                     exception_count: 0,
+        exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -3288,6 +3351,7 @@ test "instruction executes invokevirtual override dispatch" {
                     max_locals: 1,
                     code_len: 2,
                     exception_count: 0,
+        exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -3323,6 +3387,7 @@ test "instruction executes invokevirtual override dispatch" {
                     max_locals: 1,
                     code_len: 2,
                     exception_count: 0,
+        exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -3388,6 +3453,7 @@ test "instruction executes invokeinterface implementation dispatch" {
                     max_locals: 1,
                     code_len: 0,
                     exception_count: 0,
+        exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -3423,6 +3489,7 @@ test "instruction executes invokeinterface implementation dispatch" {
                     max_locals: 0,
                     code_len: 9,
                     exception_count: 0,
+        exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -3438,6 +3505,7 @@ test "instruction executes invokeinterface implementation dispatch" {
                     max_locals: 1,
                     code_len: 2,
                     exception_count: 0,
+        exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -3483,6 +3551,7 @@ test "instruction executes int local shorthand load store and add" {
         max_locals: 2,
         code_len: 9,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3515,6 +3584,7 @@ test "instruction executes int local operand load store and add" {
         max_locals: 4,
         code_len: 13,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3547,6 +3617,7 @@ test "instruction executes int subtract multiply and negate" {
         max_locals: 0,
         code_len: 10,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3585,6 +3656,7 @@ test "instruction executes float load store arithmetic and return" {
         max_locals: 1,
         code_len: 14,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3625,6 +3697,7 @@ test "instruction executes double load store arithmetic and return" {
         max_locals: 4,
         code_len: 18,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3659,6 +3732,7 @@ test "instruction executes integer division and remainder normal paths" {
         max_locals: 0,
         code_len: 13,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3695,6 +3769,7 @@ test "instruction executes long division and remainder normal paths" {
         max_locals: 0,
         code_len: 14,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3725,6 +3800,7 @@ test "instruction executes stack manipulation ops" {
         max_locals: 0,
         code_len: 7,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3757,6 +3833,7 @@ test "instruction executes stack manipulation ops" {
         max_locals: 0,
         code_len: 11,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3784,6 +3861,7 @@ test "instruction executes stack manipulation ops" {
         max_locals: 0,
         code_len: 6,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3813,6 +3891,7 @@ test "instruction executes stack manipulation ops" {
         max_locals: 0,
         code_len: 8,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3842,6 +3921,7 @@ test "instruction executes stack manipulation ops" {
         max_locals: 0,
         code_len: 8,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3873,6 +3953,7 @@ test "instruction executes stack manipulation ops" {
         max_locals: 0,
         code_len: 10,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3904,6 +3985,7 @@ test "instruction executes stack manipulation ops" {
         max_locals: 0,
         code_len: 10,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3945,6 +4027,7 @@ test "instruction executes iinc shifts and bitwise int ops" {
         max_locals: 1,
         code_len: 24,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -3974,6 +4057,7 @@ test "instruction executes wide local access and iinc" {
         max_locals: 261,
         code_len: 17,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4002,6 +4086,7 @@ test "instruction executes logical right shifts" {
         max_locals: 0,
         code_len: 4,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4030,6 +4115,7 @@ test "instruction executes logical right shifts" {
         max_locals: 0,
         code_len: 7,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4057,6 +4143,7 @@ test "instruction executes int and long conversions" {
         max_locals: 0,
         code_len: 3,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4086,6 +4173,7 @@ test "instruction executes int and long conversions" {
         max_locals: 0,
         code_len: 8,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4113,6 +4201,7 @@ test "instruction executes integer to float and double conversions" {
         max_locals: 0,
         code_len: 4,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4138,6 +4227,7 @@ test "instruction executes integer to float and double conversions" {
         max_locals: 0,
         code_len: 4,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4164,6 +4254,7 @@ test "instruction executes integer to float and double conversions" {
         max_locals: 0,
         code_len: 5,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4190,6 +4281,7 @@ test "instruction executes integer to float and double conversions" {
         max_locals: 0,
         code_len: 5,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4217,6 +4309,7 @@ test "instruction executes int byte char and short conversions" {
         max_locals: 0,
         code_len: 5,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4242,6 +4335,7 @@ test "instruction executes int byte char and short conversions" {
         max_locals: 0,
         code_len: 3,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4269,6 +4363,7 @@ test "instruction executes int byte char and short conversions" {
         max_locals: 0,
         code_len: 6,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4319,6 +4414,7 @@ test "instruction executes unary int branches" {
         max_locals: 0,
         code_len: 45,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4363,6 +4459,7 @@ test "instruction executes int compare branches and goto loop" {
         max_locals: 2,
         code_len: 31,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4400,6 +4497,7 @@ test "instruction executes table and lookup switches" {
         max_locals: 0,
         code_len: 40,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4434,6 +4532,7 @@ test "instruction executes table and lookup switches" {
         max_locals: 0,
         code_len: 37,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4463,6 +4562,7 @@ test "instruction executes jsr ret and jsr_w subroutines" {
         max_locals: 1,
         code_len: 9,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4490,6 +4590,7 @@ test "instruction executes jsr ret and jsr_w subroutines" {
         max_locals: 261,
         code_len: 14,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4517,6 +4618,7 @@ test "instruction executes jsr ret and jsr_w subroutines" {
         max_locals: 1,
         code_len: 11,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4547,6 +4649,7 @@ test "instruction executes nop and goto_w" {
         max_locals: 0,
         code_len: 12,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4575,6 +4678,7 @@ test "instruction executes reference load store and returns" {
         max_locals: 2,
         code_len: 4,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4598,6 +4702,7 @@ test "instruction executes reference load store and returns" {
         max_locals: 0,
         code_len: 1,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4647,6 +4752,226 @@ test "instruction executes athrow with existing exception reference" {
     drop context;
 }
 
+test "instruction dispatches local exception handler" {
+    const code: [5]u8 = [
+        42, // aload_0
+        191, // athrow
+        76, // astore_1 handler
+        8, // iconst_5
+        172, // ireturn
+    ];
+    var constant_pool: [:]Constant = [: 0] [];
+    const handler = ExceptionHandler {
+        start_pc: 0,
+        end_pc: 2,
+        handle_pc: 2,
+        catch_type: 0,
+    };
+    var classes: [2]Class = [
+        Class {
+            name: string.from("Main".bytes()),
+            descriptor: "LMain;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Main",
+                    access_flags: method_access_flags(8),
+                    name: "catchLocal",
+                    descriptor: "(Ljava/lang/Throwable;)I",
+                    code: byte_buffer(code[..]),
+                    max_stack: 1,
+                    max_locals: 2,
+                    code_len: 5,
+                    exception_count: 1,
+                    exception_handlers: [handler],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 1,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Main.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: string.from("Throwable".bytes()),
+            descriptor: "LThrowable;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Throwable.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+    var frame = new_frame(0, 0, 2, 1);
+    const exception = Reference {
+        kind: ReferenceKind.object,
+        slot: 0,
+        generation: 1,
+    };
+    frame.store(0, .ref_value(exception));
+
+    const result = try execute_method_frame(0, 0, frame, constant_pool[..], classes[..], &heap);
+    assert_int_result(result, 5);
+    drop classes;
+}
+
+test "instruction dispatches propagated call exception handler" {
+    const constant_pool: [7]Constant = [
+        .unusable(0),
+        .utf8("Helper"),
+        .class_ref(1),
+        .utf8("throwIt"),
+        .utf8("(Ljava/lang/Throwable;)I"),
+        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
+        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+    ];
+    const caller_code: [7]u8 = [
+        42, // aload_0
+        184, 0, 6, // invokestatic Helper.throwIt
+        76, // astore_1 handler
+        6, // iconst_3
+        172, // ireturn
+    ];
+    const callee_code: [2]u8 = [
+        42, // aload_0
+        191, // athrow
+    ];
+    const caller_handler = ExceptionHandler {
+        start_pc: 1,
+        end_pc: 4,
+        handle_pc: 4,
+        catch_type: 0,
+    };
+    var classes: [3]Class = [
+        Class {
+            name: string.from("Main".bytes()),
+            descriptor: "LMain;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Main",
+                    access_flags: method_access_flags(8),
+                    name: "catchCall",
+                    descriptor: "(Ljava/lang/Throwable;)I",
+                    code: byte_buffer(caller_code[..]),
+                    max_stack: 1,
+                    max_locals: 2,
+                    code_len: 7,
+                    exception_count: 1,
+                    exception_handlers: [caller_handler],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 1,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Main.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: string.from("Helper".bytes()),
+            descriptor: "LHelper;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Helper",
+                    access_flags: method_access_flags(8),
+                    name: "throwIt",
+                    descriptor: "(Ljava/lang/Throwable;)I",
+                    code: byte_buffer(callee_code[..]),
+                    max_stack: 1,
+                    max_locals: 1,
+                    code_len: 2,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 1,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Helper.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: string.from("Throwable".bytes()),
+            descriptor: "LThrowable;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Throwable.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+    var frame = new_frame(0, 0, 2, 1);
+    const exception = Reference {
+        kind: ReferenceKind.object,
+        slot: 0,
+        generation: 1,
+    };
+    frame.store(0, .ref_value(exception));
+
+    const result = try execute_method_frame(0, 0, frame, constant_pool[..], classes[..], &heap);
+    assert_int_result(result, 3);
+    drop classes;
+}
+
 test "instruction executes int array creation load store and length" {
     const code: [18]u8 = [
         6, // iconst_3
@@ -4676,6 +5001,7 @@ test "instruction executes int array creation load store and length" {
         max_locals: 1,
         code_len: 18,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4712,6 +5038,7 @@ test "instruction executes wide and floating array load store ops" {
         max_locals: 1,
         code_len: 14,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4745,6 +5072,7 @@ test "instruction executes wide and floating array load store ops" {
         max_locals: 1,
         code_len: 12,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4778,6 +5106,7 @@ test "instruction executes wide and floating array load store ops" {
         max_locals: 1,
         code_len: 12,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4813,6 +5142,7 @@ test "instruction executes narrow array load store ops" {
         max_locals: 1,
         code_len: 14,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4846,6 +5176,7 @@ test "instruction executes narrow array load store ops" {
         max_locals: 1,
         code_len: 14,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4879,6 +5210,7 @@ test "instruction executes narrow array load store ops" {
         max_locals: 1,
         code_len: 14,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -4912,6 +5244,7 @@ test "instruction executes narrow array load store ops" {
         max_locals: 1,
         code_len: 12,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -5005,6 +5338,7 @@ test "instruction executes reference comparison and null branches" {
         max_locals: 1,
         code_len: 29,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -5041,6 +5375,7 @@ test "instruction executes long local arithmetic and return" {
         max_locals: 3,
         code_len: 12,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -5071,6 +5406,7 @@ test "instruction executes long shifts and bitwise ops" {
         max_locals: 0,
         code_len: 8,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -5103,6 +5439,7 @@ test "instruction executes long shifts and bitwise ops" {
         max_locals: 0,
         code_len: 10,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,
@@ -5139,6 +5476,7 @@ test "instruction executes long operand load store and compare" {
         max_locals: 4,
         code_len: 17,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,

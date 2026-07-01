@@ -1,5 +1,5 @@
 import { AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant, ConstantMemberRef, ConstantNameAndType, MemberInfo, new_classfile, parse_classfile } from .classfile;
-import { Class, Field, Method, Value, byte_buffer, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
+import { Class, ExceptionHandler, Field, Method, Value, byte_buffer, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
 import { FsError, read_file } from std.fs;
 
 pub enum MethodAreaError: i32 {
@@ -388,6 +388,7 @@ struct CodeInfo {
     max_locals: u16;
     code_len: u32;
     exception_count: u32;
+    exception_handlers: List<ExceptionHandler>;
     local_var_count: u32;
     line_number_count: u32;
 }
@@ -399,6 +400,7 @@ fn empty_code_info(): CodeInfo {
         max_locals: 0,
         code_len: 0,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
     };
@@ -442,13 +444,24 @@ fn code_info_from_attribute(classfile: &ClassFile, name_index: u16, raw: []const
     const code = byte_buffer(raw[code_start..code_start + (code_len as usize)]);
     try reader.skip(code_len as usize);
     const exception_count = try reader.read_u2();
-    try reader.skip((exception_count as usize) * 8);
+    var exception_handlers: List<ExceptionHandler> = [];
+    var exception_index: usize = 0;
+    while exception_index < exception_count as usize {
+        exception_handlers.push(ExceptionHandler {
+            start_pc: try reader.read_u2(),
+            end_pc: try reader.read_u2(),
+            handle_pc: try reader.read_u2(),
+            catch_type: try reader.read_u2(),
+        });
+        exception_index = exception_index + 1;
+    }
     var out = CodeInfo {
         code: code,
         max_stack: max_stack,
         max_locals: max_locals,
         code_len: code_len,
         exception_count: exception_count as u32,
+        exception_handlers: exception_handlers,
         local_var_count: 0,
         line_number_count: 0,
     };
@@ -587,6 +600,7 @@ fn derive_methods(classfile: &ClassFile, class_name: string): result<List<Method
             max_locals: code.max_locals,
             code_len: code.code_len,
             exception_count: code.exception_count,
+            exception_handlers: code.exception_handlers,
             local_var_count: code.local_var_count,
             line_number_count: code.line_number_count,
             parameter_count: method_parameter_count(descriptor_bytes) as u32,

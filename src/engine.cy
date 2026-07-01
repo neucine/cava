@@ -282,6 +282,7 @@ test "context reads big endian operands and padding" {
         max_locals: 1,
         code_len: 10,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 0,

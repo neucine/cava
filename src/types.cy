@@ -186,6 +186,13 @@ pub fn raw_method_access(access: MethodAccessFlags): u16 {
     return access as u16;
 }
 
+pub struct ExceptionHandler {
+    pub start_pc: u16;
+    pub end_pc: u16;
+    pub handle_pc: u16;
+    pub catch_type: u16;
+}
+
 pub struct Field {
     pub class_name: string;
     pub access_flags: FieldAccessFlags;
@@ -213,6 +220,7 @@ pub struct Method {
     pub max_locals: u16;
     pub code_len: u32;
     pub exception_count: u32;
+    pub exception_handlers: List<ExceptionHandler>;
     pub local_var_count: u32;
     pub line_number_count: u32;
     pub parameter_count: u32;
@@ -252,13 +260,6 @@ pub struct LocalVariable {
 pub struct LineNumber {
     pub start_pc: u16;
     pub line_number: u32;
-}
-
-pub struct ExceptionHandler {
-    pub start_pc: u16;
-    pub end_pc: u16;
-    pub handle_pc: u16;
-    pub catch_type: u16;
 }
 
 pub struct Class {
@@ -476,6 +477,7 @@ test "class metadata supports field and method lookup" {
         max_locals: 1,
         code_len: 8,
         exception_count: 0,
+        exception_handlers: [],
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: 1,
