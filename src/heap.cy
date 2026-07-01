@@ -44,6 +44,7 @@ pub struct Heap {
     pub strings: List<InternedString>;
     pub method_types: List<InternedMethodType>;
     pub method_handles: List<InternedMethodHandle>;
+    pub current_thread: ?Reference;
 
     pub fn allocate_object(self: &Heap, class_index: usize, class: &Class): Reference {
         var fields: List<Value> = [];
@@ -244,6 +245,14 @@ pub struct Heap {
         }
         return false;
     }
+
+    pub fn current_thread_ref(self: &Heap): ?Reference {
+        return self.current_thread;
+    }
+
+    pub fn set_current_thread(self: &Heap, reference: Reference): void {
+        self.current_thread = reference;
+    }
 }
 
 pub fn new_heap(): Heap {
@@ -253,6 +262,7 @@ pub fn new_heap(): Heap {
         strings: [],
         method_types: [],
         method_handles: [],
+        current_thread: none,
     };
 }
 

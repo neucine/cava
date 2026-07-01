@@ -85,6 +85,60 @@ fn find_class_object_index(context: &Context, class_object: Reference): ?usize {
     return none;
 }
 
+fn set_instance_field(context: &Context, reference: Reference, class_index: usize, name: []const u8, descriptor: []const u8, value: Value): result<void, InstructionError> {
+    if context.classes[class_index].field_index(name, descriptor, false) is field_index {
+        const slot = context.classes[class_index].fields[field_index as usize].slot;
+        if !context.heap.set_field(reference, slot, value) {
+            return .err(InstructionError.invalid_constant);
+        }
+    }
+    return .ok();
+}
+
+fn java_string(context: &Context, value: []const u8): ?Reference {
+    if find_loaded_class_index(context.classes, "java/lang/String") is string_class_index {
+        var classes = context.classes;
+        return context.heap.intern_string(string_class_index, &classes[string_class_index], value);
+    }
+    return none;
+}
+
+fn new_thread_group(context: &Context): result<Reference, InstructionError> {
+    if find_loaded_class_index(context.classes, "java/lang/ThreadGroup") is group_class_index {
+        var classes = context.classes;
+        const group = context.heap.allocate_object(group_class_index, &classes[group_class_index]);
+        if java_string(context, "main".bytes()) is group_name {
+            try set_instance_field(context, group, group_class_index, "name".bytes(), "Ljava/lang/String;".bytes(), .ref_value(group_name));
+        }
+        return .ok(group);
+    }
+    return .ok(null_ref);
+}
+
+fn new_java_lang_thread(context: &Context): result<Reference, InstructionError> {
+    if context.heap.current_thread_ref() is cached {
+        if context.heap.has_object(cached) {
+            return .ok(cached);
+        }
+    }
+    if find_loaded_class_index(context.classes, "java/lang/Thread") is thread_class_index {
+        var classes = context.classes;
+        const thread = context.heap.allocate_object(thread_class_index, &classes[thread_class_index]);
+        if java_string(context, "main".bytes()) is name {
+            try set_instance_field(context, thread, thread_class_index, "name".bytes(), "Ljava/lang/String;".bytes(), .ref_value(name));
+        }
+        try set_instance_field(context, thread, thread_class_index, "tid".bytes(), "J".bytes(), .long_value(1));
+        try set_instance_field(context, thread, thread_class_index, "priority".bytes(), "I".bytes(), .int_value(1));
+        const group = try new_thread_group(context);
+        if group.non_null() {
+            try set_instance_field(context, thread, thread_class_index, "group".bytes(), "Ljava/lang/ThreadGroup;".bytes(), .ref_value(group));
+        }
+        context.heap.set_current_thread(thread);
+        return .ok(thread);
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
 fn arraycopy(context: &Context, src: Reference, src_pos: i32, dest: Reference, dest_pos: i32, length: i32): result<void, InstructionError> {
     if src_pos < 0 or dest_pos < 0 or length < 0 {
         return .err(InstructionError.invalid_constant);
@@ -423,6 +477,10 @@ struct JavaLangDouble {
 struct JavaLangThread {
     pub fn registerNatives(context: &Context): result<?Value, InstructionError> {
         return .ok(none);
+    }
+
+    pub fn currentThread(context: &Context): result<?Value, InstructionError> {
+        return return_value(.ref_value(try new_java_lang_thread(context)));
     }
 
     pub fn isAlive(context: &Context, receiver: Reference): result<?Value, InstructionError> {
@@ -820,6 +878,7 @@ pub fn execute_native_method(context: &Context, class_index: usize, method_index
 
     if class_name == "java/lang/Thread" {
         if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangThread.registerNatives(context); }
+        if method_is(method_name, descriptor, "currentThread", "()Ljava/lang/Thread;") { return JavaLangThread.currentThread(context); }
         if method_is(method_name, descriptor, "isAlive", "()Z") { return JavaLangThread.isAlive(context, try receiver_ref(receiver)); }
         if method_is(method_name, descriptor, "setPriority0", "(I)V") { return JavaLangThread.setPriority0(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
         if method_is(method_name, descriptor, "start0", "()V") { return JavaLangThread.start0(context, try receiver_ref(receiver)); }
@@ -1205,6 +1264,185 @@ test "native bootstrap helpers return conservative values" {
     if pending is pending_value {
         switch pending_value {
         case .boolean_value(actual) { assert(actual == 0); }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
+    }
+    drop context;
+    drop classes;
+    drop constant_pool;
+}
+
+test "native Thread.currentThread creates stable java thread object" {
+    const native_code: [0]u8 = [];
+    const thread_name_field = Field {
+        class_name: "java/lang/Thread",
+        access_flags: field_access_flags(0x0001),
+        name: "name",
+        descriptor: "Ljava/lang/String;",
+        index: 0,
+        slot: 0,
+    };
+    const thread_tid_field = Field {
+        class_name: "java/lang/Thread",
+        access_flags: field_access_flags(0x0001),
+        name: "tid",
+        descriptor: "J",
+        index: 1,
+        slot: 1,
+    };
+    const thread_group_field = Field {
+        class_name: "java/lang/Thread",
+        access_flags: field_access_flags(0x0001),
+        name: "group",
+        descriptor: "Ljava/lang/ThreadGroup;",
+        index: 2,
+        slot: 2,
+    };
+    const thread_priority_field = Field {
+        class_name: "java/lang/Thread",
+        access_flags: field_access_flags(0x0001),
+        name: "priority",
+        descriptor: "I",
+        index: 3,
+        slot: 3,
+    };
+    const group_name_field = Field {
+        class_name: "java/lang/ThreadGroup",
+        access_flags: field_access_flags(0x0001),
+        name: "name",
+        descriptor: "Ljava/lang/String;",
+        index: 0,
+        slot: 0,
+    };
+    var classes: [3]Class = [
+        Class {
+            name: "java/lang/Thread",
+            descriptor: "Ljava/lang/Thread;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [thread_name_field, thread_tid_field, thread_group_field, thread_priority_field],
+            methods: [],
+            instance_vars: 4,
+            static_vars: [],
+            source_file: "Thread.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: "java/lang/ThreadGroup",
+            descriptor: "Ljava/lang/ThreadGroup;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [group_name_field],
+            methods: [],
+            instance_vars: 1,
+            static_vars: [],
+            source_file: "ThreadGroup.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+        Class {
+            name: "java/lang/String",
+            descriptor: "Ljava/lang/String;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "String.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+    var constant_pool: [:]Constant = [: 0] [];
+    var context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 0),
+        code: native_code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: &heap,
+    };
+
+    const first = try JavaLangThread.currentThread(&context);
+    const second = try JavaLangThread.currentThread(&context);
+    if first is first_value {
+        switch first_value {
+        case .ref_value(first_ref) {
+            if second is second_value {
+                switch second_value {
+                case .ref_value(second_ref) { assert(first_ref.equals(second_ref)); }
+                else { assert(false); }
+                }
+            } else {
+                assert(false);
+            }
+            if heap.get_field(first_ref, 1) is tid {
+                switch tid {
+                case .long_value(actual) { assert(actual == 1); }
+                else { assert(false); }
+                }
+            } else {
+                assert(false);
+            }
+            if heap.get_field(first_ref, 3) is priority {
+                switch priority {
+                case .int_value(actual) { assert(actual == 1); }
+                else { assert(false); }
+                }
+            } else {
+                assert(false);
+            }
+            if heap.get_field(first_ref, 0) is name {
+                switch name {
+                case .ref_value(name_ref) { assert(name_ref.equals(heap.strings[0].reference)); }
+                else { assert(false); }
+                }
+            } else {
+                assert(false);
+            }
+            if heap.get_field(first_ref, 2) is group {
+                switch group {
+                case .ref_value(group_ref) {
+                    assert(group_ref.non_null());
+                    if heap.get_field(group_ref, 0) is group_name {
+                        switch group_name {
+                        case .ref_value(group_name_ref) { assert(group_name_ref.equals(heap.strings[0].reference)); }
+                        else { assert(false); }
+                        }
+                    } else {
+                        assert(false);
+                    }
+                }
+                else { assert(false); }
+                }
+            } else {
+                assert(false);
+            }
+        }
         else { assert(false); }
         }
     } else {
