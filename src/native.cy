@@ -290,71 +290,75 @@ struct SunMiscUnsafe {
     }
 }
 
+fn class_is(context: &Context, class_index: usize, name: string): bool {
+    return context.classes[class_index].name == name;
+}
+
+fn method_is(context: &Context, class_index: usize, method_index: usize, name: string, descriptor: string): bool {
+    return context.classes[class_index].methods[method_index].name == name and context.classes[class_index].methods[method_index].descriptor == descriptor;
+}
+
 pub fn execute_native_method(context: &Context, class_index: usize, method_index: usize, receiver: ?Reference, arguments: []Value): result<?Value, InstructionError> {
-    const class_name = context.classes[class_index].name.bytes();
-    const method_name = context.classes[class_index].methods[method_index].name.bytes();
-    const descriptor = context.classes[class_index].methods[method_index].descriptor.bytes();
-
-    if class_name == "java/lang/System".bytes() {
-        if method_name == "registerNatives".bytes() and descriptor == "()V".bytes() { return JavaLangSystem.registerNatives(context); }
-        if method_name == "setIn0".bytes() and descriptor == "(Ljava/io/InputStream;)V".bytes() { return JavaLangSystem.setIn0(context, ref_arg(arguments, 0)); }
-        if method_name == "setOut0".bytes() and descriptor == "(Ljava/io/PrintStream;)V".bytes() { return JavaLangSystem.setOut0(context, ref_arg(arguments, 0)); }
-        if method_name == "setErr0".bytes() and descriptor == "(Ljava/io/PrintStream;)V".bytes() { return JavaLangSystem.setErr0(context, ref_arg(arguments, 0)); }
-        if method_name == "arraycopy".bytes() and descriptor == "(Ljava/lang/Object;ILjava/lang/Object;II)V".bytes() { return JavaLangSystem.arraycopy(context, ref_arg(arguments, 0), int_arg(arguments, 1), ref_arg(arguments, 2), int_arg(arguments, 3), int_arg(arguments, 4)); }
-        if method_name == "identityHashCode".bytes() and descriptor == "(Ljava/lang/Object;)I".bytes() { return JavaLangSystem.identityHashCode(context, ref_arg(arguments, 0)); }
+    if class_is(context, class_index, "java/lang/System") {
+        if method_is(context, class_index, method_index, "registerNatives", "()V") { return JavaLangSystem.registerNatives(context); }
+        if method_is(context, class_index, method_index, "setIn0", "(Ljava/io/InputStream;)V") { return JavaLangSystem.setIn0(context, ref_arg(arguments, 0)); }
+        if method_is(context, class_index, method_index, "setOut0", "(Ljava/io/PrintStream;)V") { return JavaLangSystem.setOut0(context, ref_arg(arguments, 0)); }
+        if method_is(context, class_index, method_index, "setErr0", "(Ljava/io/PrintStream;)V") { return JavaLangSystem.setErr0(context, ref_arg(arguments, 0)); }
+        if method_is(context, class_index, method_index, "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V") { return JavaLangSystem.arraycopy(context, ref_arg(arguments, 0), int_arg(arguments, 1), ref_arg(arguments, 2), int_arg(arguments, 3), int_arg(arguments, 4)); }
+        if method_is(context, class_index, method_index, "identityHashCode", "(Ljava/lang/Object;)I") { return JavaLangSystem.identityHashCode(context, ref_arg(arguments, 0)); }
     }
 
-    if class_name == "java/lang/Object".bytes() {
-        if method_name == "registerNatives".bytes() and descriptor == "()V".bytes() { return JavaLangObject.registerNatives(context); }
-        if method_name == "hashCode".bytes() and descriptor == "()I".bytes() { return JavaLangObject.hashCode(context, try receiver_ref(receiver)); }
-        if method_name == "getClass".bytes() and descriptor == "()Ljava/lang/Class;".bytes() { return JavaLangObject.getClass(context, try receiver_ref(receiver)); }
-        if method_name == "notify".bytes() and descriptor == "()V".bytes() { return JavaLangObject.notify(context, try receiver_ref(receiver)); }
-        if method_name == "notifyAll".bytes() and descriptor == "()V".bytes() { return JavaLangObject.notifyAll(context, try receiver_ref(receiver)); }
-        if method_name == "wait".bytes() and descriptor == "(J)V".bytes() { return JavaLangObject.wait(context, try receiver_ref(receiver), long_arg(arguments, 0)); }
+    if class_is(context, class_index, "java/lang/Object") {
+        if method_is(context, class_index, method_index, "registerNatives", "()V") { return JavaLangObject.registerNatives(context); }
+        if method_is(context, class_index, method_index, "hashCode", "()I") { return JavaLangObject.hashCode(context, try receiver_ref(receiver)); }
+        if method_is(context, class_index, method_index, "getClass", "()Ljava/lang/Class;") { return JavaLangObject.getClass(context, try receiver_ref(receiver)); }
+        if method_is(context, class_index, method_index, "notify", "()V") { return JavaLangObject.notify(context, try receiver_ref(receiver)); }
+        if method_is(context, class_index, method_index, "notifyAll", "()V") { return JavaLangObject.notifyAll(context, try receiver_ref(receiver)); }
+        if method_is(context, class_index, method_index, "wait", "(J)V") { return JavaLangObject.wait(context, try receiver_ref(receiver), long_arg(arguments, 0)); }
     }
 
-    if class_name == "java/lang/String".bytes() {
-        if method_name == "intern".bytes() and descriptor == "()Ljava/lang/String;".bytes() { return JavaLangString.intern(context, try receiver_ref(receiver)); }
+    if class_is(context, class_index, "java/lang/String") {
+        if method_is(context, class_index, method_index, "intern", "()Ljava/lang/String;") { return JavaLangString.intern(context, try receiver_ref(receiver)); }
     }
 
-    if class_name == "java/lang/Float".bytes() {
-        if method_name == "floatToRawIntBits".bytes() and descriptor == "(F)I".bytes() { return JavaLangFloat.floatToRawIntBits(context, float_arg(arguments, 0)); }
-        if method_name == "intBitsToFloat".bytes() and descriptor == "(I)F".bytes() { return JavaLangFloat.intBitsToFloat(context, int_arg(arguments, 0)); }
+    if class_is(context, class_index, "java/lang/Float") {
+        if method_is(context, class_index, method_index, "floatToRawIntBits", "(F)I") { return JavaLangFloat.floatToRawIntBits(context, float_arg(arguments, 0)); }
+        if method_is(context, class_index, method_index, "intBitsToFloat", "(I)F") { return JavaLangFloat.intBitsToFloat(context, int_arg(arguments, 0)); }
     }
 
-    if class_name == "java/lang/Double".bytes() {
-        if method_name == "doubleToRawLongBits".bytes() and descriptor == "(D)J".bytes() { return JavaLangDouble.doubleToRawLongBits(context, double_arg(arguments, 0)); }
-        if method_name == "longBitsToDouble".bytes() and descriptor == "(J)D".bytes() { return JavaLangDouble.longBitsToDouble(context, long_arg(arguments, 0)); }
+    if class_is(context, class_index, "java/lang/Double") {
+        if method_is(context, class_index, method_index, "doubleToRawLongBits", "(D)J") { return JavaLangDouble.doubleToRawLongBits(context, double_arg(arguments, 0)); }
+        if method_is(context, class_index, method_index, "longBitsToDouble", "(J)D") { return JavaLangDouble.longBitsToDouble(context, long_arg(arguments, 0)); }
     }
 
-    if class_name == "java/lang/Thread".bytes() {
-        if method_name == "registerNatives".bytes() and descriptor == "()V".bytes() { return JavaLangThread.registerNatives(context); }
-        if method_name == "isAlive".bytes() and descriptor == "()Z".bytes() { return JavaLangThread.isAlive(context, try receiver_ref(receiver)); }
-        if method_name == "setPriority0".bytes() and descriptor == "(I)V".bytes() { return JavaLangThread.setPriority0(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
-        if method_name == "start0".bytes() and descriptor == "()V".bytes() { return JavaLangThread.start0(context, try receiver_ref(receiver)); }
-        if method_name == "sleep".bytes() and descriptor == "(J)V".bytes() { return JavaLangThread.sleep(context, long_arg(arguments, 0)); }
-        if method_name == "interrupt0".bytes() and descriptor == "()V".bytes() { return JavaLangThread.interrupt0(context, try receiver_ref(receiver)); }
-        if method_name == "isInterrupted".bytes() and descriptor == "(Z)Z".bytes() { return JavaLangThread.isInterrupted(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
+    if class_is(context, class_index, "java/lang/Thread") {
+        if method_is(context, class_index, method_index, "registerNatives", "()V") { return JavaLangThread.registerNatives(context); }
+        if method_is(context, class_index, method_index, "isAlive", "()Z") { return JavaLangThread.isAlive(context, try receiver_ref(receiver)); }
+        if method_is(context, class_index, method_index, "setPriority0", "(I)V") { return JavaLangThread.setPriority0(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
+        if method_is(context, class_index, method_index, "start0", "()V") { return JavaLangThread.start0(context, try receiver_ref(receiver)); }
+        if method_is(context, class_index, method_index, "sleep", "(J)V") { return JavaLangThread.sleep(context, long_arg(arguments, 0)); }
+        if method_is(context, class_index, method_index, "interrupt0", "()V") { return JavaLangThread.interrupt0(context, try receiver_ref(receiver)); }
+        if method_is(context, class_index, method_index, "isInterrupted", "(Z)Z") { return JavaLangThread.isInterrupted(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
     }
 
-    if class_name == "java/lang/Throwable".bytes() {
-        if method_name == "getStackTraceDepth".bytes() and descriptor == "()I".bytes() { return JavaLangThrowable.getStackTraceDepth(context, try receiver_ref(receiver)); }
-        if method_name == "fillInStackTrace".bytes() and descriptor == "(I)Ljava/lang/Throwable;".bytes() { return JavaLangThrowable.fillInStackTrace(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
+    if class_is(context, class_index, "java/lang/Throwable") {
+        if method_is(context, class_index, method_index, "getStackTraceDepth", "()I") { return JavaLangThrowable.getStackTraceDepth(context, try receiver_ref(receiver)); }
+        if method_is(context, class_index, method_index, "fillInStackTrace", "(I)Ljava/lang/Throwable;") { return JavaLangThrowable.fillInStackTrace(context, try receiver_ref(receiver), int_arg(arguments, 0)); }
     }
 
-    if class_name == "java/lang/Runtime".bytes() {
-        if method_name == "availableProcessors".bytes() and descriptor == "()I".bytes() { return JavaLangRuntime.availableProcessors(context, try receiver_ref(receiver)); }
+    if class_is(context, class_index, "java/lang/Runtime") {
+        if method_is(context, class_index, method_index, "availableProcessors", "()I") { return JavaLangRuntime.availableProcessors(context, try receiver_ref(receiver)); }
     }
 
-    if class_name == "sun/misc/VM".bytes() {
-        if method_name == "initialize".bytes() and descriptor == "()V".bytes() { return SunMiscVM.initialize(context); }
+    if class_is(context, class_index, "sun/misc/VM") {
+        if method_is(context, class_index, method_index, "initialize", "()V") { return SunMiscVM.initialize(context); }
     }
 
-    if class_name == "sun/misc/Unsafe".bytes() {
-        if method_name == "registerNatives".bytes() and descriptor == "()V".bytes() { return SunMiscUnsafe.registerNatives(context); }
-        if method_name == "arrayBaseOffset".bytes() and descriptor == "(Ljava/lang/Class;)I".bytes() { return SunMiscUnsafe.arrayBaseOffset(context, ref_arg(arguments, 0)); }
-        if method_name == "arrayIndexScale".bytes() and descriptor == "(Ljava/lang/Class;)I".bytes() { return SunMiscUnsafe.arrayIndexScale(context, ref_arg(arguments, 0)); }
-        if method_name == "addressSize".bytes() and descriptor == "()I".bytes() { return SunMiscUnsafe.addressSize(context); }
+    if class_is(context, class_index, "sun/misc/Unsafe") {
+        if method_is(context, class_index, method_index, "registerNatives", "()V") { return SunMiscUnsafe.registerNatives(context); }
+        if method_is(context, class_index, method_index, "arrayBaseOffset", "(Ljava/lang/Class;)I") { return SunMiscUnsafe.arrayBaseOffset(context, ref_arg(arguments, 0)); }
+        if method_is(context, class_index, method_index, "arrayIndexScale", "(Ljava/lang/Class;)I") { return SunMiscUnsafe.arrayIndexScale(context, ref_arg(arguments, 0)); }
+        if method_is(context, class_index, method_index, "addressSize", "()I") { return SunMiscUnsafe.addressSize(context); }
     }
 
     return .err(InstructionError.unsupported_native);
