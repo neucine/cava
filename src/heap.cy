@@ -22,9 +22,15 @@ pub struct ArraySlot {
     pub array: ArrayObject;
 }
 
+pub struct InternedString {
+    pub value: string;
+    pub reference: Reference;
+}
+
 pub struct Heap {
     pub objects: List<ObjectSlot>;
     pub arrays: List<ArraySlot>;
+    pub strings: List<InternedString>;
 
     pub fn allocate_object(self: &Heap, class_index: usize, class: &Class): Reference {
         var fields: List<Value> = [];
@@ -75,6 +81,23 @@ pub struct Heap {
             slot: slot,
             generation: 1,
         };
+    }
+
+    pub fn intern_string(self: &Heap, class_index: usize, class: &Class, value: []const u8): Reference {
+        var index: usize = 0;
+        while index < self.strings.len() {
+            if self.strings[index].value.bytes() == value {
+                return self.strings[index].reference;
+            }
+            index = index + 1;
+        }
+
+        const reference = self.allocate_object(class_index, class);
+        self.strings.push(InternedString {
+            value: string.from(value),
+            reference: reference,
+        });
+        return reference;
     }
 
     pub fn object_index(self: &Heap, reference: Reference): ?usize {
@@ -172,6 +195,7 @@ pub fn new_heap(): Heap {
     return Heap {
         objects: [],
         arrays: [],
+        strings: [],
     };
 }
 
@@ -382,4 +406,38 @@ test "heap allocates reference arrays with null elements" {
     } else {
         assert(false);
     }
+}
+
+test "heap interns string objects by byte content" {
+    var string_class = Class {
+        name: string.from("java/lang/String".bytes()),
+        descriptor: "Ljava/lang/String;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [],
+        methods: [],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "String.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+    var heap = new_heap();
+
+    const first = heap.intern_string(0, &string_class, "hello".bytes());
+    const second = heap.intern_string(0, &string_class, "hello".bytes());
+    const third = heap.intern_string(0, &string_class, "world".bytes());
+
+    assert(first.equals(second));
+    assert(!first.equals(third));
+    assert(heap.objects.len() == 2);
+    assert(heap.strings.len() == 2);
+    assert(heap.strings[0].value.bytes() == "hello".bytes());
+    assert(heap.strings[1].value.bytes() == "world".bytes());
 }

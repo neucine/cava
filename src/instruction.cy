@@ -387,6 +387,12 @@ fn load_constant(context: &Context, index: u16, wide: bool): result<void, Instru
         }
         return load_class_constant(context, index, name_index);
     }
+    case .string_ref(utf8_index) {
+        if wide {
+            return .err(InstructionError.invalid_constant);
+        }
+        return load_string_constant(context, utf8_index);
+    }
     else {
         return .err(InstructionError.invalid_constant);
     }
@@ -459,6 +465,24 @@ fn load_class_constant(context: &Context, constant_index: u16, name_index: u16):
         target_class.class_object = context.heap.allocate_object(class_class_index, class_class);
     }
     context.frame.push(.ref_value(target_class.class_object));
+    return .ok();
+}
+
+fn load_string_constant(context: &Context, utf8_index: u16): result<void, InstructionError> {
+    if utf8_index as usize >= context.constant_pool.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+
+    var value: []const u8 = "".bytes();
+    switch context.constant_pool[utf8_index as usize] {
+    case .utf8(actual) { value = actual.bytes(); }
+    else { return .err(InstructionError.invalid_constant); }
+    }
+
+    const string_class_index = try find_class_index_by_name_bytes(context, "java/lang/String".bytes());
+    var classes = context.classes;
+    const reference = context.heap.intern_string(string_class_index, &classes[string_class_index], value);
+    context.frame.push(.ref_value(reference));
     return .ok();
 }
 
@@ -3027,6 +3051,90 @@ test "instruction caches ldc class constants" {
     assert(context_classes[0].class_object.equals(first));
     assert(heap.objects.len() == 1);
     assert(heap.objects[0].object.class_index == 1);
+    drop context;
+}
+
+test "instruction interns ldc string constants" {
+    const code: [4]u8 = [
+        18, 2, // ldc #2 "hello"
+        18, 2, // ldc #2 "hello"
+    ];
+    const constant_pool: [3]Constant = [
+        .unusable(0),
+        .utf8("hello"),
+        .string_ref(1),
+    ];
+    var main_class = Class {
+        name: string.from("Main".bytes()),
+        descriptor: "LMain;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [],
+        methods: [],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "Main.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+    var string_class = Class {
+        name: string.from("java/lang/String".bytes()),
+        descriptor: "Ljava/lang/String;",
+        access_flags: class_access_flags(0x0021),
+        super_class: "java/lang/Object",
+        interfaces: [],
+        fields: [],
+        methods: [],
+        instance_vars: 0,
+        static_vars: [],
+        source_file: "String.java",
+        is_array: false,
+        component_type: "",
+        element_type: "",
+        dimensions: 0,
+        defined: true,
+        linked: false,
+        class_object: null_ref,
+    };
+    var classes: [2]Class = [main_class, string_class];
+    var heap = new_heap();
+    var context = Context {
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 2),
+        code: code[..],
+        constant_pool: constant_pool[..],
+        classes: classes[..],
+        heap: &heap,
+    };
+
+    var step: usize = 0;
+    while step < 2 {
+        const step_result = execute_next(&context);
+        switch step_result {
+        case .ok {}
+        case .err(error_value) {
+            const ignored = error_value;
+            assert(false);
+        }
+        }
+        step = step + 1;
+    }
+
+    const second = expect_ref(context.frame.pop());
+    const first = expect_ref(context.frame.pop());
+    assert(first.equals(second));
+    assert(heap.objects.len() == 1);
+    assert(heap.objects[0].object.class_index == 1);
+    assert(heap.strings.len() == 1);
+    assert(heap.strings[0].value.bytes() == "hello".bytes());
+    assert(heap.strings[0].reference.equals(first));
     drop context;
 }
 
