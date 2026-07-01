@@ -193,6 +193,8 @@ pub enum Opcode: i32 {
     athrow = 191,
     checkcast,
     instanceof,
+    monitorenter,
+    monitorexit,
     wide = 196,
     ifnull = 198,
     ifnonnull,
@@ -2515,6 +2517,22 @@ fn instanceof(context: &Context): result<void, InstructionError> {
     return .ok();
 }
 
+fn monitorenter(context: &Context): result<void, InstructionError> {
+    const reference = expect_ref(context.frame.pop());
+    if reference.is_null() {
+        assert(false);
+    }
+    return .ok();
+}
+
+fn monitorexit(context: &Context): result<void, InstructionError> {
+    const reference = expect_ref(context.frame.pop());
+    if reference.is_null() {
+        assert(false);
+    }
+    return .ok();
+}
+
 fn arraylength(context: &Context): result<void, InstructionError> {
     const reference = expect_ref(context.frame.pop());
     if reference.is_null() {
@@ -2800,8 +2818,8 @@ const registry: [256]Instruction = [
     { opcode: .athrow, length: 1, execute: athrow }, // 0xBF athrow
     { opcode: .checkcast, length: 3, execute: checkcast }, // 0xC0 checkcast
     { opcode: .instanceof, length: 3, execute: instanceof }, // 0xC1 instanceof
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xC2 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xC3 unsupported
+    { opcode: .monitorenter, length: 1, execute: monitorenter }, // 0xC2 monitorenter
+    { opcode: .monitorexit, length: 1, execute: monitorexit }, // 0xC3 monitorexit
     { opcode: .wide, length: 0, execute: wide }, // 0xC4 wide
     { opcode: .unsupported, length: 0, execute: unsupported }, // 0xC5 unsupported
     { opcode: .ifnull, length: 3, execute: ifnull }, // 0xC6 ifnull
@@ -5821,6 +5839,66 @@ test "instruction executes checkcast and instanceof normal paths" {
     assert_int_result(pass_result, 1);
     assert_int_result(null_result, 0);
     assert_int_result(miss_result, 0);
+    drop classes;
+}
+
+test "instruction executes monitorenter and monitorexit normal paths" {
+    const code: [8]u8 = [
+        187, 0, 2, // new Main
+        89, // dup
+        194, // monitorenter
+        195, // monitorexit
+        4, // iconst_1
+        172, // ireturn
+    ];
+    const constant_pool: [3]Constant = [
+        .unusable(0),
+        .utf8("Main"),
+        .class_ref(1),
+    ];
+    var classes: [1]Class = [
+        Class {
+            name: string.from("Main".bytes()),
+            descriptor: "LMain;",
+            access_flags: class_access_flags(0x0021),
+            super_class: "java/lang/Object",
+            interfaces: [],
+            fields: [],
+            methods: [
+                Method {
+                    class_name: "Main",
+                    access_flags: method_access_flags(0),
+                    name: "monitor",
+                    descriptor: "()I",
+                    code: byte_buffer(code[..]),
+                    max_stack: 2,
+                    max_locals: 0,
+                    code_len: 8,
+                    exception_count: 0,
+                    exception_handlers: [],
+                    local_var_count: 0,
+                    line_number_count: 0,
+                    parameter_count: 0,
+                    return_descriptor: "I",
+                },
+            ],
+            instance_vars: 0,
+            static_vars: [],
+            source_file: "Main.java",
+            is_array: false,
+            component_type: "",
+            element_type: "",
+            dimensions: 0,
+            defined: true,
+            linked: false,
+            class_object: null_ref,
+        },
+    ];
+    var heap = new_heap();
+
+    const result = try execute_method_frame(0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..], classes[..], &heap);
+    assert_int_result(result, 1);
+    assert(heap.objects.len() == 1);
     drop classes;
 }
 
