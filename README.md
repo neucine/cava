@@ -54,3 +54,10 @@ If Cyna has a language, runtime, library, or tooling limitation that prevents a 
 - [Cyna Gap Policy](docs/cyna-gap-policy.md)
 - [Gap Log](docs/gap-log.md)
 
+## Tracing
+
+Set `CAVA_TRACE=1` to print each executed bytecode instruction:
+
+```sh
+CAVA_TRACE=1 ./build/cava examples/classes/HelloWorld.class
+```
