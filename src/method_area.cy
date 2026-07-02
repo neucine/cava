@@ -814,6 +814,10 @@ fn derive_methods(classfile: &ClassFile, class_name: string): result<List<Method
         const descriptor_bytes = descriptor.bytes();
         const code = try member_code_info(classfile, method_infos[index].attributes[..]);
         const method_code = byte_buffer(code.code[..]);
+        var exception_handlers: List<ExceptionHandler> = [];
+        if code.exception_count != 0 {
+            exception_handlers = copy code.exception_handlers;
+        }
         methods.push(Method {
             class_name: string.from(class_name.bytes()),
             access_flags: method_access_flags(method_infos[index].access_flags),
@@ -824,7 +828,7 @@ fn derive_methods(classfile: &ClassFile, class_name: string): result<List<Method
             max_locals: code.max_locals,
             code_len: code.code_len,
             exception_count: code.exception_count,
-            exception_handlers: code.exception_handlers,
+            exception_handlers: exception_handlers,
             local_var_count: code.local_var_count,
             line_number_count: code.line_number_count,
             parameter_count: method_parameter_count(descriptor_bytes) as u32,
@@ -844,6 +848,8 @@ pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
     if classfile.super_class != 0 {
         super_class = try classfile.class_name(classfile.super_class);
     }
+    const instance_vars = instance_var_count(&fields);
+    const static_vars = derive_static_vars(&fields);
     const out = Class {
         name: string.from(class_name.bytes()),
         descriptor: class_descriptor_from_name(class_name),
@@ -852,8 +858,8 @@ pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
         interfaces: try derive_interfaces(classfile),
         fields: fields,
         methods: methods,
-        instance_vars: instance_var_count(&fields),
-        static_vars: derive_static_vars(&fields),
+        instance_vars: instance_vars,
+        static_vars: static_vars,
         source_file: try derive_source_file(classfile),
         is_array: false,
         component_type: "",
@@ -1124,4 +1130,6 @@ test "method area derives class metadata from classfile" {
     assert(class.methods[0].parameter_count == 0);
     assert(class.methods[0].return_descriptor.bytes()[0] == 73);
     drop class;
+    classfile.clear();
+    drop classfile;
 }
