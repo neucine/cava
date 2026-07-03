@@ -1,5 +1,4 @@
 import { AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant, ConstantMemberRef, ConstantNameAndType, MemberInfo, new_classfile, parse_classfile } from .classfile;
-import { Heap } from .heap;
 import { Class, ExceptionHandler, Field, Method, Reference, Value, byte_buffer, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
 import { FsError, read_file } from std.fs;
 
@@ -32,12 +31,10 @@ pub struct SymbolPool {
     pub symbols: List<string>;
 
     pub fn clear(self: &SymbolPool): void {
-        var index: usize = 0;
-        while index < self.symbols.len() {
-            self.symbols[index] = "";
-            index = index + 1;
+        while self.symbols.len() > 0 {
+            var symbol = self.symbols.pop();
+            drop symbol;
         }
-        self.symbols.clear();
     }
 
     pub fn contains(self: &SymbolPool, value: []const u8): bool {
@@ -67,6 +64,17 @@ pub fn new_symbol_pool(): SymbolPool {
     };
 }
 
+fn contains_class_index(visited: &List<usize>, class_index: usize): bool {
+    var index: usize = 0;
+    while index < visited.len() {
+        if visited[index] == class_index {
+            return true;
+        }
+        index = index + 1;
+    }
+    return false;
+}
+
 pub struct MethodArea {
     pub classes: List<Class>;
     pub symbols: SymbolPool;
@@ -89,21 +97,12 @@ pub struct MethodArea {
 
     pub fn find_class_index(self: &MethodArea, name: string): ?usize {
         const name_bytes = name.bytes();
+        var classes = self.classes[..];
         var index: usize = 0;
-        while index < self.classes.len() {
-            const class_name = self.classes[index].name.bytes();
+        while index < classes.len() {
+            const class = &classes[index];
+            const class_name = class.name.bytes();
             if class_name == name_bytes {
-                return index;
-            }
-            index = index + 1;
-        }
-        return none;
-    }
-
-    pub fn find_class_index_bytes(self: &MethodArea, name: []const u8): ?usize {
-        var index: usize = 0;
-        while index < self.classes.len() {
-            if self.classes[index].name.bytes() == name {
                 return index;
             }
             index = index + 1;
@@ -113,6 +112,24 @@ pub struct MethodArea {
 
     pub fn has_class(self: &MethodArea, name: string): bool {
         return self.find_class_index(name) != none;
+    }
+
+    pub fn resolve_class(self: &MethodArea, class_name: string): result<usize, MethodAreaError> {
+        const class_name_bytes = class_name.bytes();
+        if class_name_bytes.len() > 0 and class_name_bytes[0] == 91 {
+            return .ok(self.define_array_class(copy class_name));
+        }
+        if self.find_class_index(copy class_name) is existing {
+            return .ok(existing);
+        }
+
+        switch self.load_class_from_path("examples/classes", copy class_name) {
+        case .ok(index) { return .ok(index); }
+        case .err(error_value) {
+            const ignored = error_value;
+        }
+        }
+        return self.load_class_from_path("jdk/classes", copy class_name);
     }
 
     pub fn class_count(self: &MethodArea): usize {
@@ -130,26 +147,13 @@ pub struct MethodArea {
 
         const name_bytes = name.bytes();
         const descriptor_bytes = descriptor.bytes();
+        var classes = self.classes[..];
+        const class = &classes[class_index];
+        var fields = class.fields[..];
         var index: usize = 0;
-        while index < self.classes[class_index].fields.len() {
-            const field = self.classes[class_index].fields[index];
+        while index < fields.len() {
+            const field = &fields[index];
             if field.name.bytes() == name_bytes and field.descriptor.bytes() == descriptor_bytes {
-                return index as i32;
-            }
-            index = index + 1;
-        }
-        return none;
-    }
-
-    pub fn field_index_bytes(self: &MethodArea, class_index: usize, name: []const u8, descriptor: []const u8): ?i32 {
-        if class_index >= self.classes.len() {
-            return none;
-        }
-
-        var index: usize = 0;
-        while index < self.classes[class_index].fields.len() {
-            const field = self.classes[class_index].fields[index];
-            if field.name.bytes() == name and field.descriptor.bytes() == descriptor {
                 return index as i32;
             }
             index = index + 1;
@@ -164,24 +168,13 @@ pub struct MethodArea {
 
         const name_bytes = name.bytes();
         const descriptor_bytes = descriptor.bytes();
+        var classes = self.classes[..];
+        const class = &classes[class_index];
+        var methods = class.methods[..];
         var index: usize = 0;
-        while index < self.classes[class_index].methods.len() {
-            if self.classes[class_index].methods[index].name.bytes() == name_bytes and self.classes[class_index].methods[index].descriptor.bytes() == descriptor_bytes {
-                return index as i32;
-            }
-            index = index + 1;
-        }
-        return none;
-    }
-
-    pub fn method_index_bytes(self: &MethodArea, class_index: usize, name: []const u8, descriptor: []const u8): ?i32 {
-        if class_index >= self.classes.len() {
-            return none;
-        }
-
-        var index: usize = 0;
-        while index < self.classes[class_index].methods.len() {
-            if self.classes[class_index].methods[index].name.bytes() == name and self.classes[class_index].methods[index].descriptor.bytes() == descriptor {
+        while index < methods.len() {
+            const method = &methods[index];
+            if method.name.bytes() == name_bytes and method.descriptor.bytes() == descriptor_bytes {
                 return index as i32;
             }
             index = index + 1;
@@ -220,8 +213,8 @@ pub struct MethodArea {
     pub fn resolve_field_ref(self: &MethodArea, classfile: &ClassFile, constant_index: u16): result<ResolvedFieldRef, ClassfileError> {
         const member = try classfile.member_ref(constant_index);
         var resolved: ?ResolvedFieldRef = none;
-        if self.find_class_index_bytes(member.class_name.bytes()) is class_index {
-            if self.field_index_bytes(class_index, member.name.bytes(), member.descriptor.bytes()) is field_index {
+        if self.find_class_index(copy member.class_name) is class_index {
+            if self.field_index(class_index, copy member.name, copy member.descriptor) is field_index {
                 resolved = ResolvedFieldRef {
                     class_index: class_index,
                     field_index: field_index,
@@ -238,8 +231,8 @@ pub struct MethodArea {
     pub fn resolve_method_ref(self: &MethodArea, classfile: &ClassFile, constant_index: u16): result<ResolvedMethodRef, ClassfileError> {
         const member = try classfile.member_ref(constant_index);
         var resolved: ?ResolvedMethodRef = none;
-        if self.find_class_index_bytes(member.class_name.bytes()) is class_index {
-            if self.method_index_bytes(class_index, member.name.bytes(), member.descriptor.bytes()) is method_index_value {
+        if self.find_class_index(copy member.class_name) is class_index {
+            if self.method_index(class_index, copy member.name, copy member.descriptor) is method_index_value {
                 resolved = ResolvedMethodRef {
                     class_index: class_index,
                     method_index: method_index_value,
@@ -255,7 +248,7 @@ pub struct MethodArea {
 
     pub fn define_array_class(self: &MethodArea, name: string): usize {
         const name_bytes = name.bytes();
-        if self.find_class_index_bytes(name_bytes) is existing {
+        if self.find_class_index(copy name) is existing {
             drop name;
             return existing;
         }
@@ -272,7 +265,7 @@ pub struct MethodArea {
 
     pub fn define_class(self: &MethodArea, classfile: &ClassFile): result<usize, ClassfileError> {
         const name = try classfile.class_name(classfile.this_class);
-        if self.find_class_index_bytes(name.bytes()) is existing {
+        if self.find_class_index(copy name) is existing {
             return .ok(existing);
         }
 
@@ -297,7 +290,7 @@ pub struct MethodArea {
         try parse_classfile(source_copy, &classfile);
         drop source_copy;
         const name = try classfile.class_name(classfile.this_class);
-        if self.find_class_index_bytes(name.bytes()) is existing {
+        if self.find_class_index(copy name) is existing {
             return duplicate_loaded_class(existing, source, classfile, name);
         }
 
@@ -315,7 +308,7 @@ pub struct MethodArea {
     }
 
     pub fn load_class_from_path(self: &MethodArea, root: string, class_name: string): result<usize, MethodAreaError> {
-        if self.find_class_index_bytes(class_name.bytes()) is existing {
+        if self.find_class_index(copy class_name) is existing {
             return .ok(existing);
         }
 
@@ -329,6 +322,32 @@ pub struct MethodArea {
             switch loaded {
             case .ok(index) {
                 self.load_super_classes(root, index);
+                self.define_array_references_for_class(index);
+                self.define_descriptor_array_references_for_class(index);
+                return .ok(index);
+            }
+            case .err(err) {
+                const ignored = err;
+                return .err(MethodAreaError.classfile);
+            }
+            }
+        }
+        case .err(err) {
+            return .err(method_area_error_from_fs(err));
+        }
+        }
+    }
+
+    pub fn load_class_file(self: &MethodArea, path: string): result<usize, MethodAreaError> {
+        const read_result = read_file(path);
+        switch read_result {
+        case .ok(source) {
+            const loaded = self.load_class_from_source(source);
+            switch loaded {
+            case .ok(index) {
+                self.load_super_classes("jdk/classes", index);
+                self.define_array_references_for_class(index);
+                self.define_descriptor_array_references_for_class(index);
                 return .ok(index);
             }
             case .err(err) {
@@ -347,7 +366,10 @@ pub struct MethodArea {
         if class_index >= self.classes.len() {
             return;
         }
-        const super_class_bytes = self.classes[class_index].super_class.bytes();
+        var classes = self.classes[..];
+        const class = &classes[class_index];
+        self.define_descriptor_array_references_for_class(class_index);
+        const super_class_bytes = class.super_class.bytes();
         if super_class_bytes.len() == 0 {
             return;
         }
@@ -381,53 +403,29 @@ pub struct MethodArea {
         const ignored = object_index + string_index + print_stream_index + system_index + string_builder_index;
     }
 
-    pub fn load_hello_world_jdk_classes(self: &MethodArea): void {
+    pub fn load_bootstrap_jdk_classes(self: &MethodArea): void {
         self.load_required_class("jdk/classes", "java/lang/Object");
+        self.load_required_class("jdk/classes", "java/lang/Class");
         self.load_required_class("jdk/classes", "java/lang/String");
         self.load_required_class("jdk/classes", "java/io/PrintStream");
         self.load_required_class("jdk/classes", "java/lang/System");
-        self.load_required_class("jdk/classes", "java/lang/StringBuilder");
-        self.load_required_class("jdk/classes", "java/lang/AbstractStringBuilder");
-        self.load_required_class("jdk/classes", "java/lang/Math");
-        self.load_required_class("jdk/classes", "java/lang/CharacterData");
-        self.load_required_class("jdk/classes", "java/lang/CharacterData00");
-        self.load_required_class("jdk/classes", "java/lang/CharacterData01");
-        self.load_required_class("jdk/classes", "java/lang/CharacterData02");
-        self.load_required_class("jdk/classes", "java/lang/CharacterData0E");
-        self.load_required_class("jdk/classes", "java/lang/CharacterDataLatin1");
-        self.load_required_class("jdk/classes", "java/lang/CharacterDataPrivateUse");
-        self.load_required_class("jdk/classes", "java/lang/CharacterDataUndefined");
-        self.load_required_class("jdk/classes", "java/lang/ref/ReferenceQueue");
-        self.load_required_class("jdk/classes", "java/lang/ref/ReferenceQueue$Lock");
-        self.load_required_class("jdk/classes", "java/lang/ref/ReferenceQueue$Null");
-        self.load_required_class("jdk/classes", "java/util/Properties");
-        self.load_required_class("jdk/classes", "java/util/Hashtable");
-        self.load_required_class("jdk/classes", "java/util/Arrays");
-        self.load_required_class("jdk/classes", "java/util/Collections");
-        self.load_required_class("jdk/classes", "java/util/Collections$EmptyList");
-        self.load_required_class("jdk/classes", "java/util/Collections$EmptyMap");
-        self.load_required_class("jdk/classes", "java/util/Collections$EmptySet");
-        self.load_required_class("jdk/classes", "java/util/Collections$UnmodifiableCollection");
-        self.load_required_class("jdk/classes", "java/util/Collections$UnmodifiableList");
-        self.load_required_class("jdk/classes", "java/util/Collections$UnmodifiableRandomAccessList");
-        self.load_required_class("jdk/classes", "java/util/concurrent/ConcurrentHashMap");
-        self.load_required_class("jdk/classes", "java/util/concurrent/ConcurrentHashMap$Node");
-        self.load_required_class("jdk/classes", "sun/util/locale/BaseLocale");
-        self.load_required_class("jdk/classes", "sun/util/locale/BaseLocale$1");
-        self.load_required_class("jdk/classes", "sun/util/locale/BaseLocale$Cache");
-        self.load_required_class("jdk/classes", "sun/util/locale/BaseLocale$Key");
-        self.load_required_class("jdk/classes", "sun/util/locale/LocaleObjectCache");
-        self.load_required_class("jdk/classes", "sun/util/locale/LocaleObjectCache$CacheEntry");
     }
 
     pub fn load_constant_references_for_class(self: &MethodArea, root: string, class_index: usize): void {
-        self.load_constant_references_for_class_depth(root, class_index, 0);
+        var visited: List<usize> = [];
+        self.load_constant_references_for_class_visited(root, class_index, &visited);
+        visited.clear();
+        drop visited;
     }
 
-    fn load_constant_references_for_class_depth(self: &MethodArea, root: string, class_index: usize, depth: u8): void {
+    fn load_constant_references_for_class_visited(self: &MethodArea, root: string, class_index: usize, visited: &List<usize>): void {
         if class_index >= self.classes.len() {
             return;
         }
+        if contains_class_index(visited, class_index) {
+            return;
+        }
+        visited.push(class_index);
 
         var constant_index: usize = 0;
         while constant_index < self.classes[class_index].constant_pool.len() {
@@ -448,9 +446,7 @@ pub struct MethodArea {
                                 drop class_name;
                                 switch loaded {
                                 case .ok(loaded_index) {
-                                    if depth < 2 {
-                                        self.load_constant_references_for_class_depth(root, loaded_index, depth + 1);
-                                    }
+                                    self.load_constant_references_for_class_visited(root, loaded_index, visited);
                                 }
                                 case .err(error_value) {
                                     const ignored_error = error_value;
@@ -575,71 +571,47 @@ pub struct MethodArea {
         }
     }
 
+    fn define_descriptor_array_references_for_class(self: &MethodArea, class_index: usize): void {
+        if class_index >= self.classes.len() {
+            return;
+        }
+        var classes = self.classes[..];
+        var fields = classes[class_index].fields[..];
+        var field_index: usize = 0;
+        while field_index < fields.len() {
+            self.define_descriptor_array_references(fields[field_index].descriptor.bytes());
+            field_index = field_index + 1;
+        }
+        var methods = classes[class_index].methods[..];
+        var method_index: usize = 0;
+        while method_index < methods.len() {
+            self.define_descriptor_array_references(methods[method_index].descriptor.bytes());
+            method_index = method_index + 1;
+        }
+    }
+
+    fn define_descriptor_array_references(self: &MethodArea, descriptor: []const u8): void {
+        var index: usize = 0;
+        while index < descriptor.len() {
+            if descriptor[index] == 91 {
+                const end = descriptor_array_end(descriptor, index);
+                if end > index {
+                    const array_name = string.from(descriptor[index..end]);
+                    const ignored_array = self.define_array_class(array_name);
+                }
+                index = end;
+            } else {
+                index = index + 1;
+            }
+        }
+    }
+
     pub fn define_builtin_class_value(self: &MethodArea, name: string, class: Class): usize {
         const ignored_name = name;
         self.classes.push(class);
         return self.classes.len() - 1;
     }
 
-    pub fn initialize_system_out(self: &MethodArea, heap: &Heap): void {
-        var system_index: usize = 0;
-        if self.find_class_index("java/lang/System") is actual_system_index {
-            system_index = actual_system_index;
-        } else {
-            return;
-        }
-        var print_stream_index: usize = 0;
-        if self.find_class_index("java/io/PrintStream") is actual_print_stream_index {
-            print_stream_index = actual_print_stream_index;
-        } else {
-            return;
-        }
-        const reference = allocate_class_object_from_view(heap, print_stream_index, self.classes[..]);
-        if self.find_class_index("java/io/OutputStream") is output_stream_index {
-            const output_reference = allocate_class_object_from_view(heap, output_stream_index, self.classes[..]);
-            const ignored_set = heap.set_field(reference, 0, .ref_value(output_reference));
-        }
-        if self.field_index(system_index, "out", "Ljava/io/PrintStream;") is field_index_value {
-            const field = self.classes[system_index].fields[field_index_value as usize];
-            if field.is_static() {
-                self.classes[system_index].static_vars[field.slot as usize] = .ref_value(reference);
-            }
-        }
-        if self.field_index(system_index, "err", "Ljava/io/PrintStream;") is field_index_value {
-            const field = self.classes[system_index].fields[field_index_value as usize];
-            if field.is_static() {
-                self.classes[system_index].static_vars[field.slot as usize] = .ref_value(reference);
-            }
-        }
-        self.initialize_system_props(heap, system_index);
-    }
-
-    fn initialize_system_props(self: &MethodArea, heap: &Heap, system_index: usize): void {
-        var properties_index: usize = 0;
-        if self.find_class_index("java/util/Properties") is actual_properties_index {
-            properties_index = actual_properties_index;
-        } else {
-            return;
-        }
-        var hashtable_index: usize = 0;
-        if self.find_class_index("java/util/Hashtable") is actual_hashtable_index {
-            hashtable_index = actual_hashtable_index;
-        } else {
-            return;
-        }
-        if self.field_index(system_index, "props", "Ljava/util/Properties;") is props_field_index {
-            const props_field = self.classes[system_index].fields[props_field_index as usize];
-            if props_field.is_static() {
-                const props = allocate_class_object_from_view(heap, properties_index, self.classes[..]);
-                if self.classes[hashtable_index].field_index("table".bytes(), "[Ljava/util/Hashtable$Entry;".bytes(), false) is table_field_index {
-                    const table_field = self.classes[hashtable_index].fields[table_field_index as usize];
-                    const table = heap.allocate_array(0, "Ljava/util/Hashtable$Entry;".bytes(), 11);
-                    const ignored = heap.set_field(props, table_field.slot, .ref_value(table));
-                }
-                self.classes[system_index].static_vars[props_field.slot as usize] = .ref_value(props);
-            }
-        }
-    }
 }
 
 fn duplicate_loaded_class(existing: usize, source: string, classfile: ClassFile, name: string): result<usize, ClassfileError> {
@@ -647,10 +619,6 @@ fn duplicate_loaded_class(existing: usize, source: string, classfile: ClassFile,
     drop classfile;
     drop source;
     return .ok(existing);
-}
-
-fn allocate_class_object_from_view(heap: &Heap, class_index: usize, classes: []Class): Reference {
-    return heap.allocate_object_with_hierarchy(class_index, classes);
 }
 
 pub fn new_method_area(): MethodArea {
@@ -837,6 +805,26 @@ fn array_descriptor_from_class_name(name: []const u8): string {
     const out = string.from(bytes[..]);
     drop bytes;
     return out;
+}
+
+fn descriptor_array_end(descriptor: []const u8, start: usize): usize {
+    var index = start;
+    while index < descriptor.len() and descriptor[index] == 91 {
+        index = index + 1;
+    }
+    if index >= descriptor.len() {
+        return descriptor.len();
+    }
+    if descriptor[index] == 76 {
+        while index < descriptor.len() and descriptor[index] != 59 {
+            index = index + 1;
+        }
+        if index < descriptor.len() {
+            return index + 1;
+        }
+        return descriptor.len();
+    }
+    return index + 1;
 }
 
 pub fn class_file_path(root: string, class_name: string): string {
@@ -1170,9 +1158,10 @@ fn derive_fields(classfile: &ClassFile, class_name: string): result<List<Field>,
 
 fn derive_static_vars(fields: &List<Field>): List<Value> {
     var values: List<Value> = [];
+    var field_view = fields[..];
     var index: usize = 0;
-    while index < fields.len() {
-        const field = fields[index];
+    while index < field_view.len() {
+        const field = &field_view[index];
         if field.is_static() {
             values.push(default_value(field.descriptor.bytes()));
         }
@@ -1183,9 +1172,10 @@ fn derive_static_vars(fields: &List<Field>): List<Value> {
 
 fn instance_var_count(fields: &List<Field>): u16 {
     var count: u16 = 0;
+    var field_view = fields[..];
     var index: usize = 0;
-    while index < fields.len() {
-        const field = fields[index];
+    while index < field_view.len() {
+        const field = &field_view[index];
         if !field.is_static() {
             count = count + 1;
         }
@@ -1330,6 +1320,8 @@ test "symbol pool deduplicates byte names" {
     assert(pool.contains("abc".bytes()));
     assert(!pool.contains("xyz".bytes()));
     assert(pool.symbols.len() == 1);
+    pool.clear();
+    drop pool;
 }
 
 test "method area defines parsed classes once" {
@@ -1547,6 +1539,7 @@ test "method area derives class metadata from classfile" {
     assert(class.methods[0].local_var_count == 1);
     assert(class.methods[0].parameter_count == 0);
     assert(class.methods[0].return_descriptor.bytes()[0] == 73);
+    class.clear();
     drop class;
     classfile.clear();
     drop classfile;

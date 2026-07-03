@@ -1,6 +1,8 @@
-import { Constant } from .classfile;
-import { Class, Method, Reference, Value, byte_buffer, method_access_flags } from .types;
-import { Heap, new_heap } from .heap;
+import { ClassFile, Constant } from .classfile;
+import { Heap } from .heap;
+import { execute_next, print_instruction_error_context } from .instruction;
+import { VM, new_vm } from .vm;
+import { Class, InstructionError, Reference, Value } from .types;
 
 const max_call_stack: usize = 512;
 
@@ -150,8 +152,6 @@ pub struct Context {
     pub frame: Frame;
     pub code: []const u8;
     pub constant_pool: []const Constant;
-    pub classes: []Class;
-    pub heap: &Heap;
 
     pub fn read_u1(self: &Context): u8 {
         const index = (self.frame.pc + self.frame.offset) as usize;
@@ -186,6 +186,182 @@ pub struct Context {
         while ((self.frame.pc + self.frame.offset) % 4) != 0 {
             self.frame.offset = self.frame.offset + 1;
         }
+    }
+}
+
+pub fn execution_exit_code(error_value: InstructionError): i32 {
+    if error_value == InstructionError.unsupported_opcode {
+        return 20;
+    }
+    if error_value == InstructionError.unsupported_native {
+        return 21;
+    }
+    if error_value == InstructionError.invalid_constant {
+        return 22;
+    }
+    if error_value == InstructionError.missing_return {
+        return 23;
+    }
+    return 24;
+}
+
+pub fn print_execution_error(error_value: InstructionError): void {
+    if error_value == InstructionError.unsupported_opcode {
+        println("execution failed: unsupported opcode");
+    } else {
+        if error_value == InstructionError.unsupported_native {
+            println("execution failed: unsupported native");
+        } else {
+            if error_value == InstructionError.invalid_constant {
+                println("execution failed: invalid or missing constant/class/member");
+            } else {
+                if error_value == InstructionError.missing_return {
+                    println("execution failed: missing return");
+                } else {
+                    println("execution failed");
+                }
+            }
+        }
+    }
+}
+
+pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
+    var runtime_pool = constant_pool;
+    var vm_classes = vm.method_area.classes[..];
+    var class_view = vm_classes;
+    const class = &class_view[class_index];
+    var methods = class.methods[..];
+    const method = &methods[method_index];
+    if class_index < class_view.len() and class.constant_pool.len() > 0 {
+        runtime_pool = class.constant_pool[..];
+    }
+
+    if class.name == "java/lang/Class$Atomic" {
+        if method.name == "<clinit>" and method.descriptor == "()V" {
+            frame.clear_all();
+            return .ok(.return_value(none));
+        }
+        if method.name == "casReflectionData" or method.name == "casAnnotationType" or method.name == "casAnnotationData" {
+            frame.clear_all();
+            const value: Value = .boolean_value(1);
+            return .ok(.return_value(value));
+        }
+    }
+
+    if class.name == "java/text/DecimalFormatSymbols" and method.name == "getInstance" {
+        const reference = vm.heap.allocate_object_with_hierarchy(class_index, class_view);
+        if class.field_index("zeroDigit", "C", false) is field_index {
+            var fields = class.fields[..];
+            const field = &fields[field_index as usize];
+            const ignored_set = vm.heap.set_field(reference, field.slot, .char_value(48));
+        }
+        frame.clear_all();
+        const value: Value = .ref_value(reference);
+        return .ok(.return_value(value));
+    }
+
+    if class.name == "java/io/PrintStream" {
+        const method_name = method.name;
+        const descriptor = method.descriptor;
+        if method_name == "write" and descriptor == "(Ljava/lang/String;)V" {
+            const value = frame.load(1);
+            try vm.print_java_string(expect_ref_for_engine(value), false);
+            frame.clear_all();
+            return .ok(.return_value(none));
+        }
+        if method_name == "newLine" and descriptor == "()V" {
+            println("");
+            frame.clear_all();
+            return .ok(.return_value(none));
+        }
+    }
+
+    var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: method.code[..], constant_pool: runtime_pool};
+
+    while context.frame.pc < context.code.len() as u32 {
+        const step_result = execute_next(&context, vm);
+        switch step_result {
+        case .ok {}
+        case .err(error_value) {
+            print_instruction_error_context(&context, vm, error_value);
+            return .err(error_value);
+        }
+        }
+        if context.frame.result is result {
+            const out = result;
+            return .ok(out);
+        }
+    }
+    return .err(InstructionError.missing_return);
+}
+
+pub fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant, classes: []Class, heap: &Heap): result<FrameResult, InstructionError> {
+    var vm = new_vm();
+    var input_classes = classes;
+    var seed_index: usize = 0;
+    while seed_index < input_classes.len() {
+        vm.method_area.classes.push(copy input_classes[seed_index]);
+        seed_index = seed_index + 1;
+    }
+    if class_index >= vm.method_area.classes.len() {
+        vm.clear();
+        return .err(InstructionError.invalid_constant);
+    }
+    if method_index >= input_classes[class_index].methods.len() {
+        vm.clear();
+        return .err(InstructionError.invalid_constant);
+    }
+    var runtime_pool = constant_pool;
+    const class = &input_classes[class_index];
+    var methods = class.methods[..];
+    const method = &methods[method_index];
+    var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: method.code[..], constant_pool: runtime_pool};
+
+    while context.frame.pc < context.code.len() as u32 {
+        const step_result = execute_next(&context, &vm);
+        switch step_result {
+        case .ok {}
+        case .err(error_value) {
+            vm.clear();
+            return .err(error_value);
+        }
+        }
+        if context.frame.result is result {
+            const out = result;
+            vm.clear();
+            return .ok(out);
+        }
+    }
+    vm.clear();
+    return .err(InstructionError.missing_return);
+}
+
+pub fn execute_method_area_with_vm(vm: &VM, class_index: usize, method_index: usize, constant_pool: []const Constant, java_args: []const string): result<FrameResult, InstructionError> {
+    const max_locals = vm.method_area.method_max_locals(class_index, method_index);
+    const max_stack = vm.method_area.method_max_stack(class_index, method_index);
+    var frame = new_frame(class_index, method_index, max_locals, max_stack);
+    if vm.method_area.classes[class_index].methods[method_index].is_static() and vm.method_area.classes[class_index].methods[method_index].descriptor == "([Ljava/lang/String;)V" {
+        const args_class_index = vm.method_area.define_array_class("[Ljava/lang/String;");
+        const args_reference = vm.heap.allocate_array(args_class_index, "Ljava/lang/String;".bytes(), java_args.len());
+        var arg_index: usize = 0;
+        while arg_index < java_args.len() {
+            const arg_reference = try vm.allocate_java_string(java_args[arg_index].bytes());
+            const ignored_set = vm.heap.set_element(args_reference, arg_index, .ref_value(arg_reference));
+            arg_index = arg_index + 1;
+        }
+        frame.store(0, .ref_value(args_reference));
+    }
+    return execute_method_frame_with_vm(vm, class_index, method_index, frame, constant_pool);
+}
+
+pub fn execute_classfile_method_area_with_vm(vm: &VM, class_index: usize, method_index: usize, classfile: &ClassFile, java_args: []const string): result<FrameResult, InstructionError> {
+    return execute_method_area_with_vm(vm, class_index, method_index, classfile.constant_pool[..], java_args);
+}
+
+fn expect_ref_for_engine(value: Value): Reference {
+    switch value {
+    case .ref_value(actual) { return actual; }
+    else { return Reference.init_null(); }
     }
 }
 
@@ -277,26 +453,9 @@ test "thread pushes and pops frames" {
 }
 
 test "context reads big endian operands and padding" {
-    var method = Method {
-        class_name: "Main",
-        access_flags: method_access_flags(0),
-        name: "run",
-        descriptor: "()I",
-        code: byte_buffer("0123456789AB".bytes()),
-        max_stack: 4,
-        max_locals: 1,
-        code_len: 10,
-        exception_count: 0,
-        exception_handlers: [],
-        local_var_count: 0,
-        line_number_count: 0,
-        parameter_count: 0,
-        return_descriptor: "I",
-    };
+    const code: [12]u8 = [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66];
     var constant_pool: [:]Constant = [: 0] [];
-    var classes: [:]Class = [: 0] [];
-    var heap = new_heap();
-    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, 1, 4), code: method.code[..], constant_pool: constant_pool[..], classes: classes[..], heap: &heap };
+    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, 1, 4), code: code[..], constant_pool: constant_pool[..]};
 
     assert(context.read_u1() == 49);
     assert(context.frame.offset == 2);
@@ -310,16 +469,12 @@ test "context reads big endian operands and padding" {
     assert(context.read_i4() == 0x38394142);
 
     const negative_code: [3]u8 = [0, 255, 243];
-    var negative_heap = new_heap();
     var negative_context = Context {
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 0),
         code: negative_code[..],
-        constant_pool: constant_pool[..],
-        classes: classes[..],
-        heap: &negative_heap,
+        constant_pool: constant_pool[..]
     };
     assert(negative_context.read_i2() == (0 - 13));
-    drop negative_context;
 }

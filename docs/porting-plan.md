@@ -39,11 +39,37 @@ Do not redesign while porting.
 
 During the parity phase:
 
+- Treat Zava as the behavioral oracle. Before changing Cava VM behavior, read
+  the corresponding Zava implementation and keep the Cava change structurally
+  aligned unless Cyna cannot express it.
+- Every Cava behavior change should be traceable to one of:
+  - a direct port of a Zava module/function;
+  - an explicitly documented Cyna gap in `docs/gap-log.md`;
+  - an intentionally temporary milestone shim, marked as such near the code.
 - Keep data structures close to Zava unless Cyna exposes a language gap.
 - Keep unsupported operations unsupported.
 - Prefer behavior comparison against Zava over interpretation of the JVM spec.
 - Use small executable examples as regression checks.
 - Record Cyna gaps before introducing workarounds.
+
+Do not grow Cava by chasing examples with local guesses. When an example fails,
+first identify the Zava path that handles it, then port that path or record why
+Cyna currently blocks the port.
+
+## Current Drift To Remove
+
+- Cava preloads selected JDK classes and recursively scans constant pools;
+  Zava resolves classes on demand through `method_area.resolveClass` using an
+  initiating/defining loader model.
+- Cava executes methods by recursively calling `execute_method_frame`; Zava has
+  an explicit `Thread.invoke` call boundary that handles native calls, frame
+  push/pop, return propagation, and uncaught exception reporting centrally.
+- Cava has several special-case Java method shortcuts in `instruction.cy`;
+  Zava implements these through bytecode execution, native dispatch, heap
+  helpers, or VM throws.
+- Cava native dispatch is organized similarly to Zava, but coverage should be
+  compared signature-by-signature against `zava/src/native.zig`, not added only
+  when an example happens to fail.
 
 ## Text Ownership Rule
 

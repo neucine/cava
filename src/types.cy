@@ -303,6 +303,57 @@ pub fn byte_buffer(source: []const u8): [:]u8 {
     return out;
 }
 
+pub fn java_utf16_units_from_utf8(source: []const u8): [:]u16 {
+    var out = [: source.len()]u16;
+    var index: usize = 0;
+    while index < source.len() {
+        const first = source[index];
+        if first < 128 {
+            out.push(first as u16);
+            index = index + 1;
+        } else {
+            if first >= 192 and first < 224 and index + 1 < source.len() {
+                const second = source[index + 1];
+                const code = ((first as u32) & 31) << 6 | ((second as u32) & 63);
+                out.push(code as u16);
+                index = index + 2;
+            } else {
+                if first >= 224 and first < 240 and index + 2 < source.len() {
+                    const second = source[index + 1];
+                    const third = source[index + 2];
+                    const code = ((first as u32) & 15) << 12 | (((second as u32) & 63) << 6) | ((third as u32) & 63);
+                    out.push(code as u16);
+                    index = index + 3;
+                } else {
+                    if first >= 240 and first < 248 and index + 3 < source.len() {
+                        const second = source[index + 1];
+                        const third = source[index + 2];
+                        const fourth = source[index + 3];
+                        const code = ((first as u32) & 7) << 18 | (((second as u32) & 63) << 12) | (((third as u32) & 63) << 6) | ((fourth as u32) & 63);
+                        const adjusted = code - 65536;
+                        out.push((55296 + ((adjusted >> 10) & 1023)) as u16);
+                        out.push((56320 + (adjusted & 1023)) as u16);
+                        index = index + 4;
+                    } else {
+                        out.push(first as u16);
+                        index = index + 1;
+                    }
+                }
+            }
+        }
+    }
+    return out;
+}
+
+test "types decodes UTF-8 bytes to Java UTF-16 units" {
+    const raw: [4]u8 = [0x37, 0xE4, 0xA0, 0x80];
+    const units = java_utf16_units_from_utf8(raw[..]);
+    assert(units.len() == 2);
+    assert(units[0] == 55);
+    assert(units[1] == 0x4800);
+    drop units;
+}
+
 pub struct LocalVariable {
     pub start_pc: u16;
     pub length: u16;
@@ -340,24 +391,12 @@ pub struct Class {
         return ClassAccessFlags.interface_flag in self.access_flags;
     }
 
-    fn bytes_equal(left: []const u8, right: []const u8): bool {
-        if left.len() != right.len() {
-            return false;
-        }
+    pub fn field_index(self: &Class, name: string, descriptor: string, is_static: bool): ?i32 {
+        var fields = self.fields[..];
         var i: usize = 0;
-        while i < left.len() {
-            if left[i] != right[i] {
-                return false;
-            }
-            i = i + 1;
-        }
-        return true;
-    }
-
-    pub fn field_index(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): ?i32 {
-        var i: usize = 0;
-        while i < self.fields.len() {
-            if Class.bytes_equal(self.fields[i].name.bytes(), name) and Class.bytes_equal(self.fields[i].descriptor.bytes(), descriptor) and self.fields[i].is_static() == is_static {
+        while i < fields.len() {
+            const field = &fields[i];
+            if field.name == name and field.descriptor == descriptor and field.is_static() == is_static {
                 return i as i32;
             }
             i = i + 1;
@@ -365,10 +404,12 @@ pub struct Class {
         return none;
     }
 
-    pub fn method_index(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): ?i32 {
+    pub fn method_index(self: &Class, name: string, descriptor: string, is_static: bool): ?i32 {
+        var methods = self.methods[..];
         var i: usize = 0;
-        while i < self.methods.len() {
-            if Class.bytes_equal(self.methods[i].name.bytes(), name) and Class.bytes_equal(self.methods[i].descriptor.bytes(), descriptor) and self.methods[i].is_static() == is_static {
+        while i < methods.len() {
+            const method = &methods[i];
+            if method.name == name and method.descriptor == descriptor and method.is_static() == is_static {
                 return i as i32;
             }
             i = i + 1;
@@ -376,11 +417,11 @@ pub struct Class {
         return none;
     }
 
-    pub fn has_field(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): bool {
+    pub fn has_field(self: &Class, name: string, descriptor: string, is_static: bool): bool {
         return self.field_index(name, descriptor, is_static) != none;
     }
 
-    pub fn has_method(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): bool {
+    pub fn has_method(self: &Class, name: string, descriptor: string, is_static: bool): bool {
         return self.method_index(name, descriptor, is_static) != none;
     }
 
@@ -617,14 +658,14 @@ test "class metadata supports field and method lookup" {
         class_object: null_ref,
     };
 
-    const found_field = class.field_index("answer".bytes(), "I".bytes(), true);
+    const found_field = class.field_index("answer", "I", true);
     if found_field is value {
         assert(value == 0);
     } else {
         assert(false);
     }
 
-    const found_method = class.method_index("main".bytes(), "([Ljava/lang/String;)V".bytes(), true);
+    const found_method = class.method_index("main", "([Ljava/lang/String;)V", true);
     if found_method is value {
         assert(value == 0);
         assert(class.methods[value].max_stack == 2);
@@ -633,6 +674,6 @@ test "class metadata supports field and method lookup" {
         assert(false);
     }
 
-    assert(!class.has_field("answer".bytes(), "I".bytes(), false));
-    assert(!class.has_method("missing".bytes(), "()V".bytes(), true));
+    assert(!class.has_field("answer", "I", false));
+    assert(!class.has_method("missing", "()V", true));
 }

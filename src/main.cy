@@ -1,134 +1,78 @@
-import { ClassFile, ClassfileError, new_classfile, parse_classfile } from .classfile;
-import { new_heap } from .heap;
-import { execute_classfile_method_area } from .instruction;
-import { MethodArea, MethodAreaError, new_method_area } from .method_area;
-import { InstructionError } from .types;
-import { read_file } from std.fs;
+import { execute_method_area_with_vm, execution_exit_code, print_execution_error } from .engine;
+import { VM, new_vm } from .vm;
 import { args } from std.process;
 
-fn instruction_exit_code(error_value: InstructionError): i32 {
-    if error_value == InstructionError.unsupported_opcode {
-        return 20;
-    }
-    if error_value == InstructionError.unsupported_native {
-        return 21;
-    }
-    if error_value == InstructionError.invalid_constant {
-        return 22;
-    }
-    if error_value == InstructionError.missing_return {
-        return 23;
-    }
-    return 24;
-}
-
-fn parse_entry_classfile(source: string): result<ClassFile, ClassfileError> {
-    var classfile = new_classfile();
-    try parse_classfile(source, &classfile);
-    return .ok(classfile);
-}
-
-fn load_entry_area(classfile: &ClassFile): result<MethodArea, ClassfileError> {
-    var area = new_method_area();
-    const ignored = try area.define_class(classfile);
-    return .ok(area);
-}
-
-fn execute_entry(area: &MethodArea, classfile: &ClassFile, java_args: []const string): i32 {
-    area.load_hello_world_jdk_classes();
-    const class_index: usize = 0;
-    if area.method_index(class_index, "main", "([Ljava/lang/String;)V") is actual_method_index {
+fn execute_entry(vm: &VM, class_index: usize, java_args: []const string): i32 {
+    if vm.method_area.method_index(class_index, "main", "([Ljava/lang/String;)V") is actual_method_index {
         const method_index = actual_method_index as usize;
-        var heap = new_heap();
-        area.initialize_system_out(&heap);
-        area.load_constant_references_for_class("jdk/classes", class_index);
-        switch execute_classfile_method_area(class_index, method_index, classfile, area, &heap, java_args) {
+        const ignored_system = vm.method_area.resolve_class("java/lang/System");
+        const ignored_print_stream = vm.method_area.resolve_class("java/io/PrintStream");
+        const ignored_output_stream = vm.method_area.resolve_class("java/io/OutputStream");
+        vm.initialize_system_out();
+        if vm.method_area.find_class_index("java/lang/System") is system_index {
+            if vm.method_area.method_index(system_index, "initializeSystemClass", "()V") is initialize_index {
+                const empty_args: [0]string = [];
+                switch execute_method_area_with_vm(vm, system_index, initialize_index as usize, vm.method_area.classes[system_index].constant_pool[..], empty_args[..]) {
+                case .ok(result) {
+                    const ignored = result;
+                }
+                case .err(error_value) {
+                    print_execution_error(error_value);
+                    vm.clear();
+                    return execution_exit_code(error_value);
+                }
+                }
+            }
+        }
+        switch execute_method_area_with_vm(vm, class_index, method_index, vm.method_area.classes[class_index].constant_pool[..], java_args) {
         case .ok(result) {
             const ignored = result;
-            heap.clear();
-            area.clear();
-            drop heap;
+            vm.clear();
             return 0;
         }
         case .err(error_value) {
-            if error_value == InstructionError.unsupported_opcode {
-                println("execution failed: unsupported opcode");
-            } else {
-                if error_value == InstructionError.unsupported_native {
-                    println("execution failed: unsupported native");
-                } else {
-                    if error_value == InstructionError.invalid_constant {
-                        println("execution failed: invalid constant");
-                    } else {
-                        if error_value == InstructionError.missing_return {
-                            println("execution failed: missing return");
-                        } else {
-                            println("execution failed");
-                        }
-                    }
-                }
-            }
-            heap.clear();
-            area.clear();
-            drop heap;
-            return instruction_exit_code(error_value);
+            print_execution_error(error_value);
+            vm.clear();
+            return execution_exit_code(error_value);
         }
         }
     } else {
         println("main method not found");
-        area.clear();
+        vm.clear();
         return 4;
     }
 }
 
 fn run_class_file(path: string, java_args: []const string): i32 {
-    const read_result = read_file(path);
-    switch read_result {
-    case .ok(source) {
-        var owned_source = source;
-        var classfile: ClassFile = new_classfile();
-        switch parse_entry_classfile(owned_source) {
-        case .ok(parsed) { classfile = parsed; }
-        case .err(error_value) {
-            const ignored = error_value;
-            println("classfile parse failed");
-            return 2;
-        }
-        }
-
-        switch load_entry_area(&classfile) {
-        case .ok(area) {
-            var executable_area = area;
-            const code = execute_entry(&executable_area, &classfile, java_args);
-            drop executable_area;
-            classfile.clear();
-            drop classfile;
-            return code;
-        }
-        case .err(error_value) {
-            const ignored = error_value;
-            println("class derive failed");
-            classfile.clear();
-            drop classfile;
-            return 3;
-        }
-        }
+    var vm = new_vm();
+    switch vm.method_area.load_class_file(path) {
+    case .ok(class_index) {
+        const code = execute_entry(&vm, class_index, java_args);
+        return code;
     }
     case .err(error_value) {
         const ignored = error_value;
         println("class read failed");
+        vm.clear();
         return 1;
     }
     }
 }
 
 fn main(): i32 {
-    const values = args();
-    if values.len() < 2 {
-        println("usage: cava <classfile>");
-        return 64;
+    var values = args();
+    var code: i32 = 64;
+    if values.len() >= 2 {
+        var class_path = copy values[1];
+        var java_args: List<string> = [];
+        var index: usize = 2;
+        while index < values.len() {
+            java_args.push(copy values[index]);
+            index = index + 1;
+        }
+        code = run_class_file(class_path, java_args[..]);
+    } else {
+        println("usage: cava <classfile> [args...]");
     }
-    const code = run_class_file(values[1], values[2..values.len()]);
-    drop values;
     return code;
 }
