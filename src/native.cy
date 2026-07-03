@@ -78,6 +78,33 @@ fn identity_hash_code(reference: Reference): i32 {
     return 0;
 }
 
+fn set_system_static_ref(context: &Context, name: []const u8, descriptor: []const u8, reference: Reference): result<void, InstructionError> {
+    var index: usize = 0;
+    while index < context.classes.len() {
+        if context.classes[index].name == "java/lang/System" {
+            if context.classes[index].field_index(name, descriptor, true) is field_index_value {
+                const field = context.classes[index].fields[field_index_value as usize];
+                context.classes[index].static_vars[field.slot as usize] = .ref_value(reference);
+                return .ok();
+            }
+            return .err(InstructionError.invalid_constant);
+        }
+        index = index + 1;
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn find_native_class_index(context: &Context, name: string): result<usize, InstructionError> {
+    var index: usize = 0;
+    while index < context.classes.len() {
+        if context.classes[index].name == name {
+            return .ok(index);
+        }
+        index = index + 1;
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
 fn find_loaded_class_index(classes: []Class, name: string): ?usize {
     var index: usize = 0;
     while index < classes.len() {
@@ -113,7 +140,26 @@ fn set_instance_field(context: &Context, reference: Reference, class_index: usiz
 fn java_string(context: &Context, value: []const u8): ?Reference {
     if find_loaded_class_index(context.classes, "java/lang/String") is string_class_index {
         var classes = context.classes;
-        return context.heap.intern_string(string_class_index, &classes[string_class_index], value);
+        if context.heap.interned_string_reference(value) is existing {
+            return existing;
+        }
+        const reference = context.heap.allocate_object_with_hierarchy(string_class_index, classes);
+        if classes[string_class_index].field_index("value".bytes(), "[C".bytes(), false) is value_field_index {
+            const chars_reference = context.heap.allocate_array(0, "C".bytes(), value.len());
+            var byte_index: usize = 0;
+            while byte_index < value.len() {
+                const ignored_element = context.heap.set_element(chars_reference, byte_index, .char_value(value[byte_index] as u16));
+                byte_index = byte_index + 1;
+            }
+            const slot = classes[string_class_index].fields[value_field_index as usize].slot;
+            const ignored_field = context.heap.set_field(reference, slot, .ref_value(chars_reference));
+        }
+        if classes[string_class_index].field_index("coder".bytes(), "B".bytes(), false) is coder_field_index {
+            const slot = classes[string_class_index].fields[coder_field_index as usize].slot;
+            const ignored_coder = context.heap.set_field(reference, slot, .byte_value(0));
+        }
+        context.heap.register_string_bytes(reference, value);
+        return reference;
     }
     return none;
 }
@@ -294,17 +340,17 @@ struct JavaLangSystem {
     }
 
     pub fn setIn0(context: &Context, input: Reference): result<?Value, InstructionError> {
-        const ignored_input = input;
+        try set_system_static_ref(context, "in".bytes(), "Ljava/io/InputStream;".bytes(), input);
         return .ok(none);
     }
 
     pub fn setOut0(context: &Context, output: Reference): result<?Value, InstructionError> {
-        const ignored_output = output;
+        try set_system_static_ref(context, "out".bytes(), "Ljava/io/PrintStream;".bytes(), output);
         return .ok(none);
     }
 
     pub fn setErr0(context: &Context, error_stream: Reference): result<?Value, InstructionError> {
-        const ignored_error_stream = error_stream;
+        try set_system_static_ref(context, "err".bytes(), "Ljava/io/PrintStream;".bytes(), error_stream);
         return .ok(none);
     }
 
@@ -410,6 +456,14 @@ struct JavaLangClass {
         return .ok(none);
     }
 
+    pub fn getPrimitiveClass(context: &Context, name: Reference): result<?Value, InstructionError> {
+        const ignored_name = name;
+        const class_class_index = try find_native_class_index(context, "java/lang/Class");
+        var classes = context.classes;
+        const reference = context.heap.allocate_object(class_class_index, &classes[class_class_index]);
+        return return_value(.ref_value(reference));
+    }
+
     pub fn desiredAssertionStatus0(context: &Context, class_object: Reference): result<?Value, InstructionError> {
         const ignored_class_object = class_object;
         return return_value(.boolean_value(0));
@@ -420,12 +474,77 @@ struct JavaLangClass {
         return return_value(.boolean_value(0));
     }
 
+    pub fn getName0(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        if find_class_object_index(context, receiver) is class_index {
+            if java_string(context, context.classes[class_index].name.bytes()) is value {
+                return return_value(.ref_value(value));
+            }
+        }
+        return .err(InstructionError.invalid_constant);
+    }
+
+    pub fn initClassName(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        return JavaLangClass.getName0(context, receiver);
+    }
+
+    pub fn descriptorString(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        if find_class_object_index(context, receiver) is class_index {
+            if java_string(context, context.classes[class_index].descriptor.bytes()) is value {
+                return return_value(.ref_value(value));
+            }
+        }
+        return .err(InstructionError.invalid_constant);
+    }
+
     pub fn isArray(context: &Context, receiver: Reference): result<?Value, InstructionError> {
         if find_class_object_index(context, receiver) is class_index {
             if context.classes[class_index].is_array {
                 return return_value(.boolean_value(1));
             }
             return return_value(.boolean_value(0));
+        }
+        return .err(InstructionError.invalid_constant);
+    }
+
+    pub fn getComponentType(context: &Context, receiver: Reference): result<?Value, InstructionError> {
+        if find_class_object_index(context, receiver) is class_index {
+            if !context.classes[class_index].is_array {
+                return return_value(.ref_value(null_ref));
+            }
+            const component = context.classes[class_index].component_type.bytes();
+            if component.len() > 2 and component[0] == 76 {
+                const name = string.from(component[1..component.len() - 1]);
+                switch find_native_class_index(context, name) {
+                case .ok(component_index) {
+                    drop name;
+                    return return_value(.ref_value(context.classes[component_index].class_object));
+                }
+                case .err(error_value) {
+                    const ignored = error_value;
+                    drop name;
+                }
+                }
+            }
+            if component.len() > 0 and component[0] == 91 {
+                const name = string.from(component);
+                switch find_native_class_index(context, name) {
+                case .ok(component_index) {
+                    drop name;
+                    return return_value(.ref_value(context.classes[component_index].class_object));
+                }
+                case .err(error_value) {
+                    const ignored = error_value;
+                    drop name;
+                }
+                }
+            }
+            const class_class_index = try find_native_class_index(context, "java/lang/Class");
+            var classes = context.classes;
+            const class_class = &classes[class_class_index];
+            if class_class.class_object.is_null() {
+                class_class.class_object = context.heap.allocate_object(class_class_index, class_class);
+            }
+            return return_value(.ref_value(class_class.class_object));
         }
         return .err(InstructionError.invalid_constant);
     }
@@ -921,202 +1040,208 @@ struct JavaUtilZipZipFile {
     }
 }
 
-fn method_is(method_name: string, method_descriptor: string, name: string, descriptor: string): bool {
+fn method_is(method_name: []const u8, method_descriptor: []const u8, name: []const u8, descriptor: []const u8): bool {
     return method_name == name and method_descriptor == descriptor;
 }
 
 pub fn execute_native_method(context: &Context, class_index: usize, method_index: usize, receiver: ?Reference, arguments: List<Value>): result<?Value, InstructionError> {
     var args = arguments;
-    const class_name = context.classes[class_index].name;
-    const method_name = context.classes[class_index].methods[method_index].name;
-    const descriptor = context.classes[class_index].methods[method_index].descriptor;
+    const class_name = context.classes[class_index].name.bytes();
+    const method_name = context.classes[class_index].methods[method_index].name.bytes();
+    const descriptor = context.classes[class_index].methods[method_index].descriptor.bytes();
 
-    if class_name == "java/lang/System" {
-        if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangSystem.registerNatives(context); }
-        if method_is(method_name, descriptor, "setIn0", "(Ljava/io/InputStream;)V") { return JavaLangSystem.setIn0(context, ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "setOut0", "(Ljava/io/PrintStream;)V") { return JavaLangSystem.setOut0(context, ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "setErr0", "(Ljava/io/PrintStream;)V") { return JavaLangSystem.setErr0(context, ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "currentTimeMillis", "()J") { return JavaLangSystem.currentTimeMillis(context); }
-        if method_is(method_name, descriptor, "nanoTime", "()J") { return JavaLangSystem.nanoTime(context); }
-        if method_is(method_name, descriptor, "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V") { return JavaLangSystem.arraycopy(context, ref_arg(&args, 0), int_arg(&args, 1), ref_arg(&args, 2), int_arg(&args, 3), int_arg(&args, 4)); }
-        if method_is(method_name, descriptor, "identityHashCode", "(Ljava/lang/Object;)I") { return JavaLangSystem.identityHashCode(context, ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "mapLibraryName", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangSystem.mapLibraryName(context, ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "initProperties", "(Ljava/util/Properties;)Ljava/util/Properties;") { return JavaLangSystem.initProperties(context, ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangSystem.getProperty(context, ref_arg(&args, 0)); }
+    if class_name == "java/lang/System".bytes() {
+        if method_is(method_name, descriptor, "registerNatives".bytes(), "()V".bytes()) { return JavaLangSystem.registerNatives(context); }
+        if method_is(method_name, descriptor, "setIn0".bytes(), "(Ljava/io/InputStream;)V".bytes()) { return JavaLangSystem.setIn0(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "setOut0".bytes(), "(Ljava/io/PrintStream;)V".bytes()) { return JavaLangSystem.setOut0(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "setErr0".bytes(), "(Ljava/io/PrintStream;)V".bytes()) { return JavaLangSystem.setErr0(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "currentTimeMillis".bytes(), "()J".bytes()) { return JavaLangSystem.currentTimeMillis(context); }
+        if method_is(method_name, descriptor, "nanoTime".bytes(), "()J".bytes()) { return JavaLangSystem.nanoTime(context); }
+        if method_is(method_name, descriptor, "arraycopy".bytes(), "(Ljava/lang/Object;ILjava/lang/Object;II)V".bytes()) { return JavaLangSystem.arraycopy(context, ref_arg(&args, 0), int_arg(&args, 1), ref_arg(&args, 2), int_arg(&args, 3), int_arg(&args, 4)); }
+        if method_is(method_name, descriptor, "identityHashCode".bytes(), "(Ljava/lang/Object;)I".bytes()) { return JavaLangSystem.identityHashCode(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "mapLibraryName".bytes(), "(Ljava/lang/String;)Ljava/lang/String;".bytes()) { return JavaLangSystem.mapLibraryName(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "initProperties".bytes(), "(Ljava/util/Properties;)Ljava/util/Properties;".bytes()) { return JavaLangSystem.initProperties(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "getProperty".bytes(), "(Ljava/lang/String;)Ljava/lang/String;".bytes()) { return JavaLangSystem.getProperty(context, ref_arg(&args, 0)); }
     }
 
-    if class_name == "java/lang/Object" {
-        if method_is(method_name, descriptor, "<init>", "()V") { return JavaLangObject.init(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangObject.registerNatives(context); }
-        if method_is(method_name, descriptor, "hashCode", "()I") { return JavaLangObject.hashCode(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "getClass", "()Ljava/lang/Class;") { return JavaLangObject.getClass(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "clone", "()Ljava/lang/Object;") { return JavaLangObject.clone(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "notify", "()V") { return JavaLangObject.notify(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "notifyAll", "()V") { return JavaLangObject.notifyAll(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "wait", "(J)V") { return JavaLangObject.wait(context, try receiver_ref(receiver), long_arg(&args, 0)); }
+    if class_name == "java/lang/Object".bytes() {
+        if method_is(method_name, descriptor, "<init>".bytes(), "()V".bytes()) { return JavaLangObject.init(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "registerNatives".bytes(), "()V".bytes()) { return JavaLangObject.registerNatives(context); }
+        if method_is(method_name, descriptor, "hashCode".bytes(), "()I".bytes()) { return JavaLangObject.hashCode(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getClass".bytes(), "()Ljava/lang/Class;".bytes()) { return JavaLangObject.getClass(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "clone".bytes(), "()Ljava/lang/Object;".bytes()) { return JavaLangObject.clone(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "notify".bytes(), "()V".bytes()) { return JavaLangObject.notify(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "notifyAll".bytes(), "()V".bytes()) { return JavaLangObject.notifyAll(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "wait".bytes(), "(J)V".bytes()) { return JavaLangObject.wait(context, try receiver_ref(receiver), long_arg(&args, 0)); }
     }
 
-    if class_name == "java/lang/String" {
-        if method_is(method_name, descriptor, "intern", "()Ljava/lang/String;") { return JavaLangString.intern(context, try receiver_ref(receiver)); }
+    if class_name == "java/lang/String".bytes() {
+        if method_is(method_name, descriptor, "intern".bytes(), "()Ljava/lang/String;".bytes()) { return JavaLangString.intern(context, try receiver_ref(receiver)); }
     }
 
-    if class_name == "java/lang/StringBuilder" {
-        if method_is(method_name, descriptor, "<init>", "()V") { return java_lang_string_builder_init(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;") { return java_lang_string_builder_append(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "toString", "()Ljava/lang/String;") { return java_lang_string_builder_to_string(context, try receiver_ref(receiver)); }
+    if class_name == "java/lang/StringBuilder".bytes() {
+        if method_is(method_name, descriptor, "<init>".bytes(), "()V".bytes()) { return java_lang_string_builder_init(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "append".bytes(), "(Ljava/lang/String;)Ljava/lang/StringBuilder;".bytes()) { return java_lang_string_builder_append(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "toString".bytes(), "()Ljava/lang/String;".bytes()) { return java_lang_string_builder_to_string(context, try receiver_ref(receiver)); }
     }
 
-    if class_name == "java/lang/Class" {
-        if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangClass.registerNatives(context); }
-        if method_is(method_name, descriptor, "desiredAssertionStatus0", "(Ljava/lang/Class;)Z") { return JavaLangClass.desiredAssertionStatus0(context, ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "isPrimitive", "()Z") { return JavaLangClass.isPrimitive(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "isArray", "()Z") { return JavaLangClass.isArray(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "isInterface", "()Z") { return JavaLangClass.isInterface(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "getModifiers", "()I") { return JavaLangClass.getModifiers(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "getSuperclass", "()Ljava/lang/Class;") { return JavaLangClass.getSuperclass(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "getClassAccessFlagsRaw0", "()I") { return JavaLangClass.getClassAccessFlagsRaw0(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "getClassFileVersion0", "()I") { return JavaLangClass.getClassFileVersion0(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "isHidden", "()Z") { return JavaLangClass.isHidden(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "isRecord0", "()Z") { return JavaLangClass.isRecord0(context, try receiver_ref(receiver)); }
+    if class_name == "java/lang/Class".bytes() {
+        if method_is(method_name, descriptor, "registerNatives".bytes(), "()V".bytes()) { return JavaLangClass.registerNatives(context); }
+        if method_is(method_name, descriptor, "getPrimitiveClass".bytes(), "(Ljava/lang/String;)Ljava/lang/Class;".bytes()) { return JavaLangClass.getPrimitiveClass(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "desiredAssertionStatus0".bytes(), "(Ljava/lang/Class;)Z".bytes()) { return JavaLangClass.desiredAssertionStatus0(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "isPrimitive".bytes(), "()Z".bytes()) { return JavaLangClass.isPrimitive(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getName0".bytes(), "()Ljava/lang/String;".bytes()) { return JavaLangClass.getName0(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "initClassName".bytes(), "()Ljava/lang/String;".bytes()) { return JavaLangClass.initClassName(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "descriptorString".bytes(), "()Ljava/lang/String;".bytes()) { return JavaLangClass.descriptorString(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "isArray".bytes(), "()Z".bytes()) { return JavaLangClass.isArray(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getComponentType".bytes(), "()Ljava/lang/Class;".bytes()) { return JavaLangClass.getComponentType(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "isInterface".bytes(), "()Z".bytes()) { return JavaLangClass.isInterface(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getModifiers".bytes(), "()I".bytes()) { return JavaLangClass.getModifiers(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getSuperclass".bytes(), "()Ljava/lang/Class;".bytes()) { return JavaLangClass.getSuperclass(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getClassAccessFlagsRaw0".bytes(), "()I".bytes()) { return JavaLangClass.getClassAccessFlagsRaw0(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "getClassFileVersion0".bytes(), "()I".bytes()) { return JavaLangClass.getClassFileVersion0(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "isHidden".bytes(), "()Z".bytes()) { return JavaLangClass.isHidden(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "isRecord0".bytes(), "()Z".bytes()) { return JavaLangClass.isRecord0(context, try receiver_ref(receiver)); }
     }
 
-    if class_name == "java/lang/ClassLoader" {
-        if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangClassLoader.registerNatives(context); }
-        if method_is(method_name, descriptor, "findBuiltinLib", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangClassLoader.findBuiltinLib(context, ref_arg(&args, 0)); }
+    if class_name == "java/lang/ClassLoader".bytes() {
+        if method_is(method_name, descriptor, "registerNatives".bytes(), "()V".bytes()) { return JavaLangClassLoader.registerNatives(context); }
+        if method_is(method_name, descriptor, "findBuiltinLib".bytes(), "(Ljava/lang/String;)Ljava/lang/String;".bytes()) { return JavaLangClassLoader.findBuiltinLib(context, ref_arg(&args, 0)); }
     }
 
-    if class_name == "java/lang/ClassLoader$NativeLibrary" {
-        if method_is(method_name, descriptor, "load", "(Ljava/lang/String;Z)V") { return JavaLangClassLoaderNativeLibrary.load(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1)); }
+    if class_name == "java/lang/ClassLoader$NativeLibrary".bytes() {
+        if method_is(method_name, descriptor, "load".bytes(), "(Ljava/lang/String;Z)V".bytes()) { return JavaLangClassLoaderNativeLibrary.load(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1)); }
     }
 
-    if class_name == "java/lang/Package" {
-        if method_is(method_name, descriptor, "getSystemPackage0", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaLangPackage.getSystemPackage0(context, ref_arg(&args, 0)); }
+    if class_name == "java/lang/Package".bytes() {
+        if method_is(method_name, descriptor, "getSystemPackage0".bytes(), "(Ljava/lang/String;)Ljava/lang/String;".bytes()) { return JavaLangPackage.getSystemPackage0(context, ref_arg(&args, 0)); }
     }
 
-    if class_name == "java/lang/Float" {
-        if method_is(method_name, descriptor, "floatToRawIntBits", "(F)I") { return JavaLangFloat.floatToRawIntBits(context, float_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "intBitsToFloat", "(I)F") { return JavaLangFloat.intBitsToFloat(context, int_arg(&args, 0)); }
+    if class_name == "java/lang/Float".bytes() {
+        if method_is(method_name, descriptor, "floatToRawIntBits".bytes(), "(F)I".bytes()) { return JavaLangFloat.floatToRawIntBits(context, float_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "intBitsToFloat".bytes(), "(I)F".bytes()) { return JavaLangFloat.intBitsToFloat(context, int_arg(&args, 0)); }
     }
 
-    if class_name == "java/lang/Double" {
-        if method_is(method_name, descriptor, "doubleToRawLongBits", "(D)J") { return JavaLangDouble.doubleToRawLongBits(context, double_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "longBitsToDouble", "(J)D") { return JavaLangDouble.longBitsToDouble(context, long_arg(&args, 0)); }
+    if class_name == "java/lang/Double".bytes() {
+        if method_is(method_name, descriptor, "doubleToRawLongBits".bytes(), "(D)J".bytes()) { return JavaLangDouble.doubleToRawLongBits(context, double_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "longBitsToDouble".bytes(), "(J)D".bytes()) { return JavaLangDouble.longBitsToDouble(context, long_arg(&args, 0)); }
     }
 
-    if class_name == "java/lang/Thread" {
-        if method_is(method_name, descriptor, "registerNatives", "()V") { return JavaLangThread.registerNatives(context); }
-        if method_is(method_name, descriptor, "currentThread", "()Ljava/lang/Thread;") { return JavaLangThread.currentThread(context); }
-        if method_is(method_name, descriptor, "isAlive", "()Z") { return JavaLangThread.isAlive(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "setPriority0", "(I)V") { return JavaLangThread.setPriority0(context, try receiver_ref(receiver), int_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "start0", "()V") { return JavaLangThread.start0(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "sleep", "(J)V") { return JavaLangThread.sleep(context, long_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "interrupt0", "()V") { return JavaLangThread.interrupt0(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "isInterrupted", "(Z)Z") { return JavaLangThread.isInterrupted(context, try receiver_ref(receiver), int_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "holdsLock", "(Ljava/lang/Object;)Z") { return JavaLangThread.holdsLock(context, ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "yield0", "()V") { return JavaLangThread.yield0(context); }
-        if method_is(method_name, descriptor, "clearInterruptEvent", "()V") { return JavaLangThread.clearInterruptEvent(context); }
-        if method_is(method_name, descriptor, "setNativeName", "(Ljava/lang/String;)V") { return JavaLangThread.setNativeName(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+    if class_name == "java/lang/Thread".bytes() {
+        if method_is(method_name, descriptor, "registerNatives".bytes(), "()V".bytes()) { return JavaLangThread.registerNatives(context); }
+        if method_is(method_name, descriptor, "currentThread".bytes(), "()Ljava/lang/Thread;".bytes()) { return JavaLangThread.currentThread(context); }
+        if method_is(method_name, descriptor, "isAlive".bytes(), "()Z".bytes()) { return JavaLangThread.isAlive(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "setPriority0".bytes(), "(I)V".bytes()) { return JavaLangThread.setPriority0(context, try receiver_ref(receiver), int_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "start0".bytes(), "()V".bytes()) { return JavaLangThread.start0(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "sleep".bytes(), "(J)V".bytes()) { return JavaLangThread.sleep(context, long_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "interrupt0".bytes(), "()V".bytes()) { return JavaLangThread.interrupt0(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "isInterrupted".bytes(), "(Z)Z".bytes()) { return JavaLangThread.isInterrupted(context, try receiver_ref(receiver), int_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "holdsLock".bytes(), "(Ljava/lang/Object;)Z".bytes()) { return JavaLangThread.holdsLock(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "yield0".bytes(), "()V".bytes()) { return JavaLangThread.yield0(context); }
+        if method_is(method_name, descriptor, "clearInterruptEvent".bytes(), "()V".bytes()) { return JavaLangThread.clearInterruptEvent(context); }
+        if method_is(method_name, descriptor, "setNativeName".bytes(), "(Ljava/lang/String;)V".bytes()) { return JavaLangThread.setNativeName(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
     }
 
-    if class_name == "java/lang/Throwable" {
-        if method_is(method_name, descriptor, "getStackTraceDepth", "()I") { return JavaLangThrowable.getStackTraceDepth(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "fillInStackTrace", "(I)Ljava/lang/Throwable;") { return JavaLangThrowable.fillInStackTrace(context, try receiver_ref(receiver), int_arg(&args, 0)); }
+    if class_name == "java/lang/Throwable".bytes() {
+        if method_is(method_name, descriptor, "getStackTraceDepth".bytes(), "()I".bytes()) { return JavaLangThrowable.getStackTraceDepth(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "fillInStackTrace".bytes(), "(I)Ljava/lang/Throwable;".bytes()) { return JavaLangThrowable.fillInStackTrace(context, try receiver_ref(receiver), int_arg(&args, 0)); }
     }
 
-    if class_name == "java/lang/Runtime" {
-        if method_is(method_name, descriptor, "availableProcessors", "()I") { return JavaLangRuntime.availableProcessors(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "freeMemory", "()J") { return JavaLangRuntime.freeMemory(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "totalMemory", "()J") { return JavaLangRuntime.totalMemory(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "maxMemory", "()J") { return JavaLangRuntime.maxMemory(context, try receiver_ref(receiver)); }
-        if method_is(method_name, descriptor, "gc", "()V") { return JavaLangRuntime.gc(context, try receiver_ref(receiver)); }
+    if class_name == "java/lang/Runtime".bytes() {
+        if method_is(method_name, descriptor, "availableProcessors".bytes(), "()I".bytes()) { return JavaLangRuntime.availableProcessors(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "freeMemory".bytes(), "()J".bytes()) { return JavaLangRuntime.freeMemory(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "totalMemory".bytes(), "()J".bytes()) { return JavaLangRuntime.totalMemory(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "maxMemory".bytes(), "()J".bytes()) { return JavaLangRuntime.maxMemory(context, try receiver_ref(receiver)); }
+        if method_is(method_name, descriptor, "gc".bytes(), "()V".bytes()) { return JavaLangRuntime.gc(context, try receiver_ref(receiver)); }
     }
 
-    if class_name == "java/lang/Shutdown" {
-        if method_is(method_name, descriptor, "beforeHalt", "()V") { return JavaLangShutdown.beforeHalt(context); }
-        if method_is(method_name, descriptor, "halt0", "(I)V") { return JavaLangShutdown.halt0(context, int_arg(&args, 0)); }
+    if class_name == "java/lang/Shutdown".bytes() {
+        if method_is(method_name, descriptor, "beforeHalt".bytes(), "()V".bytes()) { return JavaLangShutdown.beforeHalt(context); }
+        if method_is(method_name, descriptor, "halt0".bytes(), "(I)V".bytes()) { return JavaLangShutdown.halt0(context, int_arg(&args, 0)); }
     }
 
-    if class_name == "java/lang/ref/Finalizer" {
-        if method_is(method_name, descriptor, "isFinalizationEnabled", "()Z") { return JavaLangRefFinalizer.isFinalizationEnabled(context); }
-        if method_is(method_name, descriptor, "reportComplete", "(Ljava/lang/Object;)V") { return JavaLangRefFinalizer.reportComplete(context, ref_arg(&args, 0)); }
+    if class_name == "java/lang/ref/Finalizer".bytes() {
+        if method_is(method_name, descriptor, "isFinalizationEnabled".bytes(), "()Z".bytes()) { return JavaLangRefFinalizer.isFinalizationEnabled(context); }
+        if method_is(method_name, descriptor, "reportComplete".bytes(), "(Ljava/lang/Object;)V".bytes()) { return JavaLangRefFinalizer.reportComplete(context, ref_arg(&args, 0)); }
     }
 
-    if class_name == "java/lang/ref/Reference" {
-        if method_is(method_name, descriptor, "getAndClearReferencePendingList", "()Ljava/lang/ref/Reference;") { return JavaLangRefReference.getAndClearReferencePendingList(context); }
-        if method_is(method_name, descriptor, "hasReferencePendingList", "()Z") { return JavaLangRefReference.hasReferencePendingList(context); }
-        if method_is(method_name, descriptor, "waitForReferencePendingList", "()V") { return JavaLangRefReference.waitForReferencePendingList(context); }
-        if method_is(method_name, descriptor, "refersTo0", "(Ljava/lang/Object;)Z") { return JavaLangRefReference.refersTo0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "clear0", "()V") { return JavaLangRefReference.clear0(context, try receiver_ref(receiver)); }
+    if class_name == "java/lang/ref/Reference".bytes() {
+        if method_is(method_name, descriptor, "getAndClearReferencePendingList".bytes(), "()Ljava/lang/ref/Reference;".bytes()) { return JavaLangRefReference.getAndClearReferencePendingList(context); }
+        if method_is(method_name, descriptor, "hasReferencePendingList".bytes(), "()Z".bytes()) { return JavaLangRefReference.hasReferencePendingList(context); }
+        if method_is(method_name, descriptor, "waitForReferencePendingList".bytes(), "()V".bytes()) { return JavaLangRefReference.waitForReferencePendingList(context); }
+        if method_is(method_name, descriptor, "refersTo0".bytes(), "(Ljava/lang/Object;)Z".bytes()) { return JavaLangRefReference.refersTo0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "clear0".bytes(), "()V".bytes()) { return JavaLangRefReference.clear0(context, try receiver_ref(receiver)); }
     }
 
-    if class_name == "sun/reflect/Reflection" {
-        if method_is(method_name, descriptor, "getCallerClass", "()Ljava/lang/Class;") { return SunReflectReflection.getCallerClass(context); }
-        if method_is(method_name, descriptor, "getClassAccessFlags", "(Ljava/lang/Class;)I") { return SunReflectReflection.getClassAccessFlags(context, ref_arg(&args, 0)); }
+    if class_name == "sun/reflect/Reflection".bytes() {
+        if method_is(method_name, descriptor, "getCallerClass".bytes(), "()Ljava/lang/Class;".bytes()) { return SunReflectReflection.getCallerClass(context); }
+        if method_is(method_name, descriptor, "getClassAccessFlags".bytes(), "(Ljava/lang/Class;)I".bytes()) { return SunReflectReflection.getClassAccessFlags(context, ref_arg(&args, 0)); }
     }
 
-    if class_name == "jdk/internal/reflect/Reflection" {
-        if method_is(method_name, descriptor, "getCallerClass", "()Ljava/lang/Class;") { return JdkInternalReflectReflection.getCallerClass(context); }
-        if method_is(method_name, descriptor, "getClassAccessFlags", "(Ljava/lang/Class;)I") { return JdkInternalReflectReflection.getClassAccessFlags(context, ref_arg(&args, 0)); }
+    if class_name == "jdk/internal/reflect/Reflection".bytes() {
+        if method_is(method_name, descriptor, "getCallerClass".bytes(), "()Ljava/lang/Class;".bytes()) { return JdkInternalReflectReflection.getCallerClass(context); }
+        if method_is(method_name, descriptor, "getClassAccessFlags".bytes(), "(Ljava/lang/Class;)I".bytes()) { return JdkInternalReflectReflection.getClassAccessFlags(context, ref_arg(&args, 0)); }
     }
 
-    if class_name == "java/security/AccessController" {
-        if method_is(method_name, descriptor, "getStackAccessControlContext", "()Ljava/security/AccessControlContext;") { return JavaSecurityAccessController.getStackAccessControlContext(context); }
+    if class_name == "java/security/AccessController".bytes() {
+        if method_is(method_name, descriptor, "getStackAccessControlContext".bytes(), "()Ljava/security/AccessControlContext;".bytes()) { return JavaSecurityAccessController.getStackAccessControlContext(context); }
     }
 
-    if class_name == "sun/misc/VM" {
-        if method_is(method_name, descriptor, "initialize", "()V") { return SunMiscVM.initialize(context); }
+    if class_name == "sun/misc/VM".bytes() {
+        if method_is(method_name, descriptor, "initialize".bytes(), "()V".bytes()) { return SunMiscVM.initialize(context); }
     }
 
-    if class_name == "sun/misc/Unsafe" {
-        if method_is(method_name, descriptor, "registerNatives", "()V") { return SunMiscUnsafe.registerNatives(context); }
-        if method_is(method_name, descriptor, "arrayBaseOffset", "(Ljava/lang/Class;)I") { return SunMiscUnsafe.arrayBaseOffset(context, ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "arrayIndexScale", "(Ljava/lang/Class;)I") { return SunMiscUnsafe.arrayIndexScale(context, ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "addressSize", "()I") { return SunMiscUnsafe.addressSize(context); }
+    if class_name == "sun/misc/Unsafe".bytes() {
+        if method_is(method_name, descriptor, "registerNatives".bytes(), "()V".bytes()) { return SunMiscUnsafe.registerNatives(context); }
+        if method_is(method_name, descriptor, "arrayBaseOffset".bytes(), "(Ljava/lang/Class;)I".bytes()) { return SunMiscUnsafe.arrayBaseOffset(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "arrayIndexScale".bytes(), "(Ljava/lang/Class;)I".bytes()) { return SunMiscUnsafe.arrayIndexScale(context, ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "addressSize".bytes(), "()I".bytes()) { return SunMiscUnsafe.addressSize(context); }
     }
 
-    if class_name == "java/io/FileDescriptor" {
-        if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoFileDescriptor.initIDs(context); }
+    if class_name == "java/io/FileDescriptor".bytes() {
+        if method_is(method_name, descriptor, "initIDs".bytes(), "()V".bytes()) { return JavaIoFileDescriptor.initIDs(context); }
     }
 
-    if class_name == "java/io/PrintStream" {
-        if method_is(method_name, descriptor, "println", "(Ljava/lang/String;)V") { return java_io_print_stream_println(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+    if class_name == "java/io/PrintStream".bytes() {
+        if method_is(method_name, descriptor, "println".bytes(), "(Ljava/lang/String;)V".bytes()) { return java_io_print_stream_println(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
     }
 
-    if class_name == "java/io/FileInputStream" {
-        if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoFileInputStream.initIDs(context); }
+    if class_name == "java/io/FileInputStream".bytes() {
+        if method_is(method_name, descriptor, "initIDs".bytes(), "()V".bytes()) { return JavaIoFileInputStream.initIDs(context); }
     }
 
-    if class_name == "java/io/FileOutputStream" {
-        if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoFileOutputStream.initIDs(context); }
+    if class_name == "java/io/FileOutputStream".bytes() {
+        if method_is(method_name, descriptor, "initIDs".bytes(), "()V".bytes()) { return JavaIoFileOutputStream.initIDs(context); }
     }
 
-    if class_name == "java/io/UnixFileSystem" {
-        if method_is(method_name, descriptor, "initIDs", "()V") { return JavaIoUnixFileSystem.initIDs(context); }
-        if method_is(method_name, descriptor, "canonicalize0", "(Ljava/lang/String;)Ljava/lang/String;") { return JavaIoUnixFileSystem.canonicalize0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "getBooleanAttributes0", "(Ljava/io/File;)I") { return JavaIoUnixFileSystem.getBooleanAttributes0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "checkAccess0", "(Ljava/io/File;I)Z") { return JavaIoUnixFileSystem.checkAccess0(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1)); }
-        if method_is(method_name, descriptor, "getLastModifiedTime0", "(Ljava/io/File;)J") { return JavaIoUnixFileSystem.getLastModifiedTime0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "getLength0", "(Ljava/io/File;)J") { return JavaIoUnixFileSystem.getLength0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "setPermission0", "(Ljava/io/File;IZZ)Z") { return JavaIoUnixFileSystem.setPermission0(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1), int_arg(&args, 2), int_arg(&args, 3)); }
-        if method_is(method_name, descriptor, "createFileExclusively0", "(Ljava/lang/String;)Z") { return JavaIoUnixFileSystem.createFileExclusively0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "delete0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.delete0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "list0", "(Ljava/io/File;)[Ljava/lang/String;") { return JavaIoUnixFileSystem.list0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "createDirectory0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.createDirectory0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "rename0", "(Ljava/io/File;Ljava/io/File;)Z") { return JavaIoUnixFileSystem.rename0(context, try receiver_ref(receiver), ref_arg(&args, 0), ref_arg(&args, 1)); }
-        if method_is(method_name, descriptor, "setLastModifiedTime0", "(Ljava/io/File;J)Z") { return JavaIoUnixFileSystem.setLastModifiedTime0(context, try receiver_ref(receiver), ref_arg(&args, 0), long_arg(&args, 1)); }
-        if method_is(method_name, descriptor, "setReadOnly0", "(Ljava/io/File;)Z") { return JavaIoUnixFileSystem.setReadOnly0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
-        if method_is(method_name, descriptor, "getSpace0", "(Ljava/io/File;I)J") { return JavaIoUnixFileSystem.getSpace0(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1)); }
-        if method_is(method_name, descriptor, "getNameMax0", "(Ljava/lang/String;)J") { return JavaIoUnixFileSystem.getNameMax0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+    if class_name == "java/io/UnixFileSystem".bytes() {
+        if method_is(method_name, descriptor, "initIDs".bytes(), "()V".bytes()) { return JavaIoUnixFileSystem.initIDs(context); }
+        if method_is(method_name, descriptor, "canonicalize0".bytes(), "(Ljava/lang/String;)Ljava/lang/String;".bytes()) { return JavaIoUnixFileSystem.canonicalize0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "getBooleanAttributes0".bytes(), "(Ljava/io/File;)I".bytes()) { return JavaIoUnixFileSystem.getBooleanAttributes0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "checkAccess0".bytes(), "(Ljava/io/File;I)Z".bytes()) { return JavaIoUnixFileSystem.checkAccess0(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1)); }
+        if method_is(method_name, descriptor, "getLastModifiedTime0".bytes(), "(Ljava/io/File;)J".bytes()) { return JavaIoUnixFileSystem.getLastModifiedTime0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "getLength0".bytes(), "(Ljava/io/File;)J".bytes()) { return JavaIoUnixFileSystem.getLength0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "setPermission0".bytes(), "(Ljava/io/File;IZZ)Z".bytes()) { return JavaIoUnixFileSystem.setPermission0(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1), int_arg(&args, 2), int_arg(&args, 3)); }
+        if method_is(method_name, descriptor, "createFileExclusively0".bytes(), "(Ljava/lang/String;)Z".bytes()) { return JavaIoUnixFileSystem.createFileExclusively0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "delete0".bytes(), "(Ljava/io/File;)Z".bytes()) { return JavaIoUnixFileSystem.delete0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "list0".bytes(), "(Ljava/io/File;)[Ljava/lang/String;".bytes()) { return JavaIoUnixFileSystem.list0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "createDirectory0".bytes(), "(Ljava/io/File;)Z".bytes()) { return JavaIoUnixFileSystem.createDirectory0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "rename0".bytes(), "(Ljava/io/File;Ljava/io/File;)Z".bytes()) { return JavaIoUnixFileSystem.rename0(context, try receiver_ref(receiver), ref_arg(&args, 0), ref_arg(&args, 1)); }
+        if method_is(method_name, descriptor, "setLastModifiedTime0".bytes(), "(Ljava/io/File;J)Z".bytes()) { return JavaIoUnixFileSystem.setLastModifiedTime0(context, try receiver_ref(receiver), ref_arg(&args, 0), long_arg(&args, 1)); }
+        if method_is(method_name, descriptor, "setReadOnly0".bytes(), "(Ljava/io/File;)Z".bytes()) { return JavaIoUnixFileSystem.setReadOnly0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
+        if method_is(method_name, descriptor, "getSpace0".bytes(), "(Ljava/io/File;I)J".bytes()) { return JavaIoUnixFileSystem.getSpace0(context, try receiver_ref(receiver), ref_arg(&args, 0), int_arg(&args, 1)); }
+        if method_is(method_name, descriptor, "getNameMax0".bytes(), "(Ljava/lang/String;)J".bytes()) { return JavaIoUnixFileSystem.getNameMax0(context, try receiver_ref(receiver), ref_arg(&args, 0)); }
     }
 
-    if class_name == "java/util/concurrent/atomic/AtomicLong" {
-        if method_is(method_name, descriptor, "VMSupportsCS8", "()Z") { return JavaUtilConcurrentAtomicAtomicLong.VMSupportsCS8(context); }
+    if class_name == "java/util/concurrent/atomic/AtomicLong".bytes() {
+        if method_is(method_name, descriptor, "VMSupportsCS8".bytes(), "()Z".bytes()) { return JavaUtilConcurrentAtomicAtomicLong.VMSupportsCS8(context); }
     }
 
-    if class_name == "java/util/zip/ZipFile" {
-        if method_is(method_name, descriptor, "initIDs", "()V") { return JavaUtilZipZipFile.initIDs(context); }
+    if class_name == "java/util/zip/ZipFile".bytes() {
+        if method_is(method_name, descriptor, "initIDs".bytes(), "()V".bytes()) { return JavaUtilZipZipFile.initIDs(context); }
     }
 
+    println("unsupported native");
     return .err(InstructionError.unsupported_native);
 }
 
@@ -1139,6 +1264,7 @@ test "native Object.clone copies instance fields" {
             interfaces: [],
             fields: [field],
             methods: [],
+            constant_pool: [],
             instance_vars: 1,
             static_vars: [],
             source_file: "Example.java",
@@ -1219,6 +1345,7 @@ test "native Class metadata reads represented class" {
             interfaces: [],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Example.java",
@@ -1238,6 +1365,7 @@ test "native Class metadata reads represented class" {
             interfaces: [],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Object.java",
@@ -1257,6 +1385,7 @@ test "native Class metadata reads represented class" {
             interfaces: [],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Class.java",
@@ -1331,6 +1460,7 @@ test "native bootstrap helpers return conservative values" {
             interfaces: [],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Example.java",
@@ -1460,6 +1590,7 @@ test "native Thread.currentThread creates stable java thread object" {
             interfaces: [],
             fields: [thread_name_field, thread_tid_field, thread_group_field, thread_priority_field],
             methods: [],
+            constant_pool: [],
             instance_vars: 4,
             static_vars: [],
             source_file: "Thread.java",
@@ -1479,6 +1610,7 @@ test "native Thread.currentThread creates stable java thread object" {
             interfaces: [],
             fields: [group_name_field],
             methods: [],
+            constant_pool: [],
             instance_vars: 1,
             static_vars: [],
             source_file: "ThreadGroup.java",
@@ -1498,6 +1630,7 @@ test "native Thread.currentThread creates stable java thread object" {
             interfaces: [],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "String.java",

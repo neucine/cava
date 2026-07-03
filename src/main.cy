@@ -34,21 +34,20 @@ fn load_entry_area(classfile: &ClassFile): result<MethodArea, ClassfileError> {
     return .ok(area);
 }
 
-fn execute_entry(area_value: MethodArea, classfile: &ClassFile): i32 {
-    var area = area_value;
-    area.define_hello_world_builtins();
+fn execute_entry(area: &MethodArea, classfile: &ClassFile, java_args: []const string): i32 {
+    area.load_hello_world_jdk_classes();
     const class_index: usize = 0;
     if area.method_index(class_index, "main", "([Ljava/lang/String;)V") is actual_method_index {
         const method_index = actual_method_index as usize;
         var heap = new_heap();
         area.initialize_system_out(&heap);
-        switch execute_classfile_method_area(class_index, method_index, classfile, &area, &heap) {
+        area.load_constant_references_for_class("jdk/classes", class_index);
+        switch execute_classfile_method_area(class_index, method_index, classfile, area, &heap, java_args) {
         case .ok(result) {
             const ignored = result;
             heap.clear();
-            drop heap;
             area.clear();
-            drop area;
+            drop heap;
             return 0;
         }
         case .err(error_value) {
@@ -70,20 +69,19 @@ fn execute_entry(area_value: MethodArea, classfile: &ClassFile): i32 {
                 }
             }
             heap.clear();
-            drop heap;
             area.clear();
-            drop area;
+            drop heap;
             return instruction_exit_code(error_value);
         }
         }
     } else {
         println("main method not found");
-        drop area;
+        area.clear();
         return 4;
     }
 }
 
-fn run_class_file(path: string): i32 {
+fn run_class_file(path: string, java_args: []const string): i32 {
     const read_result = read_file(path);
     switch read_result {
     case .ok(source) {
@@ -100,7 +98,9 @@ fn run_class_file(path: string): i32 {
 
         switch load_entry_area(&classfile) {
         case .ok(area) {
-            const code = execute_entry(area, &classfile);
+            var executable_area = area;
+            const code = execute_entry(&executable_area, &classfile, java_args);
+            drop executable_area;
             classfile.clear();
             drop classfile;
             return code;
@@ -128,7 +128,7 @@ fn main(): i32 {
         println("usage: cava <classfile>");
         return 64;
     }
-    const code = run_class_file(values[1]);
+    const code = run_class_file(values[1], values[2..values.len()]);
     drop values;
     return code;
 }

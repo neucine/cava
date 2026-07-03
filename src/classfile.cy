@@ -606,6 +606,35 @@ pub struct ClassFile {
         drop class_name;
         return .ok(out);
     }
+
+    pub fn clone_constant_pool(self: &ClassFile): List<Constant> {
+        var out: List<Constant> = [];
+        var index: usize = 0;
+        while index < self.constant_pool.len() {
+            switch self.constant_pool[index] {
+            case .unusable(value) { out.push(.unusable(value)); }
+            case .utf8(value) { out.push(.utf8(value)); }
+            case .integer(value) { out.push(.integer(value)); }
+            case .float(value) { out.push(.float(value)); }
+            case .long(value) { out.push(.long(value)); }
+            case .double(value) { out.push(.double(value)); }
+            case .class_ref(value) { out.push(.class_ref(value)); }
+            case .string_ref(value) { out.push(.string_ref(value)); }
+            case .field_ref(value) { out.push(.field_ref(value)); }
+            case .method_ref(value) { out.push(.method_ref(value)); }
+            case .interface_method_ref(value) { out.push(.interface_method_ref(value)); }
+            case .name_and_type(value) { out.push(.name_and_type(value)); }
+            case .method_handle(value) { out.push(.method_handle(value)); }
+            case .method_type(value) { out.push(.method_type(value)); }
+            case .dynamic(value) { out.push(.dynamic(value)); }
+            case .invoke_dynamic(value) { out.push(.invoke_dynamic(value)); }
+            case .module_ref(value) { out.push(.module_ref(value)); }
+            case .package_ref(value) { out.push(.package_ref(value)); }
+            }
+            index = index + 1;
+        }
+        return out;
+    }
 }
 
 pub fn new_classfile(): ClassFile {
@@ -690,7 +719,9 @@ pub fn read_class_header(reader: &ByteReader): result<ClassHeader, ClassfileErro
 
 pub fn parse_class_header(data: []const u8): result<ClassHeader, ClassfileError> {
     var reader = ByteReader.init(data);
-    return read_class_header(&reader);
+    const header = read_class_header(&reader);
+    drop reader;
+    return header;
 }
 
 pub fn read_classfile(reader: &ByteReader, out: &ClassFile): result<void, ClassfileError> {

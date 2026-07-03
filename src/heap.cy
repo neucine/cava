@@ -52,7 +52,7 @@ pub struct Heap {
 
     pub fn clear(self: &Heap): void {
         while self.strings.len() > 0 {
-            const value = self.strings.pop();
+            var value = self.strings.pop();
             drop value;
         }
         self.objects.clear();
@@ -72,6 +72,26 @@ pub struct Heap {
             }
             index = index + 1;
         }
+
+        const slot = self.objects.len();
+        self.objects.push(ObjectSlot {
+            occupied: true,
+            generation: 1,
+            object: Object {
+                class_index: class_index,
+                fields: fields,
+            },
+        });
+        return Reference {
+            kind: ReferenceKind.object,
+            slot: slot,
+            generation: 1,
+        };
+    }
+
+    pub fn allocate_object_with_hierarchy(self: &Heap, class_index: usize, classes: []Class): Reference {
+        var fields: List<Value> = [];
+        append_hierarchy_fields(&fields, class_index, classes);
 
         const slot = self.objects.len();
         self.objects.push(ObjectSlot {
@@ -148,6 +168,31 @@ pub struct Heap {
             reference: reference,
         });
         return reference;
+    }
+
+    pub fn register_string_bytes(self: &Heap, reference: Reference, value: []const u8): void {
+        var index: usize = 0;
+        while index < self.strings.len() {
+            if self.strings[index].reference.equals(reference) {
+                return;
+            }
+            index = index + 1;
+        }
+        self.strings.push(InternedString {
+            value: byte_buffer(value),
+            reference: reference,
+        });
+    }
+
+    pub fn interned_string_reference(self: &Heap, value: []const u8): ?Reference {
+        var index: usize = 0;
+        while index < self.strings.len() {
+            if self.strings[index].value[..] == value {
+                return self.strings[index].reference;
+            }
+            index = index + 1;
+        }
+        return none;
     }
 
     pub fn string_bytes(self: &Heap, reference: Reference): ?InternedStringBytes {
@@ -337,6 +382,38 @@ pub struct Heap {
     }
 }
 
+fn find_class_index(classes: []Class, name: string): ?usize {
+    var index: usize = 0;
+    while index < classes.len() {
+        if classes[index].name == name {
+            return index;
+        }
+        index = index + 1;
+    }
+    return none;
+}
+
+fn append_hierarchy_fields(fields: &List<Value>, class_index: usize, classes: []Class): void {
+    if class_index >= classes.len() {
+        return;
+    }
+    const super_name = classes[class_index].super_class;
+    if super_name.bytes().len() > 0 {
+        if find_class_index(classes, super_name) is super_index {
+            append_hierarchy_fields(fields, super_index, classes);
+        }
+    }
+
+    var field_index: usize = 0;
+    while field_index < classes[class_index].fields.len() {
+        const field = classes[class_index].fields[field_index];
+        if !field.is_static() {
+            fields.push(default_value(field.descriptor.bytes()));
+        }
+        field_index = field_index + 1;
+    }
+}
+
 pub fn new_heap(): Heap {
     return Heap {
         objects: [],
@@ -388,6 +465,7 @@ test "heap allocates objects with default instance fields" {
         interfaces: [],
         fields: [static_field, instance_field],
         methods: [],
+        constant_pool: [],
         instance_vars: 1,
         static_vars: [.int_value(0)],
         source_file: "Example.java",
@@ -434,6 +512,7 @@ test "heap updates instance fields by slot" {
         interfaces: [],
         fields: [instance_field],
         methods: [],
+        constant_pool: [],
         instance_vars: 1,
         static_vars: [],
         source_file: "Example.java",
@@ -478,6 +557,7 @@ test "heap rejects stale object slot references" {
         interfaces: [],
         fields: [instance_field],
         methods: [],
+        constant_pool: [],
         instance_vars: 1,
         static_vars: [],
         source_file: "Example.java",
@@ -566,6 +646,7 @@ test "heap interns string objects by byte content" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "String.java",
@@ -600,6 +681,7 @@ test "heap interns method type objects by descriptor" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "MethodType.java",
@@ -634,6 +716,7 @@ test "heap interns method handle objects by reference kind and index" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "MethodHandle.java",

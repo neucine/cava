@@ -42,6 +42,11 @@ pub struct Frame {
         self.stack.clear();
     }
 
+    pub fn clear_all(self: &Frame): void {
+        self.local_vars.clear();
+        self.stack.clear();
+    }
+
     pub fn load(self: &Frame, index: u16): Value {
         return self.local_vars[index as usize];
     }

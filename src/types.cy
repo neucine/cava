@@ -1,3 +1,5 @@
+import { Constant } from .classfile;
+
 pub type byte = i8;
 pub type short = i16;
 pub type char = u16;
@@ -215,6 +217,23 @@ pub struct Field {
     pub fn is_public(self: &Field): bool {
         return FieldAccessFlags.public in self.access_flags;
     }
+
+    pub fn clear(self: &Field): void {
+        self.class_name = "";
+        self.name = "";
+        self.descriptor = "";
+    }
+
+    pub fn __copy(self: &Field): Field {
+        return Field {
+            class_name: string.from(self.class_name.bytes()),
+            access_flags: self.access_flags,
+            name: string.from(self.name.bytes()),
+            descriptor: string.from(self.descriptor.bytes()),
+            index: self.index,
+            slot: self.slot,
+        };
+    }
 }
 
 pub struct Method {
@@ -243,6 +262,34 @@ pub struct Method {
 
     pub fn is_abstract(self: &Method): bool {
         return MethodAccessFlags.abstract in self.access_flags;
+    }
+
+    pub fn clear(self: &Method): void {
+        self.class_name = "";
+        self.name = "";
+        self.descriptor = "";
+        self.code = byte_buffer("".bytes());
+        self.exception_handlers.clear();
+        self.return_descriptor = "";
+    }
+
+    pub fn __copy(self: &Method): Method {
+        return Method {
+            class_name: string.from(self.class_name.bytes()),
+            access_flags: self.access_flags,
+            name: string.from(self.name.bytes()),
+            descriptor: string.from(self.descriptor.bytes()),
+            code: copy self.code,
+            max_stack: self.max_stack,
+            max_locals: self.max_locals,
+            code_len: self.code_len,
+            exception_count: self.exception_count,
+            exception_handlers: copy self.exception_handlers,
+            local_var_count: self.local_var_count,
+            line_number_count: self.line_number_count,
+            parameter_count: self.parameter_count,
+            return_descriptor: string.from(self.return_descriptor.bytes()),
+        };
     }
 }
 
@@ -277,6 +324,7 @@ pub struct Class {
     pub interfaces: List<string>;
     pub fields: List<Field>;
     pub methods: List<Method>;
+    pub constant_pool: List<Constant>;
     pub instance_vars: u16;
     pub static_vars: List<Value>;
     pub source_file: string;
@@ -334,6 +382,64 @@ pub struct Class {
 
     pub fn has_method(self: &Class, name: []const u8, descriptor: []const u8, is_static: bool): bool {
         return self.method_index(name, descriptor, is_static) != none;
+    }
+
+    pub fn clear(self: &Class): void {
+        self.name = "";
+        self.descriptor = "";
+        self.super_class = "";
+        while self.interfaces.len() > 0 {
+            var interface_name = self.interfaces.pop();
+            drop interface_name;
+        }
+
+        var field_index: usize = 0;
+        while field_index < self.fields.len() {
+            self.fields[field_index].clear();
+            field_index = field_index + 1;
+        }
+        self.fields.clear();
+
+        var method_index: usize = 0;
+        while method_index < self.methods.len() {
+            self.methods[method_index].clear();
+            method_index = method_index + 1;
+        }
+        self.methods.clear();
+
+        var constant_index: usize = 0;
+        while constant_index < self.constant_pool.len() {
+            self.constant_pool[constant_index] = .unusable(0);
+            constant_index = constant_index + 1;
+        }
+        self.constant_pool.clear();
+        self.static_vars.clear();
+        self.source_file = "";
+        self.component_type = "";
+        self.element_type = "";
+    }
+
+    pub fn __copy(self: &Class): Class {
+        return Class {
+            name: string.from(self.name.bytes()),
+            descriptor: string.from(self.descriptor.bytes()),
+            access_flags: self.access_flags,
+            super_class: string.from(self.super_class.bytes()),
+            interfaces: copy self.interfaces,
+            fields: copy self.fields,
+            methods: copy self.methods,
+            constant_pool: copy self.constant_pool,
+            instance_vars: self.instance_vars,
+            static_vars: copy self.static_vars,
+            source_file: string.from(self.source_file.bytes()),
+            is_array: self.is_array,
+            component_type: string.from(self.component_type.bytes()),
+            element_type: string.from(self.element_type.bytes()),
+            dimensions: self.dimensions,
+            defined: self.defined,
+            linked: self.linked,
+            class_object: self.class_object,
+        };
     }
 }
 
@@ -498,6 +604,7 @@ test "class metadata supports field and method lookup" {
         interfaces: [],
         fields: [field],
         methods: [method],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "Example.java",

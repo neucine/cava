@@ -155,6 +155,10 @@ pub enum Opcode: i32 {
     i2c,
     i2s,
     lcmp = 148,
+    fcmpl,
+    fcmpg,
+    dcmpl,
+    dcmpg,
     ifeq = 153,
     ifne,
     iflt,
@@ -221,6 +225,10 @@ fn push_int(context: &Context, value: i32): void {
 fn expect_int(value: Value): i32 {
     switch value {
     case .int_value(actual) { return actual; }
+    case .boolean_value(actual) { return actual as i32; }
+    case .byte_value(actual) { return actual as i32; }
+    case .short_value(actual) { return actual as i32; }
+    case .char_value(actual) { return actual as i32; }
     else { assert(false); }
     }
     return 0;
@@ -465,9 +473,36 @@ fn constant_utf8_equals(context: &Context, index: u16, expected: []const u8): re
 }
 
 fn find_class_index_by_name_bytes(context: &Context, name: []const u8): result<usize, InstructionError> {
+    return resolve_class_by_name_bytes(context, name);
+}
+
+fn find_class_index_by_name_bytes_in(classes: []Class, name: []const u8): result<usize, InstructionError> {
+    var index: usize = 0;
+    while index < classes.len() {
+        if bytes_equal(classes[index].name.bytes(), name) {
+            return .ok(index);
+        }
+        index = index + 1;
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn resolve_class_by_name_bytes(context: &Context, name: []const u8): result<usize, InstructionError> {
     var index: usize = 0;
     while index < context.classes.len() {
         if bytes_equal(context.classes[index].name.bytes(), name) {
+            return .ok(index);
+        }
+        index = index + 1;
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn resolve_class_by_name(context: &Context, name: string): result<usize, InstructionError> {
+    const name_bytes = name.bytes();
+    var index: usize = 0;
+    while index < context.classes.len() {
+        if bytes_equal(context.classes[index].name.bytes(), name_bytes) {
             return .ok(index);
         }
         index = index + 1;
@@ -500,11 +535,53 @@ fn load_string_constant(context: &Context, utf8_index: u16): result<void, Instru
     else { return .err(InstructionError.invalid_constant); }
     }
 
-    const string_class_index = try find_class_index_by_name_bytes(context, "java/lang/String".bytes());
-    var classes = context.classes;
-    const reference = context.heap.intern_string(string_class_index, &classes[string_class_index], value);
+    const reference = try allocate_java_string(context.heap, context.classes, value);
     context.frame.push(.ref_value(reference));
     return .ok();
+}
+
+fn allocate_java_string(heap: &Heap, classes: []Class, value: []const u8): result<Reference, InstructionError> {
+    var string_class_index: usize = 0;
+    var class_index: usize = 0;
+    var found = false;
+    while class_index < classes.len() {
+        if bytes_equal(classes[class_index].name.bytes(), "java/lang/String".bytes()) {
+            string_class_index = class_index;
+            found = true;
+            class_index = classes.len();
+        } else {
+            class_index = class_index + 1;
+        }
+    }
+    if !found {
+        return .err(InstructionError.invalid_constant);
+    }
+    if heap.interned_string_reference(value) is existing_reference {
+        return .ok(existing_reference);
+    }
+    const reference = heap.allocate_object_with_hierarchy(string_class_index, classes);
+    if classes[string_class_index].field_index("value".bytes(), "[C".bytes(), false) is value_field_index {
+        const chars_reference = heap.allocate_array(0, "C".bytes(), value.len());
+        var byte_index: usize = 0;
+        while byte_index < value.len() {
+            if !heap.set_element(chars_reference, byte_index, .char_value(value[byte_index] as u16)) {
+                return .err(InstructionError.invalid_constant);
+            }
+            byte_index = byte_index + 1;
+        }
+        const slot = classes[string_class_index].fields[value_field_index as usize].slot;
+        if !heap.set_field(reference, slot, .ref_value(chars_reference)) {
+            return .err(InstructionError.invalid_constant);
+        }
+    }
+    if classes[string_class_index].field_index("coder".bytes(), "B".bytes(), false) is coder_field_index {
+        const slot = classes[string_class_index].fields[coder_field_index as usize].slot;
+        if !heap.set_field(reference, slot, .byte_value(0)) {
+            return .err(InstructionError.invalid_constant);
+        }
+    }
+    heap.register_string_bytes(reference, value);
+    return .ok(reference);
 }
 
 fn load_method_type_constant(context: &Context, descriptor_index: u16): result<void, InstructionError> {
@@ -549,28 +626,87 @@ fn find_class_index_by_constant(context: &Context, index: u16): result<usize, In
     case .class_ref(actual) { name_index = actual; }
     else { return .err(InstructionError.invalid_constant); }
     }
-
-    var class_index: usize = 0;
-    while class_index < context.classes.len() {
-        const matches = try constant_utf8_equals(context, name_index, context.classes[class_index].name.bytes());
-        if matches {
-            return .ok(class_index);
-        }
-        class_index = class_index + 1;
+    if name_index as usize >= context.constant_pool.len() {
+        return .err(InstructionError.invalid_constant);
     }
-    return .err(InstructionError.invalid_constant);
+    switch context.constant_pool[name_index as usize] {
+    case .utf8(name) { return resolve_class_by_name_bytes(context, name.bytes()); }
+    else { return .err(InstructionError.invalid_constant); }
+    }
 }
 
 fn find_class_index(context: &Context, name: string): result<usize, InstructionError> {
-    const name_bytes = name.bytes();
+    return resolve_class_by_name_bytes(context, name.bytes());
+}
+
+fn class_index_by_name(classes: []Class, name: string): ?usize {
     var index: usize = 0;
-    while index < context.classes.len() {
-        if bytes_equal(context.classes[index].name.bytes(), name_bytes) {
-            return .ok(index);
+    while index < classes.len() {
+        if classes[index].name == name {
+            return index;
         }
         index = index + 1;
     }
-    return .err(InstructionError.invalid_constant);
+    return none;
+}
+
+fn class_instance_var_count(classes: []Class, class_index: usize): u16 {
+    if class_index >= classes.len() {
+        return 0;
+    }
+    var count: u16 = 0;
+    var index: usize = 0;
+    while index < classes[class_index].fields.len() {
+        const field = classes[class_index].fields[index];
+        if !field.is_static() {
+            count = count + 1;
+        }
+        index = index + 1;
+    }
+    return count;
+}
+
+fn hierarchy_instance_var_count(classes: []Class, class_index: usize): u16 {
+    if class_index >= classes.len() {
+        return 0;
+    }
+    var count: u16 = 0;
+    const super_name = classes[class_index].super_class;
+    if super_name.bytes().len() > 0 {
+        if class_index_by_name(classes, super_name) is super_index {
+            count = hierarchy_instance_var_count(classes, super_index);
+        }
+    }
+    return count + class_instance_var_count(classes, class_index);
+}
+
+fn field_slot_offset(classes: []Class, current_class_index: usize, declaring_class_name: string): ?u16 {
+    if current_class_index >= classes.len() {
+        return none;
+    }
+    var super_count: u16 = 0;
+    const super_name = classes[current_class_index].super_class;
+    if super_name.bytes().len() > 0 {
+        if class_index_by_name(classes, super_name) is super_index {
+            super_count = hierarchy_instance_var_count(classes, super_index);
+            if field_slot_offset(classes, super_index, declaring_class_name) is super_offset {
+                return super_offset;
+            }
+        }
+    }
+    if classes[current_class_index].name == declaring_class_name {
+        return super_count;
+    }
+    return none;
+}
+
+fn field_runtime_slot(context: &Context, reference: Reference, field: Field): ?u16 {
+    if context.heap.object_class_index(reference) is object_class_index {
+        if field_slot_offset(context.classes, object_class_index, field.class_name) is offset {
+            return offset + field.slot;
+        }
+    }
+    return none;
 }
 
 fn find_field_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): result<usize, InstructionError> {
@@ -582,6 +718,41 @@ fn find_field_index_by_constants(class: &Class, context: &Context, name_index: u
             return .ok(index);
         }
         index = index + 1;
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn find_field_in_hierarchy(context: &Context, class_index: usize, name_index: u16, descriptor_index: u16): result<Field, InstructionError> {
+    var current_index = class_index;
+    while true {
+        var classes = context.classes;
+        switch find_field_index_by_constants(&classes[current_index], context, name_index, descriptor_index) {
+        case .ok(field_index) {
+            return .ok(classes[current_index].fields[field_index]);
+        }
+        case .err(error_value) {
+            const ignored = error_value;
+        }
+        }
+        if classes[current_index].super_class.bytes().len() == 0 {
+            return .err(InstructionError.invalid_constant);
+        }
+        current_index = try resolve_class_by_name_bytes(context, classes[current_index].super_class.bytes());
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn find_field_by_name_in_hierarchy(context: &Context, class_index: usize, name: []const u8, descriptor: []const u8, is_static: bool): result<Field, InstructionError> {
+    var current_index = class_index;
+    while true {
+        var classes = context.classes;
+        if classes[current_index].field_index(name, descriptor, is_static) is field_index {
+            return .ok(classes[current_index].fields[field_index as usize]);
+        }
+        if classes[current_index].super_class.bytes().len() == 0 {
+            return .err(InstructionError.invalid_constant);
+        }
+        current_index = try resolve_class_by_name_bytes(context, classes[current_index].super_class.bytes());
     }
     return .err(InstructionError.invalid_constant);
 }
@@ -631,6 +802,95 @@ fn find_instance_method_index_by_constants(class: &Class, context: &Context, nam
     return .err(InstructionError.invalid_constant);
 }
 
+fn find_static_method_index_in_hierarchy(context: &Context, class_index: usize, name_index: u16, descriptor_index: u16): result<ResolvedMethod, InstructionError> {
+    var current_index = class_index;
+    while true {
+        var classes = context.classes;
+        switch find_static_method_index_by_constants(&classes[current_index], context, name_index, descriptor_index) {
+        case .ok(method_index) {
+            return .ok(ResolvedMethod { class_index: current_index, method_index: method_index });
+        }
+        case .err(error_value) {
+            const ignored = error_value;
+        }
+        }
+        if classes[current_index].super_class.bytes().len() == 0 {
+            return .err(InstructionError.invalid_constant);
+        }
+        current_index = try resolve_class_by_name_bytes(context, classes[current_index].super_class.bytes());
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn find_instance_method_index_in_hierarchy(context: &Context, class_index: usize, name_index: u16, descriptor_index: u16): result<ResolvedMethod, InstructionError> {
+    var current_index = class_index;
+    while true {
+        var classes = context.classes;
+        switch find_instance_method_index_by_constants(&classes[current_index], context, name_index, descriptor_index) {
+        case .ok(method_index) {
+            return .ok(ResolvedMethod { class_index: current_index, method_index: method_index });
+        }
+        case .err(error_value) {
+            const ignored = error_value;
+        }
+        }
+        if classes[current_index].super_class.bytes().len() == 0 {
+            return .err(InstructionError.invalid_constant);
+        }
+        current_index = try resolve_class_by_name_bytes(context, classes[current_index].super_class.bytes());
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn find_interface_method_index_in_hierarchy(context: &Context, class_index: usize, name_index: u16, descriptor_index: u16): result<ResolvedMethod, InstructionError> {
+    if class_index >= context.classes.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+    var classes = context.classes;
+    switch find_instance_method_index_by_constants(&classes[class_index], context, name_index, descriptor_index) {
+    case .ok(method_index) {
+        return .ok(ResolvedMethod { class_index: class_index, method_index: method_index });
+    }
+    case .err(error_value) {
+        const ignored = error_value;
+    }
+    }
+
+    var interface_index: usize = 0;
+    while interface_index < classes[class_index].interfaces.len() {
+        switch find_class_index_by_name_bytes(context, classes[class_index].interfaces[interface_index].bytes()) {
+        case .ok(parent_index) {
+            switch find_interface_method_index_in_hierarchy(context, parent_index, name_index, descriptor_index) {
+            case .ok(found) { return .ok(found); }
+            case .err(error_value) {
+                const ignored = error_value;
+            }
+            }
+        }
+        case .err(error_value) {
+            const ignored = error_value;
+        }
+        }
+        interface_index = interface_index + 1;
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
+fn find_instance_method_by_name_in_hierarchy(context: &Context, class_index: usize, name: []const u8, descriptor: []const u8): result<ResolvedMethod, InstructionError> {
+    var current_index = class_index;
+    while true {
+        var classes = context.classes;
+        if classes[current_index].method_index(name, descriptor, false) is method_index {
+            return .ok(ResolvedMethod { class_index: current_index, method_index: method_index as usize });
+        }
+        if classes[current_index].super_class.bytes().len() == 0 {
+            return .err(InstructionError.invalid_constant);
+        }
+        current_index = try resolve_class_by_name_bytes(context, classes[current_index].super_class.bytes());
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
 fn resolve_field(context: &Context, index: u16): result<Field, InstructionError> {
     if index as usize >= context.constant_pool.len() {
         return .err(InstructionError.invalid_constant);
@@ -660,9 +920,7 @@ fn resolve_field(context: &Context, index: u16): result<Field, InstructionError>
     }
 
     const actual_class_index = try find_class_index_by_constant(context, class_index);
-    var classes = context.classes;
-    const actual_field_index = try find_field_index_by_constants(&classes[actual_class_index], context, name_index, descriptor_index);
-    return .ok(classes[actual_class_index].fields[actual_field_index]);
+    return find_field_in_hierarchy(context, actual_class_index, name_index, descriptor_index);
 }
 
 fn resolve_static_method(context: &Context, index: u16): result<ResolvedMethod, InstructionError> {
@@ -694,9 +952,7 @@ fn resolve_static_method(context: &Context, index: u16): result<ResolvedMethod, 
     }
 
     const actual_class_index = try find_class_index_by_constant(context, class_index);
-    var classes = context.classes;
-    const actual_method_index = try find_static_method_index_by_constants(&classes[actual_class_index], context, name_index, descriptor_index);
-    return .ok(ResolvedMethod { class_index: actual_class_index, method_index: actual_method_index });
+    return find_static_method_index_in_hierarchy(context, actual_class_index, name_index, descriptor_index);
 }
 
 fn resolve_instance_method(context: &Context, index: u16): result<ResolvedMethod, InstructionError> {
@@ -728,9 +984,7 @@ fn resolve_instance_method(context: &Context, index: u16): result<ResolvedMethod
     }
 
     const actual_class_index = try find_class_index_by_constant(context, class_index);
-    var classes = context.classes;
-    const actual_method_index = try find_instance_method_index_by_constants(&classes[actual_class_index], context, name_index, descriptor_index);
-    return .ok(ResolvedMethod { class_index: actual_class_index, method_index: actual_method_index });
+    return find_instance_method_index_in_hierarchy(context, actual_class_index, name_index, descriptor_index);
 }
 
 fn resolve_interface_method(context: &Context, index: u16): result<ResolvedMethod, InstructionError> {
@@ -762,9 +1016,7 @@ fn resolve_interface_method(context: &Context, index: u16): result<ResolvedMetho
     }
 
     const actual_class_index = try find_class_index_by_constant(context, class_index);
-    var classes = context.classes;
-    const actual_method_index = try find_instance_method_index_by_constants(&classes[actual_class_index], context, name_index, descriptor_index);
-    return .ok(ResolvedMethod { class_index: actual_class_index, method_index: actual_method_index });
+    return find_interface_method_index_in_hierarchy(context, actual_class_index, name_index, descriptor_index);
 }
 
 fn unsupported(context: &Context): result<void, InstructionError> {
@@ -1839,6 +2091,66 @@ fn lcmp(context: &Context): result<void, InstructionError> {
     return .ok();
 }
 
+fn fcmpl(context: &Context): result<void, InstructionError> {
+    const value2 = expect_float(context.frame.pop());
+    const value1 = expect_float(context.frame.pop());
+    if value1 != value1 or value2 != value2 or value1 < value2 {
+        push_int(context, 0 - 1);
+    } else {
+        if value1 == value2 {
+            push_int(context, 0);
+        } else {
+            push_int(context, 1);
+        }
+    }
+    return .ok();
+}
+
+fn fcmpg(context: &Context): result<void, InstructionError> {
+    const value2 = expect_float(context.frame.pop());
+    const value1 = expect_float(context.frame.pop());
+    if value1 != value1 or value2 != value2 or value1 > value2 {
+        push_int(context, 1);
+    } else {
+        if value1 == value2 {
+            push_int(context, 0);
+        } else {
+            push_int(context, 0 - 1);
+        }
+    }
+    return .ok();
+}
+
+fn dcmpl(context: &Context): result<void, InstructionError> {
+    const value2 = expect_double(context.frame.pop());
+    const value1 = expect_double(context.frame.pop());
+    if value1 != value1 or value2 != value2 or value1 < value2 {
+        push_int(context, 0 - 1);
+    } else {
+        if value1 == value2 {
+            push_int(context, 0);
+        } else {
+            push_int(context, 1);
+        }
+    }
+    return .ok();
+}
+
+fn dcmpg(context: &Context): result<void, InstructionError> {
+    const value2 = expect_double(context.frame.pop());
+    const value1 = expect_double(context.frame.pop());
+    if value1 != value1 or value2 != value2 or value1 > value2 {
+        push_int(context, 1);
+    } else {
+        if value1 == value2 {
+            push_int(context, 0);
+        } else {
+            push_int(context, 0 - 1);
+        }
+    }
+    return .ok();
+}
+
 fn branch(context: &Context, should_branch: bool): void {
     const offset = context.read_i2() as i32;
     if should_branch {
@@ -2234,7 +2546,28 @@ fn apply_method_result(context: &Context, result: FrameResult): result<void, Ins
 }
 
 pub fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant, classes: []Class, heap: &Heap): result<FrameResult, InstructionError> {
-    var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: classes[class_index].methods[method_index].code[..], constant_pool: constant_pool, classes: classes, heap: heap };
+    var runtime_pool = constant_pool;
+    if class_index < classes.len() and classes[class_index].constant_pool.len() > 0 {
+        runtime_pool = classes[class_index].constant_pool[..];
+    }
+
+    if classes[class_index].name == "java/io/PrintStream" {
+        const method_name = classes[class_index].methods[method_index].name;
+        const descriptor = classes[class_index].methods[method_index].descriptor;
+        if method_name == "write" and descriptor == "(Ljava/lang/String;)V" {
+            const value = frame.load(1);
+            try print_java_string_reference(classes, heap, expect_ref(value), false);
+            frame.clear_all();
+            return .ok(.return_value(none));
+        }
+        if method_name == "newLine" and descriptor == "()V" {
+            println("");
+            frame.clear_all();
+            return .ok(.return_value(none));
+        }
+    }
+
+    var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: classes[class_index].methods[method_index].code[..], constant_pool: runtime_pool, classes: classes, heap: heap };
 
     while context.frame.pc < classes[class_index].methods[method_index].code_len {
         const step_result = execute_next(&context);
@@ -2246,6 +2579,7 @@ pub fn execute_method_frame(class_index: usize, method_index: usize, frame: Fram
             println(classes[class_index].methods[method_index].name);
             println(context.frame.pc as i32);
             println(context.code[context.frame.pc as usize] as i32);
+            drop context;
             return .err(error_value);
         }
         }
@@ -2259,15 +2593,164 @@ pub fn execute_method_frame(class_index: usize, method_index: usize, frame: Fram
     return .err(InstructionError.missing_return);
 }
 
-pub fn execute_method_area(class_index: usize, method_index: usize, constant_pool: []const Constant, area: &MethodArea, heap: &Heap): result<FrameResult, InstructionError> {
+pub fn execute_method_area(class_index: usize, method_index: usize, constant_pool: []const Constant, area: &MethodArea, heap: &Heap, java_args: []const string): result<FrameResult, InstructionError> {
     const max_locals = area.method_max_locals(class_index, method_index);
     const max_stack = area.method_max_stack(class_index, method_index);
-    const frame = new_frame(class_index, method_index, max_locals, max_stack);
+    var frame = new_frame(class_index, method_index, max_locals, max_stack);
+    if area.classes[class_index].methods[method_index].is_static() and area.classes[class_index].methods[method_index].descriptor == "([Ljava/lang/String;)V" {
+        const args_class_index = area.define_array_class("[Ljava/lang/String;");
+        const args_reference = heap.allocate_array(args_class_index, "Ljava/lang/String;".bytes(), java_args.len());
+        var arg_index: usize = 0;
+        while arg_index < java_args.len() {
+            const arg_reference = try allocate_java_string(heap, area.classes[..], java_args[arg_index].bytes());
+            const ignored_set = heap.set_element(args_reference, arg_index, .ref_value(arg_reference));
+            arg_index = arg_index + 1;
+        }
+        frame.store(0, .ref_value(args_reference));
+    }
     return execute_method_frame(class_index, method_index, frame, constant_pool, area.classes[..], heap);
 }
 
-pub fn execute_classfile_method_area(class_index: usize, method_index: usize, classfile: &ClassFile, area: &MethodArea, heap: &Heap): result<FrameResult, InstructionError> {
-    return execute_method_area(class_index, method_index, classfile.constant_pool[..], area, heap);
+fn initialize_getstatic_targets(area: &MethodArea, heap: &Heap): result<void, InstructionError> {
+    var initialized: List<usize> = [];
+    var index: usize = 0;
+    while index < area.classes.len() {
+        try initialize_getstatic_targets_in_class(area, heap, index, &initialized);
+        index = index + 1;
+    }
+    drop initialized;
+    return .ok();
+}
+
+fn initialize_getstatic_targets_in_class(area: &MethodArea, heap: &Heap, class_index: usize, initialized: &List<usize>): result<void, InstructionError> {
+    if class_index >= area.classes.len() {
+        return .ok();
+    }
+    var method_index: usize = 0;
+    var classes = area.classes[..];
+    while method_index < classes[class_index].methods.len() {
+        var pc: usize = 0;
+        while pc < classes[class_index].methods[method_index].code_len as usize {
+            const opcode = classes[class_index].methods[method_index].code[pc];
+            if opcode == 178 and pc + 2 < classes[class_index].methods[method_index].code_len as usize {
+                const constant_index = ((classes[class_index].methods[method_index].code[pc + 1] as u16) << 8) | (classes[class_index].methods[method_index].code[pc + 2] as u16);
+                const target_class = try getstatic_target_class_index(area, class_index, constant_index);
+                try initialize_class(area, heap, target_class, initialized);
+            }
+            pc = pc + instruction_length_for_scan(opcode, classes[class_index].methods[method_index].code[pc..classes[class_index].methods[method_index].code_len as usize]);
+        }
+        method_index = method_index + 1;
+    }
+    return .ok();
+}
+
+fn getstatic_target_class_index(area: &MethodArea, class_index: usize, constant_index: u16): result<usize, InstructionError> {
+    if constant_index as usize >= area.classes[class_index].constant_pool.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+    var class_ref_index: u16 = 0;
+    switch area.classes[class_index].constant_pool[constant_index as usize] {
+    case .field_ref(member) {
+        class_ref_index = member.class_index;
+    }
+    else { return .err(InstructionError.invalid_constant); }
+    }
+    const name = try class_name_from_pool(area.classes[class_index].constant_pool[..], class_ref_index);
+    var index: usize = 0;
+    while index < area.classes.len() {
+        if area.classes[index].name == name {
+            drop name;
+            return .ok(index);
+        }
+        index = index + 1;
+    }
+    drop name;
+    return .err(InstructionError.invalid_constant);
+}
+
+fn class_name_from_pool(pool: []const Constant, class_ref_index: u16): result<string, InstructionError> {
+    if class_ref_index as usize >= pool.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+    var name_index: u16 = 0;
+    switch pool[class_ref_index as usize] {
+    case .class_ref(actual) { name_index = actual; }
+    else { return .err(InstructionError.invalid_constant); }
+    }
+    if name_index as usize >= pool.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+    switch pool[name_index as usize] {
+    case .utf8(name) { return .ok(string.from(name.bytes())); }
+    else { return .err(InstructionError.invalid_constant); }
+    }
+}
+
+fn initialize_class(area: &MethodArea, heap: &Heap, class_index: usize, initialized: &List<usize>): result<void, InstructionError> {
+    var seen_index: usize = 0;
+    while seen_index < initialized.len() {
+        if initialized[seen_index] == class_index {
+            return .ok();
+        }
+        seen_index = seen_index + 1;
+    }
+    initialized.push(class_index);
+    if class_index >= area.classes.len() {
+        return .ok();
+    }
+    if area.classes[class_index].method_index("<clinit>".bytes(), "()V".bytes(), true) is clinit_index_value {
+        area.load_constant_references_for_class("jdk/classes", class_index);
+        try initialize_getstatic_targets_in_class(area, heap, class_index, initialized);
+        var classes = area.classes[..];
+        const clinit_index = clinit_index_value as usize;
+        var frame = new_frame(class_index, clinit_index, classes[class_index].methods[clinit_index].max_locals, classes[class_index].methods[clinit_index].max_stack);
+        const result = try execute_method_frame(class_index, clinit_index, frame, classes[class_index].constant_pool[..], classes, heap);
+        switch result {
+        case .return_value(value) {
+            const ignored = value;
+        }
+        case .exception(reference) {
+            const ignored = reference;
+            return .err(InstructionError.invalid_constant);
+        }
+        }
+    }
+    return .ok();
+}
+
+fn instruction_length_for_scan(opcode: u8, code: []const u8): usize {
+    if opcode == 170 {
+        const padding = (4 - ((1) % 4)) % 4;
+        if code.len() < 1 + padding + 12 { return 1; }
+        const low = read_scan_i4(code, 1 + padding + 4);
+        const high = read_scan_i4(code, 1 + padding + 8);
+        return 1 + padding + 12 + (((high - low + 1) as usize) * 4);
+    }
+    if opcode == 171 {
+        const padding = (4 - ((1) % 4)) % 4;
+        if code.len() < 1 + padding + 8 { return 1; }
+        const npairs = read_scan_i4(code, 1 + padding + 4);
+        return 1 + padding + 8 + ((npairs as usize) * 8);
+    }
+    if opcode == 196 {
+        if code.len() > 1 and code[1] == 132 { return 6; }
+        return 4;
+    }
+    if registry[opcode as usize].opcode == Opcode.unsupported {
+        return 1;
+    }
+    return registry[opcode as usize].length as usize;
+}
+
+fn read_scan_i4(code: []const u8, offset: usize): i32 {
+    if offset + 3 >= code.len() {
+        return 0;
+    }
+    return ((code[offset] as i32) << 24) | ((code[offset + 1] as i32) << 16) | ((code[offset + 2] as i32) << 8) | (code[offset + 3] as i32);
+}
+
+pub fn execute_classfile_method_area(class_index: usize, method_index: usize, classfile: &ClassFile, area: &MethodArea, heap: &Heap, java_args: []const string): result<FrameResult, InstructionError> {
+    return execute_method_area(class_index, method_index, classfile.constant_pool[..], area, heap, java_args);
 }
 
 fn native_arguments(arguments: List<Value>): List<Value> {
@@ -2276,6 +2759,7 @@ fn native_arguments(arguments: List<Value>): List<Value> {
     while in_args.len() > 0 {
         out.push(in_args.pop());
     }
+    drop in_args;
     return out;
 }
 
@@ -2322,6 +2806,52 @@ fn invoke_privileged_action(context: &Context, action: Reference): result<?Value
     }
 }
 
+fn print_java_string_reference(classes: []Class, heap: &Heap, reference: Reference, newline: bool): result<void, InstructionError> {
+    const string_class_index = try find_class_index_by_name_bytes_in(classes, "java/lang/String".bytes());
+    if classes[string_class_index].field_index("value".bytes(), "[C".bytes(), false) is value_field_index {
+        const slot = classes[string_class_index].fields[value_field_index as usize].slot;
+        if heap.get_field(reference, slot) is value {
+            switch value {
+            case .ref_value(chars_reference) {
+                if heap.array_length(chars_reference) is length {
+                    var bytes: List<u8> = [];
+                    var index: usize = 0;
+                    while index < length {
+                        if heap.get_element(chars_reference, index) is element {
+                            switch element {
+                            case .char_value(ch) { bytes.push(ch as u8); }
+                            case .byte_value(ch) { bytes.push(ch as u8); }
+                            else { bytes.push(0); }
+                            }
+                        }
+                        index = index + 1;
+                    }
+                    const text = string.from(bytes[..]);
+                    if newline {
+                        println(text);
+                    } else {
+                        print(text);
+                    }
+                    drop text;
+                    drop bytes;
+                    return .ok();
+                }
+            }
+            case .byte_value(ignored) { const unused = ignored; }
+            case .short_value(ignored) { const unused = ignored; }
+            case .char_value(ignored) { const unused = ignored; }
+            case .int_value(ignored) { const unused = ignored; }
+            case .long_value(ignored) { const unused = ignored; }
+            case .float_value(ignored) { const unused = ignored; }
+            case .double_value(ignored) { const unused = ignored; }
+            case .boolean_value(ignored) { const unused = ignored; }
+            case .return_address_value(ignored) { const unused = ignored; }
+            }
+        }
+    }
+    return .err(InstructionError.invalid_constant);
+}
+
 fn invoke_static(context: &Context): result<void, InstructionError> {
     const resolved = try resolve_static_method(context, context.read_u2());
     var classes = context.classes;
@@ -2339,10 +2869,9 @@ fn invoke_static(context: &Context): result<void, InstructionError> {
 
     if classes[resolved.class_index].methods[resolved.method_index].is_native() {
         if is_access_controller_do_privileged(classes, resolved.class_index, resolved.method_index) {
-            var native_args = native_arguments(copy arguments);
+            var native_args = native_arguments(arguments);
             const result = invoke_privileged_action(context, expect_ref(native_args[0]));
             drop native_args;
-            drop arguments;
             switch result {
             case .ok(value) {
                 if value is actual {
@@ -2355,8 +2884,8 @@ fn invoke_static(context: &Context): result<void, InstructionError> {
             }
             }
         } else {
-            const result = execute_native_method(context, resolved.class_index, resolved.method_index, none, native_arguments(copy arguments));
-            drop arguments;
+            const native_args = native_arguments(arguments);
+            const result = execute_native_method(context, resolved.class_index, resolved.method_index, none, native_args);
             switch result {
             case .ok(value) {
                 if value is actual {
@@ -2407,8 +2936,8 @@ fn invoke_special(context: &Context): result<void, InstructionError> {
     }
 
     if classes[resolved.class_index].methods[resolved.method_index].is_native() {
-        const result = execute_native_method(context, resolved.class_index, resolved.method_index, receiver, native_arguments(copy arguments));
-        drop arguments;
+        const native_args = native_arguments(arguments);
+        const result = execute_native_method(context, resolved.class_index, resolved.method_index, receiver, native_args);
         switch result {
         case .ok(value) {
             if value is actual {
@@ -2453,28 +2982,42 @@ fn invoke_virtual(context: &Context): result<void, InstructionError> {
     if receiver.is_null() {
         assert(false);
     }
+    const target_name = classes[declared.class_index].methods[declared.method_index].name.bytes();
+    const target_descriptor = classes[declared.class_index].methods[declared.method_index].descriptor.bytes();
+    if context.heap.array_class_index(receiver) is array_class_index {
+        if bytes_equal(target_name, "clone".bytes()) and bytes_equal(target_descriptor, "()Ljava/lang/Object;".bytes()) {
+            var component_descriptor = "Ljava/lang/Object;".bytes();
+            if array_class_index < classes.len() and classes[array_class_index].is_array {
+                component_descriptor = classes[array_class_index].component_type.bytes();
+            }
+            if context.heap.array_length(receiver) is length {
+                const clone = context.heap.allocate_array(array_class_index, component_descriptor, length);
+                var element_index: usize = 0;
+                while element_index < length {
+                    if context.heap.get_element(receiver, element_index) is value {
+                        const ignored_set = context.heap.set_element(clone, element_index, value);
+                    }
+                    element_index = element_index + 1;
+                }
+                context.frame.push(.ref_value(clone));
+                return .ok();
+            }
+        }
+    }
     var receiver_class_index: usize = 0;
     if context.heap.object_class_index(receiver) is actual_receiver_class_index {
         receiver_class_index = actual_receiver_class_index;
     } else {
         return .err(InstructionError.invalid_constant);
     }
-    var target_method_index: usize = 0;
-    const target_name = classes[declared.class_index].methods[declared.method_index].name.bytes();
-    const target_descriptor = classes[declared.class_index].methods[declared.method_index].descriptor.bytes();
-    const target_method_index_option = classes[receiver_class_index].method_index(target_name, target_descriptor, false);
-    if target_method_index_option is actual_target_method_index {
-        target_method_index = actual_target_method_index as usize;
-    } else {
-        return .err(InstructionError.invalid_constant);
-    }
-    if classes[receiver_class_index].methods[target_method_index].is_abstract() {
+    const target = try find_instance_method_by_name_in_hierarchy(context, receiver_class_index, target_name, target_descriptor);
+    if classes[target.class_index].methods[target.method_index].is_abstract() {
         return .err(InstructionError.unsupported_opcode);
     }
 
-    if classes[receiver_class_index].methods[target_method_index].is_native() {
-        const result = execute_native_method(context, receiver_class_index, target_method_index, receiver, native_arguments(copy arguments));
-        drop arguments;
+    if classes[target.class_index].methods[target.method_index].is_native() {
+        const native_args = native_arguments(arguments);
+        const result = execute_native_method(context, target.class_index, target.method_index, receiver, native_args);
         switch result {
         case .ok(value) {
             if value is actual {
@@ -2487,7 +3030,7 @@ fn invoke_virtual(context: &Context): result<void, InstructionError> {
         }
         }
     } else {
-        var frame = new_frame(receiver_class_index, target_method_index, classes[receiver_class_index].methods[target_method_index].max_locals, classes[receiver_class_index].methods[target_method_index].max_stack);
+        var frame = new_frame(target.class_index, target.method_index, classes[target.class_index].methods[target.method_index].max_locals, classes[target.class_index].methods[target.method_index].max_stack);
         frame.store(0, .ref_value(receiver));
         var local_index: u16 = 1;
         var argument_index = arguments.len();
@@ -2499,7 +3042,7 @@ fn invoke_virtual(context: &Context): result<void, InstructionError> {
         }
         drop arguments;
 
-        const result = try execute_method_frame(receiver_class_index, target_method_index, frame, context.constant_pool, context.classes, context.heap);
+        const result = try execute_method_frame(target.class_index, target.method_index, frame, context.constant_pool, context.classes, context.heap);
         return apply_method_result(context, result);
     }
 }
@@ -2531,22 +3074,16 @@ fn invoke_interface(context: &Context): result<void, InstructionError> {
     } else {
         return .err(InstructionError.invalid_constant);
     }
-    var target_method_index: usize = 0;
     const target_name = classes[declared.class_index].methods[declared.method_index].name.bytes();
     const target_descriptor = classes[declared.class_index].methods[declared.method_index].descriptor.bytes();
-    const target_method_index_option = classes[receiver_class_index].method_index(target_name, target_descriptor, false);
-    if target_method_index_option is actual_target_method_index {
-        target_method_index = actual_target_method_index as usize;
-    } else {
-        return .err(InstructionError.invalid_constant);
-    }
-    if classes[receiver_class_index].methods[target_method_index].is_abstract() {
+    const target = try find_instance_method_by_name_in_hierarchy(context, receiver_class_index, target_name, target_descriptor);
+    if classes[target.class_index].methods[target.method_index].is_abstract() {
         return .err(InstructionError.unsupported_opcode);
     }
 
-    if classes[receiver_class_index].methods[target_method_index].is_native() {
-        const result = execute_native_method(context, receiver_class_index, target_method_index, receiver, native_arguments(copy arguments));
-        drop arguments;
+    if classes[target.class_index].methods[target.method_index].is_native() {
+        const native_args = native_arguments(arguments);
+        const result = execute_native_method(context, target.class_index, target.method_index, receiver, native_args);
         switch result {
         case .ok(value) {
             if value is actual {
@@ -2559,7 +3096,7 @@ fn invoke_interface(context: &Context): result<void, InstructionError> {
         }
         }
     } else {
-        var frame = new_frame(receiver_class_index, target_method_index, classes[receiver_class_index].methods[target_method_index].max_locals, classes[receiver_class_index].methods[target_method_index].max_stack);
+        var frame = new_frame(target.class_index, target.method_index, classes[target.class_index].methods[target.method_index].max_locals, classes[target.class_index].methods[target.method_index].max_stack);
         frame.store(0, .ref_value(receiver));
         var local_index: u16 = 1;
         var argument_index = arguments.len();
@@ -2571,7 +3108,7 @@ fn invoke_interface(context: &Context): result<void, InstructionError> {
         }
         drop arguments;
 
-        const result = try execute_method_frame(receiver_class_index, target_method_index, frame, context.constant_pool, context.classes, context.heap);
+        const result = try execute_method_frame(target.class_index, target.method_index, frame, context.constant_pool, context.classes, context.heap);
         return apply_method_result(context, result);
     }
 }
@@ -2579,7 +3116,7 @@ fn invoke_interface(context: &Context): result<void, InstructionError> {
 fn new_(context: &Context): result<void, InstructionError> {
     const class_index = try find_class_index_by_constant(context, context.read_u2());
     var classes = context.classes;
-    const reference = context.heap.allocate_object(class_index, &classes[class_index]);
+    const reference = context.heap.allocate_object_with_hierarchy(class_index, classes);
     context.frame.push(.ref_value(reference));
     return .ok();
 }
@@ -2589,12 +3126,88 @@ fn getstatic(context: &Context): result<void, InstructionError> {
     if !field.is_static() {
         return .err(InstructionError.invalid_constant);
     }
-    const class_index = try find_class_index(context, string.from(field.class_name.bytes()));
+    const class_index = try find_class_index_by_name_bytes(context, field.class_name.bytes());
+    try initialize_static_class(context, class_index);
     const slot = field.slot as usize;
     if slot >= context.classes[class_index].static_vars.len() {
         return .err(InstructionError.invalid_constant);
     }
-    context.frame.push(context.classes[class_index].static_vars[slot]);
+    const value = context.classes[class_index].static_vars[slot];
+    drop field;
+    context.frame.push(value);
+    return .ok();
+}
+
+fn initialize_static_class(context: &Context, class_index: usize): result<void, InstructionError> {
+    if class_index >= context.classes.len() {
+        return .err(InstructionError.invalid_constant);
+    }
+    var classes = context.classes;
+    const class = &classes[class_index];
+    if class.linked {
+        return .ok();
+    }
+    class.linked = true;
+    if class.method_index("<clinit>".bytes(), "()V".bytes(), true) is clinit_index_value {
+        const clinit_index = clinit_index_value as usize;
+        var frame = new_frame(class_index, clinit_index, class.methods[clinit_index].max_locals, class.methods[clinit_index].max_stack);
+        const result = try execute_method_frame(class_index, clinit_index, frame, class.constant_pool[..], classes, context.heap);
+        switch result {
+        case .return_value(value) {
+            const ignored_value = value;
+        }
+        case .exception(reference) {
+            const ignored_reference = reference;
+            return .err(InstructionError.invalid_constant);
+        }
+        }
+    }
+    if class.name == "java/lang/System" {
+        try initialize_system_static_fields(context, class_index);
+    }
+    if class.name == "sun/misc/VM" {
+        try initialize_vm_static_fields(context, class_index);
+    }
+    return .ok();
+}
+
+fn initialize_system_static_fields(context: &Context, system_index: usize): result<void, InstructionError> {
+    const print_stream_index = try find_class_index_by_name_bytes(context, "java/io/PrintStream".bytes());
+    var classes = context.classes;
+    const reference = context.heap.allocate_object_with_hierarchy(print_stream_index, classes);
+    const output_stream_index = try find_class_index_by_name_bytes(context, "java/io/OutputStream".bytes());
+    const output_reference = context.heap.allocate_object_with_hierarchy(output_stream_index, classes);
+    const ignored_set = context.heap.set_field(reference, 0, .ref_value(output_reference));
+    if classes[system_index].field_index("out".bytes(), "Ljava/io/PrintStream;".bytes(), true) is field_index_value {
+        const field = classes[system_index].fields[field_index_value as usize];
+        classes[system_index].static_vars[field.slot as usize] = .ref_value(reference);
+    }
+    if classes[system_index].field_index("err".bytes(), "Ljava/io/PrintStream;".bytes(), true) is field_index_value {
+        const field = classes[system_index].fields[field_index_value as usize];
+        classes[system_index].static_vars[field.slot as usize] = .ref_value(reference);
+    }
+    return .ok();
+}
+
+fn initialize_vm_static_fields(context: &Context, vm_index: usize): result<void, InstructionError> {
+    var classes = context.classes;
+    if classes[vm_index].field_index("savedProps".bytes(), "Ljava/util/Properties;".bytes(), true) is field_index_value {
+        const field = classes[vm_index].fields[field_index_value as usize];
+        switch classes[vm_index].static_vars[field.slot as usize] {
+        case .ref_value(props_reference) {
+            if props_reference.is_null() {
+                return .ok();
+            }
+            if context.heap.object_class_index(props_reference) is props_class_index {
+                const count_field = try find_field_by_name_in_hierarchy(context, props_class_index, "count".bytes(), "I".bytes(), false);
+                if field_runtime_slot(context, props_reference, count_field) is count_slot {
+                    const ignored_set = context.heap.set_field(props_reference, count_slot, .int_value(1));
+                }
+            }
+        }
+        else { return .ok(); }
+        }
+    }
     return .ok();
 }
 
@@ -2603,12 +3216,13 @@ fn putstatic(context: &Context): result<void, InstructionError> {
     if !field.is_static() {
         return .err(InstructionError.invalid_constant);
     }
-    const class_index = try find_class_index(context, string.from(field.class_name.bytes()));
+    const class_index = try find_class_index_by_name_bytes(context, field.class_name.bytes());
     const slot = field.slot as usize;
     if slot >= context.classes[class_index].static_vars.len() {
         return .err(InstructionError.invalid_constant);
     }
     context.classes[class_index].static_vars[slot] = context.frame.pop();
+    drop field;
     return .ok();
 }
 
@@ -2621,8 +3235,17 @@ fn getfield(context: &Context): result<void, InstructionError> {
     if reference.is_null() {
         assert(false);
     }
-    if context.heap.get_field(reference, field.slot) is value {
-        context.frame.push(value);
+    var found = false;
+    var out: Value = .int_value(0);
+    if field_runtime_slot(context, reference, field) is slot {
+        if context.heap.get_field(reference, slot) is value {
+            out = value;
+            found = true;
+        }
+    }
+    drop field;
+    if found {
+        context.frame.push(out);
         return .ok();
     }
     return .err(InstructionError.invalid_constant);
@@ -2638,7 +3261,14 @@ fn putfield(context: &Context): result<void, InstructionError> {
     if reference.is_null() {
         assert(false);
     }
-    if context.heap.set_field(reference, field.slot, value) {
+    var stored = false;
+    if field_runtime_slot(context, reference, field) is slot {
+        if context.heap.set_field(reference, slot, value) {
+            stored = true;
+        }
+    }
+    drop field;
+    if stored {
         return .ok();
     }
     return .err(InstructionError.invalid_constant);
@@ -2727,7 +3357,14 @@ fn anewarray(context: &Context): result<void, InstructionError> {
     }
 
     const descriptor = reference_array_component_descriptor(class_name);
-    const reference = context.heap.allocate_array(0, descriptor.bytes(), count as usize);
+    var array_class_index: usize = 0;
+    switch find_class_index_by_name_bytes(context, descriptor.bytes()) {
+    case .ok(found_index) { array_class_index = found_index; }
+    case .err(error_value) {
+        const ignored_error = error_value;
+    }
+    }
+    const reference = context.heap.allocate_array(array_class_index, descriptor.bytes(), count as usize);
     context.frame.push(.ref_value(reference));
     drop descriptor;
     drop class_name;
@@ -2747,6 +3384,16 @@ fn checkcast(context: &Context): result<void, InstructionError> {
             return .ok();
         }
     }
+    if context.heap.array_class_index(reference) is actual_class_index {
+        if reference_assignable_to(context.classes, actual_class_index, expected_class_index) {
+            context.frame.push(.ref_value(reference));
+            return .ok();
+        }
+        if actual_class_index == 0 and context.classes[expected_class_index].is_array {
+            context.frame.push(.ref_value(reference));
+            return .ok();
+        }
+    }
     assert(false);
     return .ok();
 }
@@ -2760,6 +3407,16 @@ fn instanceof(context: &Context): result<void, InstructionError> {
     }
     if context.heap.object_class_index(reference) is actual_class_index {
         if reference_assignable_to(context.classes, actual_class_index, expected_class_index) {
+            push_int(context, 1);
+            return .ok();
+        }
+    }
+    if context.heap.array_class_index(reference) is actual_class_index {
+        if reference_assignable_to(context.classes, actual_class_index, expected_class_index) {
+            push_int(context, 1);
+            return .ok();
+        }
+        if actual_class_index == 0 and context.classes[expected_class_index].is_array {
             push_int(context, 1);
             return .ok();
         }
@@ -3076,10 +3733,10 @@ const registry: [256]Instruction = [
     { opcode: .i2c, length: 1, execute: i2c }, // 0x92 i2c
     { opcode: .i2s, length: 1, execute: i2s }, // 0x93 i2s
     { opcode: .lcmp, length: 1, execute: lcmp }, // 0x94 lcmp
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x95 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x96 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x97 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x98 unsupported
+    { opcode: .fcmpl, length: 1, execute: fcmpl }, // 0x95 fcmpl
+    { opcode: .fcmpg, length: 1, execute: fcmpg }, // 0x96 fcmpg
+    { opcode: .dcmpl, length: 1, execute: dcmpl }, // 0x97 dcmpl
+    { opcode: .dcmpg, length: 1, execute: dcmpg }, // 0x98 dcmpg
     { opcode: .ifeq, length: 3, execute: ifeq }, // 0x99 ifeq
     { opcode: .ifne, length: 3, execute: ifne }, // 0x9A ifne
     { opcode: .iflt, length: 3, execute: iflt }, // 0x9B iflt
@@ -3369,6 +4026,10 @@ fn opcode_name(opcode: Opcode): string {
     if opcode == Opcode.i2c { return "i2c"; }
     if opcode == Opcode.i2s { return "i2s"; }
     if opcode == Opcode.lcmp { return "lcmp"; }
+    if opcode == Opcode.fcmpl { return "fcmpl"; }
+    if opcode == Opcode.fcmpg { return "fcmpg"; }
+    if opcode == Opcode.dcmpl { return "dcmpl"; }
+    if opcode == Opcode.dcmpg { return "dcmpg"; }
     if opcode == Opcode.ifeq { return "ifeq"; }
     if opcode == Opcode.ifne { return "ifne"; }
     if opcode == Opcode.iflt { return "iflt"; }
@@ -3701,6 +4362,7 @@ test "instruction caches ldc class constants" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "Example.java",
@@ -3720,6 +4382,7 @@ test "instruction caches ldc class constants" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "Class.java",
@@ -3784,6 +4447,7 @@ test "instruction interns ldc string constants" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "Main.java",
@@ -3803,6 +4467,7 @@ test "instruction interns ldc string constants" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "String.java",
@@ -3868,6 +4533,7 @@ test "instruction interns ldc method type constants" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "Main.java",
@@ -3887,6 +4553,7 @@ test "instruction interns ldc method type constants" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "MethodType.java",
@@ -3957,6 +4624,7 @@ test "instruction interns ldc method handle constants" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "Main.java",
@@ -3976,6 +4644,7 @@ test "instruction interns ldc method handle constants" {
         interfaces: [],
         fields: [],
         methods: [],
+        constant_pool: [],
         instance_vars: 0,
         static_vars: [],
         source_file: "MethodHandle.java",
@@ -4067,6 +4736,7 @@ test "instruction executes field access ops" {
         interfaces: [],
         fields: [static_field, instance_field],
         methods: [],
+        constant_pool: [],
         instance_vars: 1,
         static_vars: [.int_value(0)],
         source_file: "Example.java",
@@ -4201,6 +4871,7 @@ test "instruction executes invokestatic int method" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Example.java",
@@ -4278,6 +4949,7 @@ test "instruction executes registerNatives native no-op" {
                     return_descriptor: "V",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "System.java",
@@ -4355,6 +5027,7 @@ test "instruction executes System.initProperties native" {
                     return_descriptor: "Ljava/util/Properties;",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "System.java",
@@ -4450,6 +5123,7 @@ test "instruction executes native AccessController.doPrivileged callback" {
                     return_descriptor: "Ljava/lang/Object;",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "AccessController.java",
@@ -4502,6 +5176,7 @@ test "instruction executes native AccessController.doPrivileged callback" {
                     return_descriptor: "Ljava/lang/Object;",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Action.java",
@@ -4571,6 +5246,7 @@ test "instruction executes System.arraycopy native" {
                     return_descriptor: "V",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "System.java",
@@ -4667,6 +5343,7 @@ test "instruction executes float and double raw bit natives" {
                     return_descriptor: "F",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Float.java",
@@ -4703,6 +5380,7 @@ test "instruction executes float and double raw bit natives" {
                     return_descriptor: "D",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Double.java",
@@ -4771,6 +5449,7 @@ test "instruction executes new object allocation" {
             interfaces: [],
             fields: [instance_field],
             methods: [],
+            constant_pool: [],
             instance_vars: 1,
             static_vars: [],
             source_file: "Example.java",
@@ -4889,6 +5568,7 @@ test "instruction executes invokespecial constructor initialization" {
                     return_descriptor: "V",
                 },
             ],
+            constant_pool: [],
             instance_vars: 1,
             static_vars: [],
             source_file: "Example.java",
@@ -4991,6 +5671,7 @@ test "instruction executes invokevirtual override dispatch" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Base.java",
@@ -5027,6 +5708,7 @@ test "instruction executes invokevirtual override dispatch" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Child.java",
@@ -5093,6 +5775,7 @@ test "instruction executes invokeinterface implementation dispatch" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Iface.java",
@@ -5145,6 +5828,7 @@ test "instruction executes invokeinterface implementation dispatch" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Impl.java",
@@ -6584,6 +7268,7 @@ test "instruction dispatches local exception handler" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Main.java",
@@ -6603,6 +7288,7 @@ test "instruction dispatches local exception handler" {
             interfaces: [],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Throwable.java",
@@ -6682,6 +7368,7 @@ test "instruction dispatches propagated call exception handler" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Main.java",
@@ -6718,6 +7405,7 @@ test "instruction dispatches propagated call exception handler" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Helper.java",
@@ -6737,6 +7425,7 @@ test "instruction dispatches propagated call exception handler" {
             interfaces: [],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Throwable.java",
@@ -6844,6 +7533,7 @@ test "instruction executes anewarray reference array creation" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Main.java",
@@ -6954,6 +7644,7 @@ test "instruction executes checkcast and instanceof normal paths" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Main.java",
@@ -6973,6 +7664,7 @@ test "instruction executes checkcast and instanceof normal paths" {
             interfaces: [],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Base.java",
@@ -6992,6 +7684,7 @@ test "instruction executes checkcast and instanceof normal paths" {
             interfaces: ["Iface"],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Child.java",
@@ -7011,6 +7704,7 @@ test "instruction executes checkcast and instanceof normal paths" {
             interfaces: [],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Iface.java",
@@ -7030,6 +7724,7 @@ test "instruction executes checkcast and instanceof normal paths" {
             interfaces: [],
             fields: [],
             methods: [],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Other.java",
@@ -7093,6 +7788,7 @@ test "instruction executes monitorenter and monitorexit normal paths" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Main.java",
@@ -7152,6 +7848,7 @@ test "instruction executes multianewarray normal path" {
                     return_descriptor: "I",
                 },
             ],
+            constant_pool: [],
             instance_vars: 0,
             static_vars: [],
             source_file: "Main.java",
