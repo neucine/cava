@@ -1,5 +1,4 @@
 import { Constant, ConstantMemberRef, ConstantMethodHandle, ConstantNameAndType, ConstantWide } from .classfile;
-import { array_component_descriptor, method_argument_count, reference_array_component_descriptor, reference_array_descriptor } from .descriptor;
 import { Context, Frame, FrameResult, execute_method_frame, execute_method_frame_with_vm, new_frame } from .engine;
 import { Heap, new_heap } from .heap;
 import { MethodArea, new_method_area } from .method_area;
@@ -8,7 +7,7 @@ import { apply_method_result, dispatch_exception, find_loaded_class_index, refer
 import { VM } from .vm;
 import { new_vm } from .vm;
 import { execute_native_method } from .native;
-import { Class, Field, InstructionError, Method, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, field_access_flags, method_access_flags, null_ref } from .types;
+import { Class, Field, InstructionError, Method, Reference, ReferenceKind, Value, array_component_descriptor, byte_buffer, class_access_flags, field_access_flags, method_access_flags, method_argument_count, null_ref, reference_array_component_descriptor, reference_array_descriptor } from .types;
 import { env_get } from std.process;
 
 pub enum Opcode: i32 {
