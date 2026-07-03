@@ -48,12 +48,14 @@ fn run_class_file(path: string, java_args: []const string): i32 {
     switch vm.method_area.load_class_file(path) {
     case .ok(class_index) {
         const code = execute_entry(&vm, class_index, java_args);
+        drop vm;
         return code;
     }
     case .err(error_value) {
         const ignored = error_value;
         println("class read failed");
         vm.clear();
+        drop vm;
         return 1;
     }
     }
@@ -71,8 +73,11 @@ fn main(): i32 {
             index = index + 1;
         }
         code = run_class_file(class_path, java_args[..]);
+        drop java_args;
+        drop class_path;
     } else {
         println("usage: cava <classfile> [args...]");
     }
+    drop values;
     return code;
 }
