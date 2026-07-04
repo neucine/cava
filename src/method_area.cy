@@ -1035,7 +1035,7 @@ pub struct ResolvedMethodRef {
     pub method_index: i32;
 }
 
-pub fn first_type(descriptor: []const u8): []const u8 {
+fn first_type_bytes(descriptor: []const u8): []const u8 {
     if descriptor.len() == 0 {
         return descriptor;
     }
@@ -1055,7 +1055,7 @@ pub fn first_type(descriptor: []const u8): []const u8 {
         return descriptor[0..0];
     }
     if tag == 91 {
-        const component = first_type(descriptor[1..descriptor.len()]);
+        const component = first_type_bytes(descriptor[1..descriptor.len()]);
         if component.len() == 0 {
             return component;
         }
@@ -1064,15 +1064,16 @@ pub fn first_type(descriptor: []const u8): []const u8 {
     return descriptor[0..0];
 }
 
-pub fn method_parameter_count(descriptor: []const u8): usize {
-    if descriptor.len() == 0 or descriptor[0] != 40 {
+pub fn method_parameter_count(descriptor: string): usize {
+    const bytes = descriptor.bytes();
+    if bytes.len() == 0 or bytes[0] != 40 {
         return 0;
     }
 
     var index: usize = 1;
     var count: usize = 0;
-    while index < descriptor.len() and descriptor[index] != 41 {
-        const param = first_type(descriptor[index..descriptor.len()]);
+    while index < bytes.len() and bytes[index] != 41 {
+        const param = first_type_bytes(bytes[index..bytes.len()]);
         if param.len() == 0 {
             return count;
         }
@@ -1082,46 +1083,50 @@ pub fn method_parameter_count(descriptor: []const u8): usize {
     return count;
 }
 
-pub fn method_return_descriptor(descriptor: []const u8): []const u8 {
+pub fn method_return_descriptor(descriptor: string): string {
+    const bytes = descriptor.bytes();
     var index: usize = 0;
-    while index < descriptor.len() {
-        if descriptor[index] == 41 {
-            return descriptor[index + 1..descriptor.len()];
+    while index < bytes.len() {
+        if bytes[index] == 41 {
+            return string.from(bytes[index + 1..bytes.len()]);
         }
         index = index + 1;
     }
-    return descriptor[0..0];
+    return string.from(bytes[0..0]);
 }
 
-pub fn array_component_type(name: []const u8): []const u8 {
-    if name.len() == 0 or name[0] != 91 {
-        return name[0..0];
+pub fn array_component_type(name: string): string {
+    const bytes = name.bytes();
+    if bytes.len() == 0 or bytes[0] != 91 {
+        return string.from(bytes[0..0]);
     }
-    return name[1..name.len()];
+    return string.from(bytes[1..bytes.len()]);
 }
 
-pub fn array_element_type(name: []const u8): []const u8 {
-    if name.len() == 0 or name[0] != 91 {
-        return name[0..0];
+pub fn array_element_type(name: string): string {
+    const bytes = name.bytes();
+    if bytes.len() == 0 or bytes[0] != 91 {
+        return string.from(bytes[0..0]);
     }
     var index: usize = 0;
-    while index < name.len() {
-        if name[index] != 91 {
-            return name[index..name.len()];
+    while index < bytes.len() {
+        if bytes[index] != 91 {
+            return string.from(bytes[index..bytes.len()]);
         }
         index = index + 1;
     }
-    return name[0..0];
+    return string.from(bytes[0..0]);
 }
 
-pub fn array_dimensions(name: []const u8): u32 {
+pub fn array_dimensions(name: string): u32 {
+    const bytes = name.bytes();
     var dimensions: u32 = 1;
     var index: usize = 1;
-    if name.len() == 0 or name[0] != 91 {
+    if bytes.len() == 0 or bytes[0] != 91 {
         return 0;
     }
-    while index < name.len() {
-        if name[index] == 91 {
+    while index < bytes.len() {
+        if bytes[index] == 91 {
             dimensions = dimensions + 1;
         }
         index = index + 1;
@@ -1151,9 +1156,9 @@ pub fn derive_array_class(name: string): Class {
         static_vars: static_vars,
         source_file: "",
         is_array: true,
-        component_type: string.from(array_component_type(name_bytes)),
-        element_type: string.from(array_element_type(name_bytes)),
-        dimensions: array_dimensions(name_bytes),
+        component_type: array_component_type(name),
+        element_type: array_element_type(name),
+        dimensions: array_dimensions(name),
         defined: true,
         linked: false,
         class_object: null_ref,
@@ -1382,8 +1387,8 @@ fn derive_methods(classfile: &ClassFile, class_name: string): result<List<Method
     var index: usize = 0;
     while index < method_infos.len() {
         const descriptor = try classfile.utf8(method_infos[index].descriptor_index);
-        const parameter_count = method_parameter_count(descriptor.bytes()) as u32;
-        const return_descriptor = string.from(method_return_descriptor(descriptor.bytes()));
+        const parameter_count = method_parameter_count(descriptor) as u32;
+        const return_descriptor = method_return_descriptor(descriptor);
         const code = try member_code_info(classfile, method_infos[index].attributes[..]);
         const method_code = byte_buffer(code.code[..]);
         var exception_handlers: List<ExceptionHandler> = [];
@@ -1449,8 +1454,9 @@ pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
 }
 
 test "method descriptor parser extracts parameter count and return type" {
-    const descriptor = "([Ljava/lang/String;I)Ljava/lang/Object;".bytes();
-    const first = first_type(descriptor[1..descriptor.len()]);
+    const descriptor = "([Ljava/lang/String;I)Ljava/lang/Object;";
+    const descriptor_bytes = descriptor.bytes();
+    const first = first_type_bytes(descriptor_bytes[1..descriptor_bytes.len()]);
     assert(first.len() == 19);
     assert(first[0] == 91);
     assert(first[18] == 59);
@@ -1458,8 +1464,9 @@ test "method descriptor parser extracts parameter count and return type" {
 
     const ret = method_return_descriptor(descriptor);
     assert(ret.len() == 18);
-    assert(ret[0] == 76);
-    assert(ret[17] == 59);
+    assert(ret.bytes()[0] == 76);
+    assert(ret.bytes()[17] == 59);
+    drop ret;
 }
 
 test "method area parses array class descriptor metadata" {

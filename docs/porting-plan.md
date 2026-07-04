@@ -135,3 +135,39 @@ which copies the bytes into Cyna-owned string storage.
 - Run the same examples as Zava.
 - Compare stdout.
 - Compare logs where useful.
+
+## Post-Parity Notes
+
+### Simple Mark/Sweep GC Direction
+
+The heap now uses `SlotMap<Object>` and `SlotMap<ArrayObject>`, which is the
+right shape for non-moving collection: Java references carry a slot index plus
+generation, and `SlotMap.remove` can reclaim a slot while invalidating stale
+references.
+
+A first collector should be a stop-the-world mark/sweep pass at explicit VM
+safe points, not during allocation. Running during allocation would require a
+root stack for temporary references held in Cyna locals.
+
+Initial roots:
+
+- current thread and all frame local variables
+- all frame operand stacks
+- loaded class static variables
+- intern tables for strings, method types, and method handles
+- cached class mirror objects
+- VM-owned stable references such as `current_thread`
+
+Traversal:
+
+- mark `Value.reference` values
+- for marked objects, scan instance fields
+- for marked arrays, scan array elements
+
+Sweep:
+
+- remove unmarked object and array slots from the heap slot maps
+- rely on generation increments to invalidate stale references
+
+Keep this as a post-parity runtime improvement. During the parity phase, Cava
+may continue to reclaim only on `VM.clear()`.
