@@ -1,8 +1,6 @@
 import { Constant } from .classfile;
 import { Context } from .engine;
 import { new_frame } from .engine;
-import { new_heap } from .heap;
-import { new_method_area } from .method_area;
 import { VM } from .vm;
 import { new_vm } from .vm;
 import { Class, Field, InstructionError, Method, MethodAccessFlags, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, field_access_flags, java_utf16_units_from_utf8, null_ref, raw_class_access, raw_field_access, raw_method_access } from .types;
@@ -2057,6 +2055,14 @@ pub fn execute_native_method(context: &Context, vm: &VM, class_index: usize, met
     return .err(InstructionError.unsupported_native);
 }
 
+fn seed_test_vm(vm: &VM, classes: []Class): void {
+    var index: usize = 0;
+    while index < classes.len() {
+        vm.method_area.classes.push(copy classes[index]);
+        index = index + 1;
+    }
+}
+
 test "native Object.clone copies instance fields" {
     const native_code: [0]u8 = [];
     const field = Field {
@@ -2090,7 +2096,7 @@ test "native Object.clone copies instance fields" {
         },
     ];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
+    seed_test_vm(&vm, classes[..]);
     var vm_classes = vm.method_area.classes[..];
     const original = vm.heap.allocate_object(0, &vm_classes[0]);
     assert(vm.heap.set_field(original, 0, .int_value(42)));
@@ -2211,11 +2217,7 @@ test "native Class metadata reads represented class" {
         },
     ];
     var vm = new_vm();
-    var seed_index: usize = 0;
-    while seed_index < 3 {
-        vm.method_area.classes.push(copy classes[seed_index]);
-        seed_index = seed_index + 1;
-    }
+    seed_test_vm(&vm, classes[..]);
     var constant_pool: [:]Constant = [: 0] [];
     var context = Context {
         class_index: 0,
@@ -2289,7 +2291,7 @@ test "native bootstrap helpers return conservative values" {
         },
     ];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
+    seed_test_vm(&vm, classes[..]);
     var constant_pool: [:]Constant = [: 0] [];
     var context = Context {
         class_index: 0,
@@ -2458,9 +2460,7 @@ test "native Thread.currentThread creates stable java thread object" {
         },
     ];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
-    vm.method_area.classes.push(copy classes[1]);
-    vm.method_area.classes.push(copy classes[2]);
+    seed_test_vm(&vm, classes[..]);
     var constant_pool: [:]Constant = [: 0] [];
     var context = Context {
         class_index: 0,

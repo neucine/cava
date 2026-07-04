@@ -1,6 +1,5 @@
 import { Constant, ConstantMemberRef, ConstantMethodHandle, ConstantNameAndType, ConstantWide } from .classfile;
-import { Context, Frame, FrameResult, apply_method_result, dispatch_exception, execute_method_frame, execute_method_frame_with_vm, new_frame } from .engine;
-import { Heap, new_heap } from .heap;
+import { Context, Frame, FrameResult, apply_method_result, dispatch_exception, execute_method_frame_with_vm, new_frame } from .engine;
 import { MethodArea, ResolvedMethod, class_matches, find_loaded_class_index, new_method_area, reference_assignable_to, runtime_field_slot } from .method_area;
 import { VM } from .vm;
 import { new_vm } from .vm;
@@ -3947,8 +3946,6 @@ fn trace_instruction(context: &Context, vm: &VM, pc: u32, instruction: Instructi
 
 pub fn execute_method(method: &Method): result<FrameResult, InstructionError> {
     var constant_pool: [:]Constant = [: 0] [];
-    var classes: [:]Class = [: 0] [];
-    var heap = new_heap();
     var vm = new_vm();
     var code = copy method.code;
     var frame = new_frame(0, 0, method.max_locals, method.max_stack);
@@ -4089,6 +4086,14 @@ fn assert_exception_result(result: FrameResult, expected: Reference): void {
     }
 }
 
+fn seed_test_vm(vm: &VM, classes: []Class): void {
+    var index: usize = 0;
+    while index < classes.len() {
+        vm.method_area.classes.push(copy classes[index]);
+        index = index + 1;
+    }
+}
+
 test "instruction executes iconst and ireturn" {
     const code: [2]u8 = [4, 172];
     var method = Method {
@@ -4175,8 +4180,6 @@ test "instruction executes ldc numeric constants" {
         .double(ConstantWide { high_bytes: 0x40080000, low_bytes: 0 }),
         .unusable(0),
     ];
-    var classes: [:]Class = [: 0] [];
-    var heap = new_heap();
     var vm = new_vm();
     var context = Context {
         class_index: 0,
@@ -4259,8 +4262,7 @@ test "instruction caches ldc class constants" {
     };
     var classes: [2]Class = [example_class, class_class];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
-    vm.method_area.classes.push(copy classes[1]);
+    seed_test_vm(&vm, classes[..]);
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -4344,8 +4346,7 @@ test "instruction interns ldc string constants" {
     };
     var classes: [2]Class = [main_class, string_class];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
-    vm.method_area.classes.push(copy classes[1]);
+    seed_test_vm(&vm, classes[..]);
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -4430,8 +4431,7 @@ test "instruction interns ldc method type constants" {
     };
     var classes: [2]Class = [main_class, method_type_class];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
-    vm.method_area.classes.push(copy classes[1]);
+    seed_test_vm(&vm, classes[..]);
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -4521,8 +4521,7 @@ test "instruction interns ldc method handle constants" {
     };
     var classes: [2]Class = [main_class, method_handle_class];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
-    vm.method_area.classes.push(copy classes[1]);
+    seed_test_vm(&vm, classes[..]);
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -4613,7 +4612,7 @@ test "instruction executes field access ops" {
     };
     var classes: [1]Class = [class];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
+    seed_test_vm(&vm, classes[..]);
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -4747,8 +4746,9 @@ test "instruction executes invokestatic int method" {
         },
     ];
 
-    var heap = new_heap();
-    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 2), constant_pool[..], classes[..], &heap);
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 2), constant_pool[..]);
     assert_int_result(result, 5);
     drop classes;
 }
@@ -4825,8 +4825,9 @@ test "instruction executes registerNatives native no-op" {
         },
     ];
 
-    var heap = new_heap();
-    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 1), constant_pool[..], classes[..], &heap);
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 1), constant_pool[..]);
     assert_int_result(result, 5);
     drop classes;
 }
@@ -4903,8 +4904,9 @@ test "instruction executes System.initProperties native" {
         },
     ];
 
-    var heap = new_heap();
-    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 1), constant_pool[..], classes[..], &heap);
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 1), constant_pool[..]);
     assert_null_ref_result(result);
     drop classes;
 }
@@ -5052,15 +5054,16 @@ test "instruction executes native AccessController.doPrivileged callback" {
         },
     ];
 
-    var heap = new_heap();
-    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 3), constant_pool[..], classes[..], &heap);
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 3), constant_pool[..]);
     switch result {
     case .return_value(value) {
         if value is actual {
             switch actual {
             case .ref_value(reference) {
                 assert(reference.non_null());
-                if heap.object_class_index(reference) is class_index {
+                if vm.heap.object_class_index(reference) is class_index {
                     assert(class_index == 1);
                 } else {
                     assert(false);
@@ -5122,7 +5125,7 @@ test "instruction executes System.arraycopy native" {
         },
     ];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
+    seed_test_vm(&vm, classes[..]);
     const src = vm.heap.allocate_array(0, "I".bytes(), 3);
     const dest = vm.heap.allocate_array(0, "I".bytes(), 3);
     assert(vm.heap.set_element(src, 0, .int_value(7)));
@@ -5255,8 +5258,7 @@ test "instruction executes float and double raw bit natives" {
         },
     ];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
-    vm.method_area.classes.push(copy classes[1]);
+    seed_test_vm(&vm, classes[..]);
     var constant_pool: [:]Constant = [: 0] [];
     var context = Context {
         class_index: 0,
@@ -5324,7 +5326,7 @@ test "instruction executes new object allocation" {
         },
     ];
     var vm = new_vm();
-    vm.method_area.classes.push(copy classes[0]);
+    seed_test_vm(&vm, classes[..]);
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -5441,13 +5443,14 @@ test "instruction executes invokespecial constructor initialization" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
-    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 3), constant_pool[..], classes[..], &heap);
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 3), constant_pool[..]);
     switch result {
     case .return_value(value) {
         if value is actual {
             const reference = expect_ref(actual);
-            if heap.get_field(reference, 0) is field_value {
+            if vm.heap.get_field(reference, 0) is field_value {
                 assert_int_result(.return_value(field_value), 5);
             } else {
                 assert(false);
@@ -5581,8 +5584,9 @@ test "instruction executes invokevirtual override dispatch" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
-    const result = try execute_method_frame(0, 0, new_frame(0, 0, 0, 1), constant_pool[..], classes[..], &heap);
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 1), constant_pool[..]);
     assert_int_result(result, 2);
     drop classes;
 }
@@ -5701,8 +5705,9 @@ test "instruction executes invokeinterface implementation dispatch" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
-    const result = try execute_method_frame(1, 0, new_frame(1, 0, 0, 1), constant_pool[..], classes[..], &heap);
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
+    const result = try execute_method_frame_with_vm(&vm, 1, 0, new_frame(1, 0, 0, 1), constant_pool[..]);
     assert_int_result(result, 3);
     drop classes;
 }
@@ -7052,8 +7057,6 @@ test "instruction executes reference load store and returns" {
 test "instruction executes athrow with existing exception reference" {
     const code: [1]u8 = [191];
     var constant_pool: [:]Constant = [: 0] [];
-    var classes: [:]Class = [: 0] [];
-    var heap = new_heap();
     var vm = new_vm();
     var context = Context {
         class_index: 0,
@@ -7160,7 +7163,8 @@ test "instruction dispatches local exception handler" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
     var frame = new_frame(0, 0, 2, 1);
     const exception = Reference {
         kind: ReferenceKind.object,
@@ -7169,7 +7173,7 @@ test "instruction dispatches local exception handler" {
     };
     frame.store(0, .ref_value(exception));
 
-    const result = try execute_method_frame(0, 0, frame, constant_pool[..], classes[..], &heap);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, frame, constant_pool[..]);
     assert_int_result(result, 5);
     drop classes;
 }
@@ -7297,7 +7301,8 @@ test "instruction dispatches propagated call exception handler" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
     var frame = new_frame(0, 0, 2, 1);
     const exception = Reference {
         kind: ReferenceKind.object,
@@ -7306,7 +7311,7 @@ test "instruction dispatches propagated call exception handler" {
     };
     frame.store(0, .ref_value(exception));
 
-    const result = try execute_method_frame(0, 0, frame, constant_pool[..], classes[..], &heap);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, frame, constant_pool[..]);
     assert_int_result(result, 3);
     drop classes;
 }
@@ -7405,15 +7410,16 @@ test "instruction executes anewarray reference array creation" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
 
-    const result = try execute_method_frame(0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..], classes[..], &heap);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
     assert_int_result(result, 2);
-    switch heap.arrays[0].array.elements[0] {
+    switch vm.heap.arrays[0].array.elements[0] {
     case .ref_value(reference) { assert(reference.is_null()); }
     else { assert(false); }
     }
-    drop heap;
+    vm.clear();
     drop classes;
 }
 
@@ -7596,11 +7602,12 @@ test "instruction executes checkcast and instanceof normal paths" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
 
-    const pass_result = try execute_method_frame(0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..], classes[..], &heap);
-    const null_result = try execute_method_frame(0, 1, new_frame(0, 1, classes[0].methods[1].max_locals, classes[0].methods[1].max_stack), constant_pool[..], classes[..], &heap);
-    const miss_result = try execute_method_frame(0, 2, new_frame(0, 2, classes[0].methods[2].max_locals, classes[0].methods[2].max_stack), constant_pool[..], classes[..], &heap);
+    const pass_result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
+    const null_result = try execute_method_frame_with_vm(&vm, 0, 1, new_frame(0, 1, classes[0].methods[1].max_locals, classes[0].methods[1].max_stack), constant_pool[..]);
+    const miss_result = try execute_method_frame_with_vm(&vm, 0, 2, new_frame(0, 2, classes[0].methods[2].max_locals, classes[0].methods[2].max_stack), constant_pool[..]);
     assert_int_result(pass_result, 1);
     assert_int_result(null_result, 0);
     assert_int_result(miss_result, 0);
@@ -7660,11 +7667,12 @@ test "instruction executes monitorenter and monitorexit normal paths" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
 
-    const result = try execute_method_frame(0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..], classes[..], &heap);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
     assert_int_result(result, 1);
-    assert(heap.objects.len() == 1);
+    assert(vm.heap.objects.len() == 1);
     drop classes;
 }
 
@@ -7720,15 +7728,16 @@ test "instruction executes multianewarray normal path" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
+    var vm = new_vm();
+    seed_test_vm(&vm, classes[..]);
 
-    const result = try execute_method_frame(0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..], classes[..], &heap);
+    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
     assert_int_result(result, 2);
-    assert(heap.arrays.len() == 3);
-    if heap.get_element(Reference { kind: ReferenceKind.array, slot: 0, generation: 1 }, 0) is value {
+    assert(vm.heap.arrays.len() == 3);
+    if vm.heap.get_element(Reference { kind: ReferenceKind.array, slot: 0, generation: 1 }, 0) is value {
         switch value {
         case .ref_value(reference) {
-            if heap.array_length(reference) is length {
+            if vm.heap.array_length(reference) is length {
                 assert(length == 3);
             } else {
                 assert(false);
@@ -7739,7 +7748,6 @@ test "instruction executes multianewarray normal path" {
     } else {
         assert(false);
     }
-    drop heap;
     drop classes;
 }
 
@@ -7989,8 +7997,6 @@ test "instruction executes narrow array load store ops" {
 test "instruction executes reference array load store ops" {
     const store_code: [1]u8 = [83];
     var constant_pool: [:]Constant = [: 0] [];
-    var classes: [:]Class = [: 0] [];
-    var heap = new_heap();
     var vm = new_vm();
     var context = Context {
         class_index: 0,

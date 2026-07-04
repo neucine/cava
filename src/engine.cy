@@ -1,5 +1,4 @@
 import { ClassFile, Constant } from .classfile;
-import { Heap } from .heap;
 import { execute_next, find_class_index_by_constant, print_instruction_error_context } from .instruction;
 import { class_matches } from .method_area;
 import { VM, new_vm } from .vm;
@@ -350,31 +349,6 @@ pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: u
         }
     }
     return .err(InstructionError.missing_return);
-}
-
-pub fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant, classes: []Class, heap: &Heap): result<FrameResult, InstructionError> {
-    var vm = new_vm();
-    vm.heap.replace_with(heap);
-    var input_classes = classes;
-    var seed_index: usize = 0;
-    while seed_index < input_classes.len() {
-        vm.method_area.classes.push(copy input_classes[seed_index]);
-        seed_index = seed_index + 1;
-    }
-    if class_index >= vm.method_area.classes.len() {
-        heap.replace_with(&vm.heap);
-        vm.clear();
-        return .err(InstructionError.invalid_constant);
-    }
-    if method_index >= input_classes[class_index].methods.len() {
-        heap.replace_with(&vm.heap);
-        vm.clear();
-        return .err(InstructionError.invalid_constant);
-    }
-    const result = execute_method_frame_with_vm(&vm, class_index, method_index, frame, constant_pool);
-    heap.replace_with(&vm.heap);
-    vm.clear();
-    return result;
 }
 
 pub fn execute_method_area_with_vm(vm: &VM, class_index: usize, method_index: usize, constant_pool: []const Constant, java_args: []const string): result<FrameResult, InstructionError> {

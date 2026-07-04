@@ -383,16 +383,6 @@ pub struct Heap {
     pub fn set_current_thread(self: &Heap, reference: Reference): void {
         self.current_thread = reference;
     }
-
-    pub fn replace_with(self: &Heap, other: &Heap): void {
-        self.clear();
-        self.objects = copy other.objects;
-        self.arrays = copy other.arrays;
-        self.strings = copy other.strings;
-        self.method_types = copy other.method_types;
-        self.method_handles = copy other.method_handles;
-        self.current_thread = other.current_thread;
-    }
 }
 
 fn find_class_index(classes: []Class, name: string): ?usize {
