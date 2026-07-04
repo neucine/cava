@@ -285,7 +285,6 @@ fn project_root_from_example_class_path(path: string): ?string {
 pub struct MethodArea {
     pub classes: List<Class>;
     pub symbols: SymbolPool;
-    pub class_sources: List<string>;
     pub application_class_root: string;
     pub jdk_class_root: string;
 
@@ -296,12 +295,6 @@ pub struct MethodArea {
             drop class;
         }
         self.symbols.clear();
-        var source_index: usize = 0;
-        while source_index < self.class_sources.len() {
-            self.class_sources[source_index] = "";
-            source_index = source_index + 1;
-        }
-        self.class_sources.clear();
         self.application_class_root = "";
         self.jdk_class_root = "";
     }
@@ -497,7 +490,7 @@ pub struct MethodArea {
         class.constant_pool = classfile.clone_constant_pool();
         self.classes.push(class);
         const index = self.classes.len() - 1;
-        self.class_sources.push(source);
+        drop source;
         return .ok(index);
     }
 
@@ -829,7 +822,6 @@ pub fn new_method_area(): MethodArea {
     return MethodArea {
         classes: [],
         symbols: new_symbol_pool(),
-        class_sources: [],
         application_class_root: "examples/classes",
         jdk_class_root: "jdk/classes",
     };
