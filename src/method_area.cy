@@ -67,6 +67,183 @@ pub fn new_symbol_pool(): SymbolPool {
     };
 }
 
+pub struct ResolvedMethod {
+    pub class_index: usize;
+    pub method_index: usize;
+}
+
+pub fn find_loaded_class_index(classes: []Class, name: string): ?usize {
+    var class_view = classes;
+    var index: usize = 0;
+    while index < class_view.len() {
+        const class = &class_view[index];
+        if class.name == name {
+            return index;
+        }
+        index = index + 1;
+    }
+    return none;
+}
+
+pub fn class_matches(classes: []Class, actual_index: usize, expected_index: usize): bool {
+    var class_view = classes;
+    var current = actual_index;
+    while current < class_view.len() {
+        if current == expected_index {
+            return true;
+        }
+
+        const class = &class_view[current];
+        const expected_class = &class_view[expected_index];
+        var interfaces = class.interfaces[..];
+        var interface_index: usize = 0;
+        while interface_index < interfaces.len() {
+            if interfaces[interface_index] == expected_class.name {
+                return true;
+            }
+            interface_index = interface_index + 1;
+        }
+
+        if find_loaded_class_index(class_view, copy class.super_class) is super_index {
+            current = super_index;
+        } else {
+            return false;
+        }
+    }
+    return false;
+}
+
+fn class_named(classes: []Class, index: usize, name: string): bool {
+    if index >= classes.len() {
+        return false;
+    }
+    var class_view = classes;
+    const class = &class_view[index];
+    return class.name == name;
+}
+
+pub fn reference_assignable_to(classes: []Class, actual_index: usize, expected_index: usize): bool {
+    if actual_index >= classes.len() or expected_index >= classes.len() {
+        return false;
+    }
+    if actual_index == expected_index {
+        return true;
+    }
+
+    var class_view = classes;
+    const actual_class = &class_view[actual_index];
+    const expected_class = &class_view[expected_index];
+
+    if expected_class.is_interface() {
+        var interfaces = actual_class.interfaces[..];
+        var interface_index: usize = 0;
+        while interface_index < interfaces.len() {
+            const interface_name = &interfaces[interface_index];
+            if find_loaded_class_index(class_view, copy interface_name) is actual_interface_index {
+                if reference_assignable_to(classes, actual_interface_index, expected_index) {
+                    return true;
+                }
+            } else {
+                if interface_name == expected_class.name {
+                    return true;
+                }
+            }
+            interface_index = interface_index + 1;
+        }
+        if find_loaded_class_index(class_view, copy actual_class.super_class) is super_index {
+            return reference_assignable_to(classes, super_index, expected_index);
+        }
+        return false;
+    }
+
+    if actual_class.is_array {
+        if class_named(classes, expected_index, "java/lang/Object") {
+            return true;
+        }
+        if expected_class.is_array {
+            return actual_class.component_type == expected_class.component_type;
+        }
+        return false;
+    }
+
+    if find_loaded_class_index(class_view, copy actual_class.super_class) is super_index {
+        return reference_assignable_to(classes, super_index, expected_index);
+    }
+    return false;
+}
+
+fn class_index_by_name(classes: []Class, name: string): ?usize {
+    var index: usize = 0;
+    while index < classes.len() {
+        const class = &classes[index];
+        if class.name == name {
+            return index;
+        }
+        index = index + 1;
+    }
+    return none;
+}
+
+fn class_instance_var_count(classes: []Class, class_index: usize): u16 {
+    if class_index >= classes.len() {
+        return 0;
+    }
+    const class = &classes[class_index];
+    var count: u16 = 0;
+    var index: usize = 0;
+    while index < class.fields.len() {
+        const field = &class.fields[index];
+        if !field.is_static() {
+            count = count + 1;
+        }
+        index = index + 1;
+    }
+    return count;
+}
+
+fn hierarchy_instance_var_count(classes: []Class, class_index: usize): u16 {
+    if class_index >= classes.len() {
+        return 0;
+    }
+    const class = &classes[class_index];
+    var count: u16 = 0;
+    const super_name = class.super_class;
+    if super_name != "" {
+        if class_index_by_name(classes, super_name) is super_index {
+            count = hierarchy_instance_var_count(classes, super_index);
+        }
+    }
+    return count + class_instance_var_count(classes, class_index);
+}
+
+fn field_slot_offset(classes: []Class, current_class_index: usize, declaring_class_name: string): ?u16 {
+    if current_class_index >= classes.len() {
+        return none;
+    }
+    const class = &classes[current_class_index];
+    var super_count: u16 = 0;
+    const super_name = class.super_class;
+    if super_name != "" {
+        if class_index_by_name(classes, super_name) is super_index {
+            super_count = hierarchy_instance_var_count(classes, super_index);
+            if field_slot_offset(classes, super_index, declaring_class_name) is super_offset {
+                return super_offset;
+            }
+        }
+    }
+    if class.name == declaring_class_name {
+        return super_count;
+    }
+    return none;
+}
+
+pub fn runtime_field_slot(classes: []Class, object_class_index: usize, field: Field): ?u16 {
+    if field_slot_offset(classes, object_class_index, field.class_name) is offset {
+        return offset + field.slot;
+    }
+    return none;
+}
+
 fn contains_class_index(visited: &List<usize>, class_index: usize): bool {
     var index: usize = 0;
     while index < visited.len() {

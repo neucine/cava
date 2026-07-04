@@ -1,8 +1,9 @@
 import { ClassFile, Constant } from .classfile;
 import { Heap } from .heap;
-import { execute_next, print_instruction_error_context } from .instruction;
+import { execute_next, find_class_index_by_constant, print_instruction_error_context } from .instruction;
+import { class_matches } from .method_area;
 import { VM, new_vm } from .vm;
-import { Class, InstructionError, Reference, Value } from .types;
+import { Class, ExceptionHandler, InstructionError, Reference, Value } from .types;
 
 const max_call_stack: usize = 512;
 
@@ -223,6 +224,64 @@ pub fn print_execution_error(error_value: InstructionError): void {
             }
         }
     }
+}
+
+fn handler_matches(context: &Context, vm: &VM, handler: ExceptionHandler, exception: Reference): result<bool, InstructionError> {
+    if handler.catch_type == 0 {
+        return .ok(true);
+    }
+    var exception_class_index: usize = 0;
+    if vm.heap.object_class_index(exception) is actual_exception_class_index {
+        exception_class_index = actual_exception_class_index;
+    } else {
+        return .err(InstructionError.invalid_constant);
+    }
+    const catch_class_index = try find_class_index_by_constant(context, vm, handler.catch_type);
+    return .ok(class_matches(vm.method_area.classes[..], exception_class_index, catch_class_index));
+}
+
+pub fn dispatch_exception(context: &Context, vm: &VM, exception: Reference): result<bool, InstructionError> {
+    var classes = vm.method_area.classes[..];
+    if context.class_index >= classes.len() {
+        return .ok(false);
+    }
+    if context.method_index >= classes[context.class_index].methods.len() {
+        return .ok(false);
+    }
+
+    const pc = context.frame.pc as u16;
+    var index: usize = 0;
+    while index < classes[context.class_index].methods[context.method_index].exception_handlers.len() {
+        const handler = classes[context.class_index].methods[context.method_index].exception_handlers[index];
+        if pc >= handler.start_pc and pc < handler.end_pc {
+            if try handler_matches(context, vm, handler, exception) {
+                context.frame.clear();
+                context.frame.push(.ref_value(exception));
+                context.frame.pc = handler.handle_pc as u32;
+                context.frame.offset = 1;
+                context.frame.result = none;
+                return .ok(true);
+            }
+        }
+        index = index + 1;
+    }
+    return .ok(false);
+}
+
+pub fn apply_method_result(context: &Context, vm: &VM, result: FrameResult): result<void, InstructionError> {
+    switch result {
+    case .return_value(value) {
+        if value is actual {
+            context.frame.push(actual);
+        }
+    }
+    case .exception(reference) {
+        if !(try dispatch_exception(context, vm, reference)) {
+            context.frame.throw_exception(reference);
+        }
+    }
+    }
+    return .ok();
 }
 
 pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
