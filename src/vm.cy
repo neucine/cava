@@ -12,12 +12,11 @@ pub struct VM {
     }
 
     pub fn resolve_class_index(self: &VM, name: string): result<usize, InstructionError> {
-        const name_bytes = name.bytes();
         var classes = self.method_area.classes[..];
         var index: usize = 0;
         while index < classes.len() {
             const class = &classes[index];
-            if class.name.bytes() == name_bytes {
+            if class.name == name {
                 return .ok(index);
             }
             index = index + 1;

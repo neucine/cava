@@ -172,29 +172,11 @@ pub fn reference_array_component_descriptor(class_name: string): string {
         return string.from(name_bytes);
     }
 
-    var bytes = [: name_bytes.len() + 2]u8;
-    bytes.push(76);
-    var index: usize = 0;
-    while index < name_bytes.len() {
-        bytes.push(name_bytes[index]);
-        index = index + 1;
-    }
-    bytes.push(59);
-    const out = string.from(bytes[..]);
-    return out;
+    return $"L{class_name};";
 }
 
 pub fn reference_array_descriptor(component_descriptor: string): string {
-    const component_bytes = component_descriptor.bytes();
-    var bytes = [: component_bytes.len() + 1]u8;
-    bytes.push(91);
-    var index: usize = 0;
-    while index < component_bytes.len() {
-        bytes.push(component_bytes[index]);
-        index = index + 1;
-    }
-    const out = string.from(bytes[..]);
-    return out;
+    return $"[{component_descriptor}";
 }
 
 pub fn array_component_descriptor(descriptor: string): string {
@@ -298,10 +280,10 @@ pub struct Field {
 
     pub fn __copy(self: &Field): Field {
         return Field {
-            class_name: string.from(self.class_name.bytes()),
+            class_name: copy self.class_name,
             access_flags: self.access_flags,
-            name: string.from(self.name.bytes()),
-            descriptor: string.from(self.descriptor.bytes()),
+            name: copy self.name,
+            descriptor: copy self.descriptor,
             index: self.index,
             slot: self.slot,
         };
@@ -347,10 +329,10 @@ pub struct Method {
 
     pub fn __copy(self: &Method): Method {
         return Method {
-            class_name: string.from(self.class_name.bytes()),
+            class_name: copy self.class_name,
             access_flags: self.access_flags,
-            name: string.from(self.name.bytes()),
-            descriptor: string.from(self.descriptor.bytes()),
+            name: copy self.name,
+            descriptor: copy self.descriptor,
             code: copy self.code,
             max_stack: self.max_stack,
             max_locals: self.max_locals,
@@ -360,7 +342,7 @@ pub struct Method {
             local_var_count: self.local_var_count,
             line_number_count: self.line_number_count,
             parameter_count: self.parameter_count,
-            return_descriptor: string.from(self.return_descriptor.bytes()),
+            return_descriptor: copy self.return_descriptor,
         };
     }
 }
@@ -464,10 +446,9 @@ pub struct Class {
     }
 
     pub fn field_index(self: &Class, name: string, descriptor: string, is_static: bool): ?i32 {
-        var fields = self.fields[..];
         var i: usize = 0;
-        while i < fields.len() {
-            const field = &fields[i];
+        while i < self.fields.len() {
+            const field = &self.fields[i];
             if field.name == name and field.descriptor == descriptor and field.is_static() == is_static {
                 return i as i32;
             }
@@ -477,10 +458,9 @@ pub struct Class {
     }
 
     pub fn method_index(self: &Class, name: string, descriptor: string, is_static: bool): ?i32 {
-        var methods = self.methods[..];
         var i: usize = 0;
-        while i < methods.len() {
-            const method = &methods[i];
+        while i < self.methods.len() {
+            const method = &self.methods[i];
             if method.name == name and method.descriptor == descriptor and method.is_static() == is_static {
                 return i as i32;
             }
@@ -534,20 +514,20 @@ pub struct Class {
 
     pub fn __copy(self: &Class): Class {
         return Class {
-            name: string.from(self.name.bytes()),
-            descriptor: string.from(self.descriptor.bytes()),
+            name: copy self.name,
+            descriptor: copy self.descriptor,
             access_flags: self.access_flags,
-            super_class: string.from(self.super_class.bytes()),
+            super_class: copy self.super_class,
             interfaces: copy self.interfaces,
             fields: copy self.fields,
             methods: copy self.methods,
             constant_pool: copy self.constant_pool,
             instance_vars: self.instance_vars,
             static_vars: copy self.static_vars,
-            source_file: string.from(self.source_file.bytes()),
+            source_file: copy self.source_file,
             is_array: self.is_array,
-            component_type: string.from(self.component_type.bytes()),
-            element_type: string.from(self.element_type.bytes()),
+            component_type: copy self.component_type,
+            element_type: copy self.element_type,
             dimensions: self.dimensions,
             defined: self.defined,
             linked: self.linked,

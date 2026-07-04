@@ -242,17 +242,20 @@ pub struct Heap {
     }
 
     pub fn intern_method_type(self: &Heap, class_index: usize, class: &Class, descriptor: []const u8): Reference {
+        const needle = string.from(descriptor);
         var index: usize = 0;
         while index < self.method_types.len() {
-            if self.method_types[index].descriptor.bytes() == descriptor {
-                return self.method_types[index].reference;
+            if self.method_types[index].descriptor == needle {
+                const existing = self.method_types[index].reference;
+                drop needle;
+                return existing;
             }
             index = index + 1;
         }
 
         const reference = self.allocate_object(class_index, class);
         self.method_types.push(InternedMethodType {
-            descriptor: string.from(descriptor),
+            descriptor: needle,
             reference: reference,
         });
         return reference;
@@ -380,6 +383,16 @@ pub struct Heap {
     pub fn set_current_thread(self: &Heap, reference: Reference): void {
         self.current_thread = reference;
     }
+
+    pub fn replace_with(self: &Heap, other: &Heap): void {
+        self.clear();
+        self.objects = copy other.objects;
+        self.arrays = copy other.arrays;
+        self.strings = copy other.strings;
+        self.method_types = copy other.method_types;
+        self.method_handles = copy other.method_handles;
+        self.current_thread = other.current_thread;
+    }
 }
 
 fn find_class_index(classes: []Class, name: string): ?usize {
@@ -398,7 +411,7 @@ fn append_hierarchy_fields(fields: &List<Value>, class_index: usize, classes: []
         return;
     }
     const super_name = classes[class_index].super_class;
-    if super_name.bytes().len() > 0 {
+    if super_name != "" {
         if find_class_index(classes, super_name) is super_index {
             append_hierarchy_fields(fields, super_index, classes);
         }
@@ -703,8 +716,8 @@ test "heap interns method type objects by descriptor" {
     assert(!first.equals(third));
     assert(heap.objects.len() == 2);
     assert(heap.method_types.len() == 2);
-    assert(heap.method_types[0].descriptor.bytes() == "(I)V".bytes());
-    assert(heap.method_types[1].descriptor.bytes() == "()V".bytes());
+    assert(heap.method_types[0].descriptor == "(I)V");
+    assert(heap.method_types[1].descriptor == "()V");
 }
 
 test "heap interns method handle objects by reference kind and index" {

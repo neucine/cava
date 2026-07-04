@@ -41,12 +41,12 @@ pub fn constant_class_name(context: &Context, index: u16): result<string, Instru
     }
 }
 
-fn constant_utf8_equals(context: &Context, index: u16, expected: []const u8): result<bool, InstructionError> {
+fn constant_utf8_equals(context: &Context, index: u16, expected: string): result<bool, InstructionError> {
     if index as usize >= context.constant_pool.len() {
         return .err(InstructionError.invalid_constant);
     }
     switch context.constant_pool[index as usize] {
-    case .utf8(value) { return .ok(bytes_equal(value.bytes(), expected)); }
+    case .utf8(value) { return .ok(value == expected); }
     else { return .err(InstructionError.invalid_constant); }
     }
 }
@@ -74,10 +74,9 @@ pub fn find_class_index(context: &Context, vm: &VM, name: string): result<usize,
 }
 
 fn class_index_by_name(classes: []Class, name: string): ?usize {
-    var class_view = classes;
     var index: usize = 0;
-    while index < class_view.len() {
-        const class = &class_view[index];
+    while index < classes.len() {
+        const class = &classes[index];
         if class.name == name {
             return index;
         }
@@ -90,13 +89,11 @@ fn class_instance_var_count(classes: []Class, class_index: usize): u16 {
     if class_index >= classes.len() {
         return 0;
     }
-    var class_view = classes;
-    const class = &class_view[class_index];
-    var fields = class.fields[..];
+    const class = &classes[class_index];
     var count: u16 = 0;
     var index: usize = 0;
-    while index < fields.len() {
-        const field = &fields[index];
+    while index < class.fields.len() {
+        const field = &class.fields[index];
         if !field.is_static() {
             count = count + 1;
         }
@@ -109,11 +106,10 @@ fn hierarchy_instance_var_count(classes: []Class, class_index: usize): u16 {
     if class_index >= classes.len() {
         return 0;
     }
-    var class_view = classes;
-    const class = &class_view[class_index];
+    const class = &classes[class_index];
     var count: u16 = 0;
     const super_name = class.super_class;
-    if super_name.bytes().len() > 0 {
+    if super_name != "" {
         if class_index_by_name(classes, super_name) is super_index {
             count = hierarchy_instance_var_count(classes, super_index);
         }
@@ -125,11 +121,10 @@ fn field_slot_offset(classes: []Class, current_class_index: usize, declaring_cla
     if current_class_index >= classes.len() {
         return none;
     }
-    var class_view = classes;
-    const class = &class_view[current_class_index];
+    const class = &classes[current_class_index];
     var super_count: u16 = 0;
     const super_name = class.super_class;
-    if super_name.bytes().len() > 0 {
+    if super_name != "" {
         if class_index_by_name(classes, super_name) is super_index {
             super_count = hierarchy_instance_var_count(classes, super_index);
             if field_slot_offset(classes, super_index, declaring_class_name) is super_offset {
@@ -153,12 +148,11 @@ pub fn field_runtime_slot(vm: &VM, reference: Reference, field: Field): ?u16 {
 }
 
 fn find_field_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): result<usize, InstructionError> {
-    var fields = class.fields[..];
     var index: usize = 0;
-    while index < fields.len() {
-        const field = &fields[index];
-        const name_matches = try constant_utf8_equals(context, name_index, field.name.bytes());
-        const descriptor_matches = try constant_utf8_equals(context, descriptor_index, field.descriptor.bytes());
+    while index < class.fields.len() {
+        const field = &class.fields[index];
+        const name_matches = try constant_utf8_equals(context, name_index, field.name);
+        const descriptor_matches = try constant_utf8_equals(context, descriptor_index, field.descriptor);
         if name_matches and descriptor_matches {
             return .ok(index);
         }
@@ -174,14 +168,13 @@ fn find_field_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_
         const class = &classes[current_index];
         switch find_field_index_by_constants(class, context, name_index, descriptor_index) {
         case .ok(field_index) {
-            var fields = class.fields[..];
-            return .ok(fields[field_index]);
+            return .ok(class.fields[field_index]);
         }
         case .err(error_value) {
             const ignored = error_value;
         }
         }
-        if class.super_class.bytes().len() == 0 {
+        if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
         }
         current_index = try vm.resolve_class_index(copy class.super_class);
@@ -195,10 +188,9 @@ pub fn find_field_by_name_in_hierarchy(context: &Context, vm: &VM, class_index: 
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         if class.field_index(name, descriptor, is_static) is field_index {
-            var fields = class.fields[..];
-            return .ok(fields[field_index as usize]);
+            return .ok(class.fields[field_index as usize]);
         }
-        if class.super_class.bytes().len() == 0 {
+        if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
         }
         current_index = try vm.resolve_class_index(copy class.super_class);
@@ -207,13 +199,10 @@ pub fn find_field_by_name_in_hierarchy(context: &Context, vm: &VM, class_index: 
 }
 
 pub fn find_field_index(class: &Class, name: string, descriptor: string): result<usize, InstructionError> {
-    const name_bytes = name.bytes();
-    const descriptor_bytes = descriptor.bytes();
-    var fields = class.fields[..];
     var index: usize = 0;
-    while index < fields.len() {
-        const field = &fields[index];
-        if bytes_equal(field.name.bytes(), name_bytes) and bytes_equal(field.descriptor.bytes(), descriptor_bytes) {
+    while index < class.fields.len() {
+        const field = &class.fields[index];
+        if field.name == name and field.descriptor == descriptor {
             return .ok(index);
         }
         index = index + 1;
@@ -222,12 +211,11 @@ pub fn find_field_index(class: &Class, name: string, descriptor: string): result
 }
 
 fn find_static_method_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): result<usize, InstructionError> {
-    var methods = class.methods[..];
     var index: usize = 0;
-    while index < methods.len() {
-        const method = &methods[index];
-        const name_matches = try constant_utf8_equals(context, name_index, method.name.bytes());
-        const descriptor_matches = try constant_utf8_equals(context, descriptor_index, method.descriptor.bytes());
+    while index < class.methods.len() {
+        const method = &class.methods[index];
+        const name_matches = try constant_utf8_equals(context, name_index, method.name);
+        const descriptor_matches = try constant_utf8_equals(context, descriptor_index, method.descriptor);
         if method.is_static() and name_matches and descriptor_matches {
             return .ok(index);
         }
@@ -237,12 +225,11 @@ fn find_static_method_index_by_constants(class: &Class, context: &Context, name_
 }
 
 fn find_instance_method_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): result<usize, InstructionError> {
-    var methods = class.methods[..];
     var index: usize = 0;
-    while index < methods.len() {
-        const method = &methods[index];
-        const name_matches = try constant_utf8_equals(context, name_index, method.name.bytes());
-        const descriptor_matches = try constant_utf8_equals(context, descriptor_index, method.descriptor.bytes());
+    while index < class.methods.len() {
+        const method = &class.methods[index];
+        const name_matches = try constant_utf8_equals(context, name_index, method.name);
+        const descriptor_matches = try constant_utf8_equals(context, descriptor_index, method.descriptor);
         if !method.is_static() and name_matches and descriptor_matches {
             return .ok(index);
         }
@@ -264,7 +251,7 @@ fn find_static_method_index_in_hierarchy(context: &Context, vm: &VM, class_index
             const ignored = error_value;
         }
         }
-        if class.super_class.bytes().len() == 0 {
+        if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
         }
         current_index = try vm.resolve_class_index(copy class.super_class);
@@ -285,7 +272,7 @@ fn find_instance_method_index_in_hierarchy(context: &Context, vm: &VM, class_ind
             const ignored = error_value;
         }
         }
-        if class.super_class.bytes().len() == 0 {
+        if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
         }
         current_index = try vm.resolve_class_index(copy class.super_class);
@@ -335,7 +322,7 @@ pub fn find_instance_method_by_name_in_hierarchy(context: &Context, vm: &VM, cla
         if class.method_index(name, descriptor, false) is method_index {
             return .ok(ResolvedMethod { class_index: current_index, method_index: method_index as usize });
         }
-        if class.super_class.bytes().len() == 0 {
+        if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
         }
         current_index = try vm.resolve_class_index(copy class.super_class);

@@ -230,8 +230,7 @@ pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: u
     var vm_classes = vm.method_area.classes[..];
     var class_view = vm_classes;
     const class = &class_view[class_index];
-    var methods = class.methods[..];
-    const method = &methods[method_index];
+    const method = &class.methods[method_index];
     if class_index < class_view.len() and class.constant_pool.len() > 0 {
         runtime_pool = class.constant_pool[..];
     }
@@ -251,8 +250,7 @@ pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: u
     if class.name == "java/text/DecimalFormatSymbols" and method.name == "getInstance" {
         const reference = vm.heap.allocate_object_with_hierarchy(class_index, class_view);
         if class.field_index("zeroDigit", "C", false) is field_index {
-            var fields = class.fields[..];
-            const field = &fields[field_index as usize];
+            const field = &class.fields[field_index as usize];
             const ignored_set = vm.heap.set_field(reference, field.slot, .char_value(48));
         }
         frame.clear_all();
@@ -297,6 +295,7 @@ pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: u
 
 pub fn execute_method_frame(class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant, classes: []Class, heap: &Heap): result<FrameResult, InstructionError> {
     var vm = new_vm();
+    vm.heap.replace_with(heap);
     var input_classes = classes;
     var seed_index: usize = 0;
     while seed_index < input_classes.len() {
@@ -304,36 +303,19 @@ pub fn execute_method_frame(class_index: usize, method_index: usize, frame: Fram
         seed_index = seed_index + 1;
     }
     if class_index >= vm.method_area.classes.len() {
+        heap.replace_with(&vm.heap);
         vm.clear();
         return .err(InstructionError.invalid_constant);
     }
     if method_index >= input_classes[class_index].methods.len() {
+        heap.replace_with(&vm.heap);
         vm.clear();
         return .err(InstructionError.invalid_constant);
     }
-    var runtime_pool = constant_pool;
-    const class = &input_classes[class_index];
-    var methods = class.methods[..];
-    const method = &methods[method_index];
-    var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: method.code[..], constant_pool: runtime_pool};
-
-    while context.frame.pc < context.code.len() as u32 {
-        const step_result = execute_next(&context, &vm);
-        switch step_result {
-        case .ok {}
-        case .err(error_value) {
-            vm.clear();
-            return .err(error_value);
-        }
-        }
-        if context.frame.result is result {
-            const out = result;
-            vm.clear();
-            return .ok(out);
-        }
-    }
+    const result = execute_method_frame_with_vm(&vm, class_index, method_index, frame, constant_pool);
+    heap.replace_with(&vm.heap);
     vm.clear();
-    return .err(InstructionError.missing_return);
+    return result;
 }
 
 pub fn execute_method_area_with_vm(vm: &VM, class_index: usize, method_index: usize, constant_pool: []const Constant, java_args: []const string): result<FrameResult, InstructionError> {

@@ -43,7 +43,7 @@ pub fn class_matches(classes: []Class, actual_index: usize, expected_index: usiz
         var interfaces = class.interfaces[..];
         var interface_index: usize = 0;
         while interface_index < interfaces.len() {
-            if bytes_equal(interfaces[interface_index].bytes(), expected_class.name.bytes()) {
+            if interfaces[interface_index] == expected_class.name {
                 return true;
             }
             interface_index = interface_index + 1;
@@ -106,7 +106,7 @@ pub fn reference_assignable_to(classes: []Class, actual_index: usize, expected_i
             return true;
         }
         if expected_class.is_array {
-            return bytes_equal(actual_class.component_type.bytes(), expected_class.component_type.bytes());
+            return actual_class.component_type == expected_class.component_type;
         }
         return false;
     }

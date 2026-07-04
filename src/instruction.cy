@@ -2210,20 +2210,24 @@ fn invoke_static(context: &Context, vm: &VM): result<void, InstructionError> {
             const native_args = native_arguments(arguments);
             if active_class.name == "java/lang/System" and active_method.name == "initProperties" and active_method.descriptor == "(Ljava/util/Properties;)Ljava/util/Properties;" {
                 if native_args.len() > 0 {
-                    const result = initialize_java_system_properties(context, vm, expect_ref(native_args[0]));
-                    switch result {
-                    case .ok(value) {
-                        if value is actual {
-                            context.frame.push(actual);
+                    const properties = expect_ref(native_args[0]);
+                    if properties.non_null() {
+                        const result = initialize_java_system_properties(context, vm, properties);
+                        switch result {
+                        case .ok(value) {
+                            if value is actual {
+                                context.frame.push(actual);
+                            }
+                            return .ok();
                         }
-                        return .ok();
+                        case .err(error_value) {
+                            return .err(error_value);
+                        }
+                        }
                     }
-                    case .err(error_value) {
-                        return .err(error_value);
-                    }
-                    }
+                } else {
+                    return .err(InstructionError.invalid_constant);
                 }
-                return .err(InstructionError.invalid_constant);
             }
             if active_class.name == "sun/reflect/NativeConstructorAccessorImpl" and active_method.name == "newInstance0" and active_method.descriptor == "(Ljava/lang/reflect/Constructor;[Ljava/lang/Object;)Ljava/lang/Object;" {
                 if native_args.len() > 1 {
@@ -2581,22 +2585,29 @@ fn initialize_static_class(context: &Context, vm: &VM, class_index: usize): resu
 }
 
 fn initialize_system_static_fields(context: &Context, vm: &VM, system_index: usize): result<void, InstructionError> {
-    const print_stream_index = try vm.resolve_class_index("java/io/PrintStream");
     var classes = vm.method_area.classes[..];
+    const out_field_index = classes[system_index].field_index("out", "Ljava/io/PrintStream;", true);
+    const err_field_index = classes[system_index].field_index("err", "Ljava/io/PrintStream;", true);
+    if out_field_index == none and err_field_index == none {
+        return .ok();
+    }
+
+    const print_stream_index = try vm.resolve_class_index("java/io/PrintStream");
+    classes = vm.method_area.classes[..];
     const reference = vm.heap.allocate_object_with_hierarchy(print_stream_index, classes);
     const output_stream_index = try vm.resolve_class_index("java/io/OutputStream");
+    classes = vm.method_area.classes[..];
     const output_reference = vm.heap.allocate_object_with_hierarchy(output_stream_index, classes);
     const ignored_set = vm.heap.set_field(reference, 0, .ref_value(output_reference));
-    var system_class = &classes[system_index];
-    if system_class.field_index("out", "Ljava/io/PrintStream;", true) is field_index_value {
-        var fields = system_class.fields[..];
+    if out_field_index is field_index_value {
+        var fields = classes[system_index].fields[..];
         const field = &fields[field_index_value as usize];
-        system_class.static_vars[field.slot as usize] = .ref_value(reference);
+        classes[system_index].static_vars[field.slot as usize] = .ref_value(reference);
     }
-    if system_class.field_index("err", "Ljava/io/PrintStream;", true) is field_index_value {
-        var fields = system_class.fields[..];
+    if err_field_index is field_index_value {
+        var fields = classes[system_index].fields[..];
         const field = &fields[field_index_value as usize];
-        system_class.static_vars[field.slot as usize] = .ref_value(reference);
+        classes[system_index].static_vars[field.slot as usize] = .ref_value(reference);
     }
     return .ok();
 }
@@ -3338,7 +3349,7 @@ pub fn print_instruction_error_context(context: &Context, vm: &VM, error_value: 
 
 fn instruction_trace_enabled(): bool {
     if env_get("CAVA_TRACE") is value {
-        const enabled = value.bytes().len() != 0 and value != "0";
+        const enabled = value != "" and value != "0";
         drop value;
         return enabled;
     }
@@ -3962,8 +3973,9 @@ test "instruction interns ldc string constants" {
         class_object: null_ref,
     };
     var classes: [2]Class = [main_class, string_class];
-    var heap = new_heap();
     var vm = new_vm();
+    vm.method_area.classes.push(copy classes[0]);
+    vm.method_area.classes.push(copy classes[1]);
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -3988,11 +4000,11 @@ test "instruction interns ldc string constants" {
     const second = expect_ref(context.frame.pop());
     const first = expect_ref(context.frame.pop());
     assert(first.equals(second));
-    assert(heap.objects.len() == 1);
-    assert(heap.objects[0].object.class_index == 1);
-    assert(heap.strings.len() == 1);
-    assert(heap.strings[0].value[..] == "hello".bytes());
-    assert(heap.strings[0].reference.equals(first));
+    assert(vm.heap.objects.len() == 1);
+    assert(vm.heap.objects[0].object.class_index == 1);
+    assert(vm.heap.strings.len() == 1);
+    assert(vm.heap.strings[0].value[..] == "hello".bytes());
+    assert(vm.heap.strings[0].reference.equals(first));
     drop context;
 }
 
@@ -4047,8 +4059,9 @@ test "instruction interns ldc method type constants" {
         class_object: null_ref,
     };
     var classes: [2]Class = [main_class, method_type_class];
-    var heap = new_heap();
     var vm = new_vm();
+    vm.method_area.classes.push(copy classes[0]);
+    vm.method_area.classes.push(copy classes[1]);
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -4073,11 +4086,11 @@ test "instruction interns ldc method type constants" {
     const second = expect_ref(context.frame.pop());
     const first = expect_ref(context.frame.pop());
     assert(first.equals(second));
-    assert(heap.objects.len() == 1);
-    assert(heap.objects[0].object.class_index == 1);
-    assert(heap.method_types.len() == 1);
-    assert(heap.method_types[0].descriptor.bytes() == "(I)V".bytes());
-    assert(heap.method_types[0].reference.equals(first));
+    assert(vm.heap.objects.len() == 1);
+    assert(vm.heap.objects[0].object.class_index == 1);
+    assert(vm.heap.method_types.len() == 1);
+    assert(vm.heap.method_types[0].descriptor == "(I)V");
+    assert(vm.heap.method_types[0].reference.equals(first));
     drop context;
 }
 
@@ -4137,8 +4150,9 @@ test "instruction interns ldc method handle constants" {
         class_object: null_ref,
     };
     var classes: [2]Class = [main_class, method_handle_class];
-    var heap = new_heap();
     var vm = new_vm();
+    vm.method_area.classes.push(copy classes[0]);
+    vm.method_area.classes.push(copy classes[1]);
     var context = Context {
         class_index: 0,
         method_index: 0,
@@ -4163,12 +4177,12 @@ test "instruction interns ldc method handle constants" {
     const second = expect_ref(context.frame.pop());
     const first = expect_ref(context.frame.pop());
     assert(first.equals(second));
-    assert(heap.objects.len() == 1);
-    assert(heap.objects[0].object.class_index == 1);
-    assert(heap.method_handles.len() == 1);
-    assert(heap.method_handles[0].reference_kind == 6);
-    assert(heap.method_handles[0].reference_index == 6);
-    assert(heap.method_handles[0].reference.equals(first));
+    assert(vm.heap.objects.len() == 1);
+    assert(vm.heap.objects[0].object.class_index == 1);
+    assert(vm.heap.method_handles.len() == 1);
+    assert(vm.heap.method_handles[0].reference_kind == 6);
+    assert(vm.heap.method_handles[0].reference_index == 6);
+    assert(vm.heap.method_handles[0].reference.equals(first));
     drop context;
 }
 
@@ -4737,13 +4751,13 @@ test "instruction executes System.arraycopy native" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
     var vm = new_vm();
-    const src = heap.allocate_array(0, "I".bytes(), 3);
-    const dest = heap.allocate_array(0, "I".bytes(), 3);
-    assert(heap.set_element(src, 0, .int_value(7)));
-    assert(heap.set_element(src, 1, .int_value(8)));
-    assert(heap.set_element(src, 2, .int_value(9)));
+    vm.method_area.classes.push(copy classes[0]);
+    const src = vm.heap.allocate_array(0, "I".bytes(), 3);
+    const dest = vm.heap.allocate_array(0, "I".bytes(), 3);
+    assert(vm.heap.set_element(src, 0, .int_value(7)));
+    assert(vm.heap.set_element(src, 1, .int_value(8)));
+    assert(vm.heap.set_element(src, 2, .int_value(9)));
     var constant_pool: [:]Constant = [: 0] [];
     var context = Context {
         class_index: 0,
@@ -4761,12 +4775,12 @@ test "instruction executes System.arraycopy native" {
 
     const result = try execute_native_method(&context, &vm, 0, 0, none, arguments);
     assert(result == none);
-    if heap.get_element(dest, 0) is first {
+    if vm.heap.get_element(dest, 0) is first {
         assert_int_result(.return_value(first), 8);
     } else {
         assert(false);
     }
-    if heap.get_element(dest, 1) is second {
+    if vm.heap.get_element(dest, 1) is second {
         assert_int_result(.return_value(second), 9);
     } else {
         assert(false);
@@ -4870,8 +4884,9 @@ test "instruction executes float and double raw bit natives" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
     var vm = new_vm();
+    vm.method_area.classes.push(copy classes[0]);
+    vm.method_area.classes.push(copy classes[1]);
     var constant_pool: [:]Constant = [: 0] [];
     var context = Context {
         class_index: 0,
@@ -4938,8 +4953,8 @@ test "instruction executes new object allocation" {
             class_object: null_ref,
         },
     ];
-    var heap = new_heap();
     var vm = new_vm();
+    vm.method_area.classes.push(copy classes[0]);
     var context = Context {
         class_index: 0,
         method_index: 0,
