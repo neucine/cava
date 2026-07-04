@@ -10,18 +10,6 @@ pub struct ArrayObject {
     pub elements: List<Value>;
 }
 
-pub struct ObjectSlot {
-    pub occupied: bool;
-    pub generation: u64;
-    pub object: Object;
-}
-
-pub struct ArraySlot {
-    pub occupied: bool;
-    pub generation: u64;
-    pub array: ArrayObject;
-}
-
 pub struct InternedString {
     pub value: [:]u8;
     pub reference: Reference;
@@ -43,8 +31,8 @@ pub struct InternedMethodHandle {
 }
 
 pub struct Heap {
-    pub objects: List<ObjectSlot>;
-    pub arrays: List<ArraySlot>;
+    pub objects: SlotMap<Object>;
+    pub arrays: SlotMap<ArrayObject>;
     pub strings: List<InternedString>;
     pub method_types: List<InternedMethodType>;
     pub method_handles: List<InternedMethodHandle>;
@@ -73,19 +61,14 @@ pub struct Heap {
             index = index + 1;
         }
 
-        const slot = self.objects.len();
-        self.objects.push(ObjectSlot {
-            occupied: true,
-            generation: 1,
-            object: Object {
-                class_index: class_index,
-                fields: fields,
-            },
+        const key = self.objects.insert(Object {
+            class_index: class_index,
+            fields: fields,
         });
         return Reference {
             kind: ReferenceKind.object,
-            slot: slot,
-            generation: 1,
+            slot: key.index,
+            generation: key.generation,
         };
     }
 
@@ -93,19 +76,14 @@ pub struct Heap {
         var fields: List<Value> = [];
         append_hierarchy_fields(&fields, class_index, classes);
 
-        const slot = self.objects.len();
-        self.objects.push(ObjectSlot {
-            occupied: true,
-            generation: 1,
-            object: Object {
-                class_index: class_index,
-                fields: fields,
-            },
+        const key = self.objects.insert(Object {
+            class_index: class_index,
+            fields: fields,
         });
         return Reference {
             kind: ReferenceKind.object,
-            slot: slot,
-            generation: 1,
+            slot: key.index,
+            generation: key.generation,
         };
     }
 
@@ -117,19 +95,14 @@ pub struct Heap {
             index = index + 1;
         }
 
-        const slot = self.arrays.len();
-        self.arrays.push(ArraySlot {
-            occupied: true,
-            generation: 1,
-            array: ArrayObject {
-                class_index: class_index,
-                elements: elements,
-            },
+        const key = self.arrays.insert(ArrayObject {
+            class_index: class_index,
+            elements: elements,
         });
         return Reference {
             kind: ReferenceKind.array,
-            slot: slot,
-            generation: 1,
+            slot: key.index,
+            generation: key.generation,
         };
     }
 
@@ -284,10 +257,9 @@ pub struct Heap {
             return none;
         }
         if reference.slot is slot {
-            if slot < self.objects.len() {
-                if self.objects[slot].occupied and self.objects[slot].generation == reference.generation {
-                    return slot;
-                }
+            const key = SlotMapKey { index: slot, generation: reference.generation };
+            if self.objects.contains(key) {
+                return slot;
             }
         }
         return none;
@@ -299,7 +271,10 @@ pub struct Heap {
 
     pub fn object_class_index(self: &Heap, reference: Reference): ?usize {
         if self.object_index(reference) is object_index {
-            return self.objects[object_index].object.class_index;
+            const key = SlotMapKey { index: object_index, generation: reference.generation };
+            if &self.objects.slots[key.index] is object {
+                return object.class_index;
+            }
         }
         return none;
     }
@@ -309,10 +284,9 @@ pub struct Heap {
             return none;
         }
         if reference.slot is slot {
-            if slot < self.arrays.len() {
-                if self.arrays[slot].occupied and self.arrays[slot].generation == reference.generation {
-                    return slot;
-                }
+            const key = SlotMapKey { index: slot, generation: reference.generation };
+            if self.arrays.contains(key) {
+                return slot;
             }
         }
         return none;
@@ -324,22 +298,31 @@ pub struct Heap {
 
     pub fn array_length(self: &Heap, reference: Reference): ?usize {
         if self.array_index(reference) is array_index_value {
-            return self.arrays[array_index_value].array.elements.len();
+            const key = SlotMapKey { index: array_index_value, generation: reference.generation };
+            if &self.arrays.slots[key.index] is array {
+                return array.elements.len();
+            }
         }
         return none;
     }
 
     pub fn array_class_index(self: &Heap, reference: Reference): ?usize {
         if self.array_index(reference) is array_index_value {
-            return self.arrays[array_index_value].array.class_index;
+            const key = SlotMapKey { index: array_index_value, generation: reference.generation };
+            if &self.arrays.slots[key.index] is array {
+                return array.class_index;
+            }
         }
         return none;
     }
 
     pub fn get_element(self: &Heap, reference: Reference, index: usize): ?Value {
         if self.array_index(reference) is array_index_value {
-            if index < self.arrays[array_index_value].array.elements.len() {
-                return self.arrays[array_index_value].array.elements[index];
+            const key = SlotMapKey { index: array_index_value, generation: reference.generation };
+            if &self.arrays.slots[key.index] is array {
+                if index < array.elements.len() {
+                    return array.elements[index];
+                }
             }
         }
         return none;
@@ -347,9 +330,15 @@ pub struct Heap {
 
     pub fn set_element(self: &Heap, reference: Reference, index: usize, value: Value): bool {
         if self.array_index(reference) is array_index_value {
-            if index < self.arrays[array_index_value].array.elements.len() {
-                self.arrays[array_index_value].array.elements[index] = value;
-                return true;
+            const key = SlotMapKey { index: array_index_value, generation: reference.generation };
+            if take self.arrays.slots[key.index] is taken_array {
+                var array = taken_array;
+                if index < array.elements.len() {
+                    array.elements[index] = value;
+                    self.arrays.slots.insert(key.index, array);
+                    return true;
+                }
+                self.arrays.slots.insert(key.index, array);
             }
         }
         return false;
@@ -358,8 +347,11 @@ pub struct Heap {
     pub fn get_field(self: &Heap, reference: Reference, slot: u16): ?Value {
         if self.object_index(reference) is object_index {
             const actual_slot = slot as usize;
-            if actual_slot < self.objects[object_index].object.fields.len() {
-                return self.objects[object_index].object.fields[actual_slot];
+            const key = SlotMapKey { index: object_index, generation: reference.generation };
+            if &self.objects.slots[key.index] is object {
+                if actual_slot < object.fields.len() {
+                    return object.fields[actual_slot];
+                }
             }
         }
         return none;
@@ -368,9 +360,15 @@ pub struct Heap {
     pub fn set_field(self: &Heap, reference: Reference, slot: u16, value: Value): bool {
         if self.object_index(reference) is object_index {
             const actual_slot = slot as usize;
-            if actual_slot < self.objects[object_index].object.fields.len() {
-                self.objects[object_index].object.fields[actual_slot] = value;
-                return true;
+            const key = SlotMapKey { index: object_index, generation: reference.generation };
+            if take self.objects.slots[key.index] is taken_object {
+                var object = taken_object;
+                if actual_slot < object.fields.len() {
+                    object.fields[actual_slot] = value;
+                    self.objects.slots.insert(key.index, object);
+                    return true;
+                }
+                self.objects.slots.insert(key.index, object);
             }
         }
         return false;
@@ -486,10 +484,11 @@ test "heap allocates objects with default instance fields" {
     assert(reference.non_null());
     assert(heap.has_object(reference));
     assert(heap.objects.len() == 1);
-    assert(heap.objects[0].occupied);
-    assert(heap.objects[0].generation == reference.generation);
-    assert(heap.objects[0].object.class_index == 0);
-    assert(heap.objects[0].object.fields.len() == 1);
+    if heap.object_class_index(reference) is class_index {
+        assert(class_index == 0);
+    } else {
+        assert(false);
+    }
 
     if heap.get_field(reference, 0) is value {
         assert_int_value(value, 0);

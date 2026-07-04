@@ -19,7 +19,7 @@ pub enum ReferenceKind: i32 {
 pub struct Reference {
     pub kind: ReferenceKind;
     pub slot: ?usize;
-    pub generation: u64;
+    pub generation: usize;
 
     pub fn init_null(): Reference {
         return Reference {

@@ -4290,7 +4290,11 @@ test "instruction caches ldc class constants" {
     assert(first.equals(second));
     assert(context_classes[0].class_object.equals(first));
     assert(vm.heap.objects.len() == 1);
-    assert(vm.heap.objects[0].object.class_index == 1);
+    if vm.heap.object_class_index(first) is class_index {
+        assert(class_index == 1);
+    } else {
+        assert(false);
+    }
     drop context;
 }
 
@@ -4372,7 +4376,11 @@ test "instruction interns ldc string constants" {
     const first = expect_ref(context.frame.pop());
     assert(first.equals(second));
     assert(vm.heap.objects.len() == 1);
-    assert(vm.heap.objects[0].object.class_index == 1);
+    if vm.heap.object_class_index(first) is class_index {
+        assert(class_index == 1);
+    } else {
+        assert(false);
+    }
     assert(vm.heap.strings.len() == 1);
     assert(vm.heap.strings[0].value[..] == "hello".bytes());
     assert(vm.heap.strings[0].reference.equals(first));
@@ -4457,7 +4465,11 @@ test "instruction interns ldc method type constants" {
     const first = expect_ref(context.frame.pop());
     assert(first.equals(second));
     assert(vm.heap.objects.len() == 1);
-    assert(vm.heap.objects[0].object.class_index == 1);
+    if vm.heap.object_class_index(first) is class_index {
+        assert(class_index == 1);
+    } else {
+        assert(false);
+    }
     assert(vm.heap.method_types.len() == 1);
     assert(vm.heap.method_types[0].descriptor == "(I)V");
     assert(vm.heap.method_types[0].reference.equals(first));
@@ -4547,7 +4559,11 @@ test "instruction interns ldc method handle constants" {
     const first = expect_ref(context.frame.pop());
     assert(first.equals(second));
     assert(vm.heap.objects.len() == 1);
-    assert(vm.heap.objects[0].object.class_index == 1);
+    if vm.heap.object_class_index(first) is class_index {
+        assert(class_index == 1);
+    } else {
+        assert(false);
+    }
     assert(vm.heap.method_handles.len() == 1);
     assert(vm.heap.method_handles[0].reference_kind == 6);
     assert(vm.heap.method_handles[0].reference_index == 6);
@@ -7415,9 +7431,13 @@ test "instruction executes anewarray reference array creation" {
 
     const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
     assert_int_result(result, 2);
-    switch vm.heap.arrays[0].array.elements[0] {
-    case .ref_value(reference) { assert(reference.is_null()); }
-    else { assert(false); }
+    if vm.heap.get_element(Reference { kind: ReferenceKind.array, slot: 0, generation: 0 }, 0) is value {
+        switch value {
+        case .ref_value(reference) { assert(reference.is_null()); }
+        else { assert(false); }
+        }
+    } else {
+        assert(false);
     }
     vm.clear();
     drop classes;
@@ -7734,7 +7754,7 @@ test "instruction executes multianewarray normal path" {
     const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
     assert_int_result(result, 2);
     assert(vm.heap.arrays.len() == 3);
-    if vm.heap.get_element(Reference { kind: ReferenceKind.array, slot: 0, generation: 1 }, 0) is value {
+    if vm.heap.get_element(Reference { kind: ReferenceKind.array, slot: 0, generation: 0 }, 0) is value {
         switch value {
         case .ref_value(reference) {
             if vm.heap.array_length(reference) is length {

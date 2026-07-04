@@ -73,7 +73,7 @@ fn return_value(value: Value): result<?Value, InstructionError> {
 
 fn identity_hash_code(reference: Reference): i32 {
     if reference.slot is slot {
-        const mixed = (slot as u64) +% (reference.generation *% 1103515245);
+        const mixed = (slot as u64) +% ((reference.generation as u64) *% 1103515245);
         return (mixed & 2147483647) as i32;
     }
     return 0;
