@@ -1,6 +1,7 @@
 import { AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant, ConstantMemberRef, ConstantNameAndType, MemberInfo, new_classfile, parse_classfile } from .classfile;
 import { Class, ExceptionHandler, Field, Method, Reference, Value, byte_buffer, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
 import { FsError, read_file } from std.fs;
+import { index_of } from std.mem;
 
 pub enum MethodAreaError: i32 {
     classfile = 0,
@@ -38,17 +39,14 @@ pub struct SymbolPool {
     }
 
     pub fn contains(self: &SymbolPool, value: []const u8): bool {
-        const needle = string.from(value);
-        var found = false;
         var index: usize = 0;
         while index < self.symbols.len() {
-            if self.symbols[index] == needle {
-                found = true;
+            if self.symbols[index].bytes() == value {
+                return true;
             }
             index = index + 1;
         }
-        drop needle;
-        return found;
+        return false;
     }
 
     pub fn add(self: &SymbolPool, value: []const u8): void {
@@ -255,29 +253,11 @@ fn contains_class_index(visited: &List<usize>, class_index: usize): bool {
     return false;
 }
 
-fn bytes_match_at(source: []const u8, index: usize, needle: []const u8): bool {
-    if index + needle.len() > source.len() {
-        return false;
-    }
-    var needle_index: usize = 0;
-    while needle_index < needle.len() {
-        if source[index + needle_index] != needle[needle_index] {
-            return false;
-        }
-        needle_index = needle_index + 1;
-    }
-    return true;
-}
-
 fn project_root_from_example_class_path(path: string): ?string {
     const path_bytes = path.bytes();
     const segment = "/examples/classes/".bytes();
-    var index: usize = 0;
-    while index < path_bytes.len() {
-        if bytes_match_at(path_bytes, index, segment) {
-            return string.from(path_bytes[0..index]);
-        }
-        index = index + 1;
+    if index_of(path_bytes, segment) is index {
+        return string.from(path_bytes[0..index]);
     }
     return none;
 }
@@ -327,9 +307,7 @@ pub struct MethodArea {
 
         switch self.load_class_from_path(copy self.application_class_root, copy class_name) {
         case .ok(index) { return .ok(index); }
-        case .err(error_value) {
-            const ignored = error_value;
-        }
+        case .err {}
         }
         return self.load_class_from_path(copy self.jdk_class_root, copy class_name);
     }
@@ -513,8 +491,7 @@ pub struct MethodArea {
                 self.define_descriptor_array_references_for_class(index);
                 return .ok(index);
             }
-            case .err(err) {
-                const ignored = err;
+            case .err {
                 return .err(MethodAreaError.classfile);
             }
             }
@@ -538,8 +515,7 @@ pub struct MethodArea {
                 self.define_descriptor_array_references_for_class(index);
                 return .ok(index);
             }
-            case .err(err) {
-                const ignored = err;
+            case .err {
                 return .err(MethodAreaError.classfile);
             }
             }
@@ -571,12 +547,8 @@ pub struct MethodArea {
         const loaded = self.load_class_from_path(root, copy super_class);
         drop super_class;
         switch loaded {
-        case .ok(index) {
-            const ignored = index;
-        }
-        case .err(error_value) {
-            const ignored = error_value;
-        }
+        case .ok {}
+        case .err {}
         }
     }
 
@@ -642,50 +614,48 @@ pub struct MethodArea {
                                 case .ok(loaded_index) {
                                     self.load_constant_references_for_class_visited(root, loaded_index, visited);
                                 }
-                                case .err(error_value) {
-                                    const ignored_error = error_value;
-                                }
+                                case .err {}
                                 }
                             }
                         }
                     }
-                    case .unusable(ignored) { const unused = ignored; }
-                    case .integer(ignored) { const unused = ignored; }
-                    case .float(ignored) { const unused = ignored; }
-                    case .long(ignored) { const unused = ignored; }
-                    case .double(ignored) { const unused = ignored; }
-                    case .class_ref(ignored) { const unused = ignored; }
-                    case .string_ref(ignored) { const unused = ignored; }
-                    case .field_ref(ignored) { const unused = ignored; }
-                    case .method_ref(ignored) { const unused = ignored; }
-                    case .interface_method_ref(ignored) { const unused = ignored; }
-                    case .name_and_type(ignored) { const unused = ignored; }
-                    case .method_handle(ignored) { const unused = ignored; }
-                    case .method_type(ignored) { const unused = ignored; }
-                    case .dynamic(ignored) { const unused = ignored; }
-                    case .invoke_dynamic(ignored) { const unused = ignored; }
-                    case .module_ref(ignored) { const unused = ignored; }
-                    case .package_ref(ignored) { const unused = ignored; }
+                    case .unusable {}
+                    case .integer {}
+                    case .float {}
+                    case .long {}
+                    case .double {}
+                    case .class_ref {}
+                    case .string_ref {}
+                    case .field_ref {}
+                    case .method_ref {}
+                    case .interface_method_ref {}
+                    case .name_and_type {}
+                    case .method_handle {}
+                    case .method_type {}
+                    case .dynamic {}
+                    case .invoke_dynamic {}
+                    case .module_ref {}
+                    case .package_ref {}
                     }
                 }
             }
-            case .unusable(ignored) { const unused = ignored; }
-            case .utf8(ignored) { const unused = ignored; }
-            case .integer(ignored) { const unused = ignored; }
-            case .float(ignored) { const unused = ignored; }
-            case .long(ignored) { const unused = ignored; }
-            case .double(ignored) { const unused = ignored; }
-            case .string_ref(ignored) { const unused = ignored; }
-            case .field_ref(ignored) { const unused = ignored; }
-            case .method_ref(ignored) { const unused = ignored; }
-            case .interface_method_ref(ignored) { const unused = ignored; }
-            case .name_and_type(ignored) { const unused = ignored; }
-            case .method_handle(ignored) { const unused = ignored; }
-            case .method_type(ignored) { const unused = ignored; }
-            case .dynamic(ignored) { const unused = ignored; }
-            case .invoke_dynamic(ignored) { const unused = ignored; }
-            case .module_ref(ignored) { const unused = ignored; }
-            case .package_ref(ignored) { const unused = ignored; }
+            case .unusable {}
+            case .utf8 {}
+            case .integer {}
+            case .float {}
+            case .long {}
+            case .double {}
+            case .string_ref {}
+            case .field_ref {}
+            case .method_ref {}
+            case .interface_method_ref {}
+            case .name_and_type {}
+            case .method_handle {}
+            case .method_type {}
+            case .dynamic {}
+            case .invoke_dynamic {}
+            case .module_ref {}
+            case .package_ref {}
             }
             constant_index = constant_index + 1;
         }
@@ -696,9 +666,7 @@ pub struct MethodArea {
         case .ok(index) {
             self.define_array_references_for_class(index);
         }
-        case .err(error_value) {
-            const ignored = error_value;
-        }
+        case .err {}
         }
     }
 
@@ -723,43 +691,43 @@ pub struct MethodArea {
                             }
                         }
                     }
-                    case .unusable(ignored) { const unused = ignored; }
-                    case .integer(ignored) { const unused = ignored; }
-                    case .float(ignored) { const unused = ignored; }
-                    case .long(ignored) { const unused = ignored; }
-                    case .double(ignored) { const unused = ignored; }
-                    case .class_ref(ignored) { const unused = ignored; }
-                    case .string_ref(ignored) { const unused = ignored; }
-                    case .field_ref(ignored) { const unused = ignored; }
-                    case .method_ref(ignored) { const unused = ignored; }
-                    case .interface_method_ref(ignored) { const unused = ignored; }
-                    case .name_and_type(ignored) { const unused = ignored; }
-                    case .method_handle(ignored) { const unused = ignored; }
-                    case .method_type(ignored) { const unused = ignored; }
-                    case .dynamic(ignored) { const unused = ignored; }
-                    case .invoke_dynamic(ignored) { const unused = ignored; }
-                    case .module_ref(ignored) { const unused = ignored; }
-                    case .package_ref(ignored) { const unused = ignored; }
+                    case .unusable {}
+                    case .integer {}
+                    case .float {}
+                    case .long {}
+                    case .double {}
+                    case .class_ref {}
+                    case .string_ref {}
+                    case .field_ref {}
+                    case .method_ref {}
+                    case .interface_method_ref {}
+                    case .name_and_type {}
+                    case .method_handle {}
+                    case .method_type {}
+                    case .dynamic {}
+                    case .invoke_dynamic {}
+                    case .module_ref {}
+                    case .package_ref {}
                     }
                 }
             }
-            case .unusable(ignored) { const unused = ignored; }
-            case .utf8(ignored) { const unused = ignored; }
-            case .integer(ignored) { const unused = ignored; }
-            case .float(ignored) { const unused = ignored; }
-            case .long(ignored) { const unused = ignored; }
-            case .double(ignored) { const unused = ignored; }
-            case .string_ref(ignored) { const unused = ignored; }
-            case .field_ref(ignored) { const unused = ignored; }
-            case .method_ref(ignored) { const unused = ignored; }
-            case .interface_method_ref(ignored) { const unused = ignored; }
-            case .name_and_type(ignored) { const unused = ignored; }
-            case .method_handle(ignored) { const unused = ignored; }
-            case .method_type(ignored) { const unused = ignored; }
-            case .dynamic(ignored) { const unused = ignored; }
-            case .invoke_dynamic(ignored) { const unused = ignored; }
-            case .module_ref(ignored) { const unused = ignored; }
-            case .package_ref(ignored) { const unused = ignored; }
+            case .unusable {}
+            case .utf8 {}
+            case .integer {}
+            case .float {}
+            case .long {}
+            case .double {}
+            case .string_ref {}
+            case .field_ref {}
+            case .method_ref {}
+            case .interface_method_ref {}
+            case .name_and_type {}
+            case .method_handle {}
+            case .method_type {}
+            case .dynamic {}
+            case .invoke_dynamic {}
+            case .module_ref {}
+            case .package_ref {}
             }
             constant_index = constant_index + 1;
         }
@@ -1693,15 +1661,15 @@ test "method area derives class metadata from classfile" {
     assert(class.static_vars.len() == 1);
     switch class.static_vars[0] {
     case .int_value(value) { assert(value == 0); }
-    case .byte_value(value) { const ignored = value; assert(false); }
-    case .short_value(value) { const ignored = value; assert(false); }
-    case .char_value(value) { const ignored = value; assert(false); }
-    case .long_value(value) { const ignored = value; assert(false); }
-    case .float_value(value) { const ignored = value; assert(false); }
-    case .double_value(value) { const ignored = value; assert(false); }
-    case .boolean_value(value) { const ignored = value; assert(false); }
-    case .return_address_value(value) { const ignored = value; assert(false); }
-    case .ref_value(value) { const ignored = value; assert(false); }
+    case .byte_value { assert(false); }
+    case .short_value { assert(false); }
+    case .char_value { assert(false); }
+    case .long_value { assert(false); }
+    case .float_value { assert(false); }
+    case .double_value { assert(false); }
+    case .boolean_value { assert(false); }
+    case .return_address_value { assert(false); }
+    case .ref_value { assert(false); }
     }
     assert(class.methods.len() == 1);
     assert(class.methods[0].max_stack == 2);

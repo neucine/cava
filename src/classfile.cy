@@ -1054,8 +1054,7 @@ test "classfile resolved constants compare with string equality" {
     var classfile = new_classfile();
     switch read_classfile(&reader, &classfile) {
     case .ok {}
-    case .err(err) {
-        const ignored = err;
+    case .err {
         assert(false);
     }
     }
@@ -1065,8 +1064,7 @@ test "classfile resolved constants compare with string equality" {
         assert(value == "Main");
         drop value;
     }
-    case .err(err) {
-        const ignored = err;
+    case .err {
         assert(false);
     }
     }
@@ -1076,8 +1074,7 @@ test "classfile resolved constants compare with string equality" {
         assert(value.descriptor == "I");
         drop value;
     }
-    case .err(err) {
-        const ignored = err;
+    case .err {
         assert(false);
     }
     }
@@ -1088,8 +1085,7 @@ test "classfile resolved constants compare with string equality" {
         assert(value.descriptor == "I");
         drop value;
     }
-    case .err(err) {
-        const ignored = err;
+    case .err {
         assert(false);
     }
     }
@@ -1100,8 +1096,7 @@ test "classfile resolved constants compare with string equality" {
         assert(value.descriptor == "I");
         drop value;
     }
-    case .err(err) {
-        const ignored = err;
+    case .err {
         assert(false);
     }
     }

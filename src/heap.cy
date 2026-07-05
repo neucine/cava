@@ -215,18 +215,16 @@ pub struct Heap {
     }
 
     pub fn intern_method_type(self: &Heap, class_index: usize, class: &Class, descriptor: []const u8): Reference {
-        const needle = string.from(descriptor);
         var index: usize = 0;
         while index < self.method_types.len() {
-            if self.method_types[index].descriptor == needle {
-                const existing = self.method_types[index].reference;
-                drop needle;
-                return existing;
+            if self.method_types[index].descriptor.bytes() == descriptor {
+                return self.method_types[index].reference;
             }
             index = index + 1;
         }
 
         const reference = self.allocate_object(class_index, class);
+        const needle = string.from(descriptor);
         self.method_types.push(InternedMethodType {
             descriptor: needle,
             reference: reference,
@@ -429,15 +427,15 @@ pub fn new_heap(): Heap {
 fn assert_int_value(value: Value, expected: i32): void {
     switch value {
     case .int_value(actual) { assert(actual == expected); }
-    case .byte_value(actual) { const ignored = actual; assert(false); }
-    case .short_value(actual) { const ignored = actual; assert(false); }
-    case .char_value(actual) { const ignored = actual; assert(false); }
-    case .long_value(actual) { const ignored = actual; assert(false); }
-    case .float_value(actual) { const ignored = actual; assert(false); }
-    case .double_value(actual) { const ignored = actual; assert(false); }
-    case .boolean_value(actual) { const ignored = actual; assert(false); }
-    case .return_address_value(actual) { const ignored = actual; assert(false); }
-    case .ref_value(actual) { const ignored = actual; assert(false); }
+    case .byte_value { assert(false); }
+    case .short_value { assert(false); }
+    case .char_value { assert(false); }
+    case .long_value { assert(false); }
+    case .float_value { assert(false); }
+    case .double_value { assert(false); }
+    case .boolean_value { assert(false); }
+    case .return_address_value { assert(false); }
+    case .ref_value { assert(false); }
     }
 }
 

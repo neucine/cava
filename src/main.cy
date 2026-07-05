@@ -13,9 +13,7 @@ fn execute_entry(vm: &VM, class_index: usize, java_args: []const string): i32 {
             if vm.method_area.method_index(system_index, "initializeSystemClass", "()V") is initialize_index {
                 const empty_args: [0]string = [];
                 switch execute_method_area_with_vm(vm, system_index, initialize_index as usize, vm.method_area.classes[system_index].constant_pool[..], empty_args[..]) {
-                case .ok(result) {
-                    const ignored = result;
-                }
+                case .ok {}
                 case .err(error_value) {
                     print_execution_error(error_value);
                     vm.clear();
@@ -25,8 +23,7 @@ fn execute_entry(vm: &VM, class_index: usize, java_args: []const string): i32 {
             }
         }
         switch execute_method_area_with_vm(vm, class_index, method_index, vm.method_area.classes[class_index].constant_pool[..], java_args) {
-        case .ok(result) {
-            const ignored = result;
+        case .ok {
             vm.clear();
             return 0;
         }
@@ -51,8 +48,7 @@ fn run_class_file(path: string, java_args: []const string): i32 {
         drop vm;
         return code;
     }
-    case .err(error_value) {
-        const ignored = error_value;
+    case .err {
         println("class read failed");
         vm.clear();
         drop vm;

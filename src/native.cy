@@ -16,15 +16,15 @@ fn ref_arg(arguments: &List<Value>, index: usize): Reference {
 fn value_ref_or_null(value: Value): Reference {
     switch value {
     case .ref_value(actual) { return actual; }
-    case .byte_value(ignored) { const unused = ignored; return null_ref; }
-    case .short_value(ignored) { const unused = ignored; return null_ref; }
-    case .char_value(ignored) { const unused = ignored; return null_ref; }
-    case .int_value(ignored) { const unused = ignored; return null_ref; }
-    case .long_value(ignored) { const unused = ignored; return null_ref; }
-    case .float_value(ignored) { const unused = ignored; return null_ref; }
-    case .double_value(ignored) { const unused = ignored; return null_ref; }
-    case .boolean_value(ignored) { const unused = ignored; return null_ref; }
-    case .return_address_value(ignored) { const unused = ignored; return null_ref; }
+    case .byte_value { return null_ref; }
+    case .short_value { return null_ref; }
+    case .char_value { return null_ref; }
+    case .int_value { return null_ref; }
+    case .long_value { return null_ref; }
+    case .float_value { return null_ref; }
+    case .double_value { return null_ref; }
+    case .boolean_value { return null_ref; }
+    case .return_address_value { return null_ref; }
     }
 }
 
@@ -116,9 +116,7 @@ fn load_native_class_index(context: &Context, vm: &VM, name: string): result<usi
     case .ok(class_index) {
         return .ok(class_index);
     }
-    case .err(error_value) {
-        const ignored = error_value;
-    }
+    case .err {}
     }
     return .err(InstructionError.invalid_constant);
 }
@@ -126,8 +124,7 @@ fn load_native_class_index(context: &Context, vm: &VM, name: string): result<usi
 fn find_or_load_native_class_index(context: &Context, vm: &VM, name: string): result<usize, InstructionError> {
     switch find_native_class_index(context, vm, name) {
     case .ok(class_index) { return .ok(class_index); }
-    case .err(error_value) {
-        const ignored = error_value;
+    case .err {
         return load_native_class_index(context, vm, name);
     }
     }
@@ -416,15 +413,15 @@ fn is_primitive_class_object(context: &Context, vm: &VM, reference: Reference): 
                         return true;
                     }
                 }
-                case .byte_value(ignored) { const unused = ignored; }
-                case .short_value(ignored) { const unused = ignored; }
-                case .char_value(ignored) { const unused = ignored; }
-                case .int_value(ignored) { const unused = ignored; }
-                case .long_value(ignored) { const unused = ignored; }
-                case .float_value(ignored) { const unused = ignored; }
-                case .double_value(ignored) { const unused = ignored; }
-                case .boolean_value(ignored) { const unused = ignored; }
-                case .return_address_value(ignored) { const unused = ignored; }
+                case .byte_value {}
+                case .short_value {}
+                case .char_value {}
+                case .int_value {}
+                case .long_value {}
+                case .float_value {}
+                case .double_value {}
+                case .boolean_value {}
+                case .return_address_value {}
                 }
             }
         }
@@ -468,9 +465,7 @@ fn descriptor_class_object(context: &Context, vm: &VM, descriptor: []const u8): 
         drop name;
         switch found {
         case .ok(class_index) { return ensure_class_object(context, vm, class_index); }
-        case .err(error_value) {
-            const ignored = error_value;
-        }
+        case .err {}
         }
     }
     return .err(InstructionError.invalid_constant);
@@ -635,9 +630,7 @@ fn new_thread_group(context: &Context, vm: &VM): result<Reference, InstructionEr
         }
         return .ok(group);
     }
-    case .err(error_value) {
-        const ignored = error_value;
-    }
+    case .err {}
     }
     return .ok(null_ref);
 }
@@ -665,9 +658,7 @@ fn new_java_lang_thread(context: &Context, vm: &VM): result<Reference, Instructi
         vm.heap.set_current_thread(thread);
         return .ok(thread);
     }
-    case .err(error_value) {
-        const ignored = error_value;
-    }
+    case .err {}
     }
     return .err(InstructionError.invalid_constant);
 }
@@ -808,8 +799,7 @@ struct JavaLangSystem {
     pub fn currentTimeMillis(context: &Context): result<?Value, InstructionError> {
         switch now_ns() {
         case .ok(ns) { return return_value(.long_value(ns_to_ms(ns))); }
-        case .err(error_value) {
-            const ignored_error = error_value;
+        case .err {
             return .err(InstructionError.invalid_constant);
         }
         }
@@ -818,8 +808,7 @@ struct JavaLangSystem {
     pub fn nanoTime(context: &Context): result<?Value, InstructionError> {
         switch monotonic_ns() {
         case .ok(ns) { return return_value(.long_value(ns)); }
-        case .err(error_value) {
-            const ignored_error = error_value;
+        case .err {
             return .err(InstructionError.invalid_constant);
         }
         }
@@ -922,8 +911,7 @@ struct JavaLangClass {
             var field_array_class_index: usize = 0;
             switch find_or_load_native_class_index(context, vm, "[Ljava/lang/reflect/Field;") {
             case .ok(index) { field_array_class_index = index; }
-            case .err(error_value) {
-                const ignored = error_value;
+            case .err {
                 println("cava native error: missing [Ljava/lang/reflect/Field; array class");
                 return .err(InstructionError.invalid_constant);
             }
@@ -948,8 +936,7 @@ struct JavaLangClass {
                     case .ok(actual_field_object) {
                         const ignored_set = vm.heap.set_element(array, out_index, .ref_value(actual_field_object));
                     }
-                    case .err(error_value) {
-                        const ignored = error_value;
+                    case .err {
                         print("cava native error: cannot create java/lang/reflect/Field for ");
                         print(declaring_class.name);
                         print(".");
@@ -975,8 +962,7 @@ struct JavaLangClass {
             var constructor_array_class_index: usize = 0;
             switch find_or_load_native_class_index(context, vm, "[Ljava/lang/reflect/Constructor;") {
             case .ok(index) { constructor_array_class_index = index; }
-            case .err(error_value) {
-                const ignored = error_value;
+            case .err {
                 println("cava native error: missing [Ljava/lang/reflect/Constructor; array class");
                 return .err(InstructionError.invalid_constant);
             }
@@ -1001,8 +987,7 @@ struct JavaLangClass {
                     case .ok(actual_constructor) {
                         const ignored_set = vm.heap.set_element(array, out_index, .ref_value(actual_constructor));
                     }
-                    case .err(error_value) {
-                        const ignored = error_value;
+                    case .err {
                         print("cava native error: cannot create java/lang/reflect/Constructor for ");
                         println(declaring_class.name);
                         return .err(InstructionError.invalid_constant);
@@ -1062,8 +1047,7 @@ struct JavaLangClass {
             drop class_name;
             return return_value(.ref_value(reference));
         }
-        case .err(error_value) {
-            const ignored = error_value;
+        case .err {
             print("cava native error: Class.forName0 missing class ");
             println(class_name);
             drop class_name;
@@ -1115,8 +1099,7 @@ struct JavaLangClass {
                     drop name;
                     return return_value(.ref_value(reference));
                 }
-                case .err(error_value) {
-                    const ignored = error_value;
+                case .err {
                     drop name;
                 }
                 }
@@ -1129,8 +1112,7 @@ struct JavaLangClass {
                     drop name;
                     return return_value(.ref_value(reference));
                 }
-                case .err(error_value) {
-                    const ignored = error_value;
+                case .err {
                     drop name;
                 }
                 }
@@ -1236,8 +1218,7 @@ struct JavaLangReflectArray {
             case .ok(found_index) {
                 array_class_index = found_index;
             }
-            case .err(error_value) {
-                const ignored = error_value;
+            case .err {
                 drop descriptor;
                 return .err(InstructionError.invalid_constant);
             }

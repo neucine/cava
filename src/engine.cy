@@ -383,15 +383,15 @@ fn expect_ref_for_engine(value: Value): Reference {
 fn assert_int_value(value: Value, expected: i32): void {
     switch value {
     case .int_value(actual) { assert(actual == expected); }
-    case .byte_value(actual) { const ignored = actual; assert(false); }
-    case .short_value(actual) { const ignored = actual; assert(false); }
-    case .char_value(actual) { const ignored = actual; assert(false); }
-    case .long_value(actual) { const ignored = actual; assert(false); }
-    case .float_value(actual) { const ignored = actual; assert(false); }
-    case .double_value(actual) { const ignored = actual; assert(false); }
-    case .boolean_value(actual) { const ignored = actual; assert(false); }
-    case .return_address_value(actual) { const ignored = actual; assert(false); }
-    case .ref_value(actual) { const ignored = actual; assert(false); }
+    case .byte_value { assert(false); }
+    case .short_value { assert(false); }
+    case .char_value { assert(false); }
+    case .long_value { assert(false); }
+    case .float_value { assert(false); }
+    case .double_value { assert(false); }
+    case .boolean_value { assert(false); }
+    case .return_address_value { assert(false); }
+    case .ref_value { assert(false); }
     }
 }
 
@@ -427,8 +427,7 @@ test "frame manages locals operand stack and pc" {
                 assert(false);
             }
         }
-        case .exception(reference) {
-            const ignored = reference;
+        case .exception {
             assert(false);
         }
         }

@@ -302,9 +302,7 @@ fn find_field_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_
         case .ok(field_index) {
             return .ok(class.fields[field_index]);
         }
-        case .err(error_value) {
-            const ignored = error_value;
-        }
+        case .err {}
         }
         if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
@@ -379,9 +377,7 @@ fn find_static_method_index_in_hierarchy(context: &Context, vm: &VM, class_index
         case .ok(method_index) {
             return .ok(ResolvedMethod { class_index: current_index, method_index: method_index });
         }
-        case .err(error_value) {
-            const ignored = error_value;
-        }
+        case .err {}
         }
         if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
@@ -400,9 +396,7 @@ fn find_instance_method_index_in_hierarchy(context: &Context, vm: &VM, class_ind
         case .ok(method_index) {
             return .ok(ResolvedMethod { class_index: current_index, method_index: method_index });
         }
-        case .err(error_value) {
-            const ignored = error_value;
-        }
+        case .err {}
         }
         if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
@@ -421,9 +415,7 @@ fn find_interface_method_index_in_hierarchy(context: &Context, vm: &VM, class_in
     case .ok(method_index) {
         return .ok(ResolvedMethod { class_index: class_index, method_index: method_index });
     }
-    case .err(error_value) {
-        const ignored = error_value;
-    }
+    case .err {}
     }
 
     var interface_index: usize = 0;
@@ -432,14 +424,10 @@ fn find_interface_method_index_in_hierarchy(context: &Context, vm: &VM, class_in
         case .ok(parent_index) {
             switch find_interface_method_index_in_hierarchy(context, vm, parent_index, name_index, descriptor_index) {
             case .ok(found) { return .ok(found); }
-            case .err(error_value) {
-                const ignored = error_value;
-            }
+            case .err {}
             }
         }
-        case .err(error_value) {
-            const ignored = error_value;
-        }
+        case .err {}
         }
         interface_index = interface_index + 1;
     }
@@ -719,8 +707,8 @@ fn store_ref_like(context: &Context, index: u16): void {
 
 fn is_category2(value: Value): bool {
     switch value {
-    case .long_value(actual) { const ignored = actual; return true; }
-    case .double_value(actual) { const ignored = actual; return true; }
+    case .long_value { return true; }
+    case .double_value { return true; }
     else { return false; }
     }
 }
@@ -827,11 +815,8 @@ fn load_string_constant(context: &Context, vm: &VM, utf8_index: u16): result<voi
     }
 
     switch vm.method_area.resolve_class("java/lang/String") {
-    case .ok(string_class_index) {
-        const ignored = string_class_index;
-    }
-    case .err(error_value) {
-        const ignored = error_value;
+    case .ok {}
+    case .err {
         return .err(InstructionError.invalid_constant);
     }
     }
@@ -1476,15 +1461,13 @@ fn bastore(context: &Context, vm: &VM): result<void, InstructionError> {
     }
     if vm.heap.get_element(reference, index as usize) is current {
         switch current {
-        case .boolean_value(actual) {
-            const ignored = actual;
+        case .boolean_value {
             const low_bit: u8 = (raw & 1) as u8;
             if vm.heap.set_element(reference, index as usize, .boolean_value(low_bit)) {
                 return .ok();
             }
         }
-        case .byte_value(actual) {
-            const ignored = actual;
+        case .byte_value {
             const low_bits: u8 = (raw & 255) as u8;
             if vm.heap.set_element(reference, index as usize, .byte_value(low_bits as! i8)) {
                 return .ok();
@@ -2300,8 +2283,7 @@ fn invoke_privileged_action(context: &Context, vm: &VM, action: Reference): resu
     const result = try execute_method_frame_with_vm(vm, action_class_index, run_method_index, frame, context.constant_pool);
     switch result {
     case .return_value(value) { return .ok(value); }
-    case .exception(reference) {
-        const ignored = reference;
+    case .exception {
         return .err(InstructionError.invalid_constant);
     }
     }
@@ -2341,8 +2323,7 @@ fn invoke_instance_method_direct(context: &Context, vm: &VM, receiver: Reference
     const result = try execute_method_frame_with_vm(vm, target.class_index, target.method_index, frame, context.constant_pool);
     switch result {
     case .return_value(value) { return .ok(value); }
-    case .exception(reference) {
-        const ignored = reference;
+    case .exception {
         return .err(InstructionError.invalid_constant);
     }
     }
@@ -2447,13 +2428,11 @@ fn invoke_reflect_constructor(context: &Context, vm: &VM, constructor: Reference
     }
     const result = try execute_method_frame_with_vm(vm, target_class_index, constructor_method_index, frame, target_class.constant_pool[..]);
     switch result {
-    case .return_value(value) {
-        const ignored = value;
+    case .return_value {
         const out: Value = .ref_value(object);
         return .ok(out);
     }
-    case .exception(reference) {
-        const ignored_exception = reference;
+    case .exception {
         return .err(InstructionError.invalid_constant);
     }
     }
@@ -2935,11 +2914,8 @@ fn initialize_static_class(context: &Context, vm: &VM, class_index: usize): resu
         var frame = new_frame(class_index, clinit_index, class.methods[clinit_index].max_locals, class.methods[clinit_index].max_stack);
         const result = try execute_method_frame_with_vm(vm, class_index, clinit_index, frame, class.constant_pool[..]);
         switch result {
-        case .return_value(value) {
-            const ignored_value = value;
-        }
-        case .exception(reference) {
-            const ignored_reference = reference;
+        case .return_value {}
+        case .exception {
             return .err(InstructionError.invalid_constant);
         }
         }
@@ -3139,9 +3115,7 @@ fn anewarray(context: &Context, vm: &VM): result<void, InstructionError> {
     var array_class_index: usize = 0;
     switch vm.resolve_class_index(copy array_descriptor) {
     case .ok(found_index) { array_class_index = found_index; }
-    case .err(error_value) {
-        const ignored_error = error_value;
-    }
+    case .err {}
     }
     const reference = vm.heap.allocate_array(array_class_index, descriptor.bytes(), count as usize);
     context.frame.push(.ref_value(reference));
@@ -3708,8 +3682,7 @@ pub fn print_instruction_error_context(context: &Context, vm: &VM, error_value: 
         case .ok(instruction) {
             println(opcode_name(instruction.opcode));
         }
-        case .err(fetch_error) {
-            const ignored = fetch_error;
+        case .err {
             println("unsupported");
         }
         }
@@ -3983,8 +3956,7 @@ fn assert_int_result(result: FrameResult, expected: i32): void {
             assert(false);
         }
     }
-    case .exception(reference) {
-        const ignored = reference;
+    case .exception {
         assert(false);
     }
     }
@@ -4002,8 +3974,7 @@ fn assert_long_result(result: FrameResult, expected: i64): void {
             assert(false);
         }
     }
-    case .exception(reference) {
-        const ignored = reference;
+    case .exception {
         assert(false);
     }
     }
@@ -4021,8 +3992,7 @@ fn assert_float_result(result: FrameResult, expected: f32): void {
             assert(false);
         }
     }
-    case .exception(reference) {
-        const ignored = reference;
+    case .exception {
         assert(false);
     }
     }
@@ -4040,8 +4010,7 @@ fn assert_double_result(result: FrameResult, expected: f64): void {
             assert(false);
         }
     }
-    case .exception(reference) {
-        const ignored = reference;
+    case .exception {
         assert(false);
     }
     }
@@ -4057,8 +4026,7 @@ fn assert_null_ref_result(result: FrameResult): void {
             assert(false);
         }
     }
-    case .exception(reference) {
-        const ignored = reference;
+    case .exception {
         assert(false);
     }
     }
@@ -4067,8 +4035,7 @@ fn assert_null_ref_result(result: FrameResult): void {
 fn assert_void_result(result: FrameResult): void {
     switch result {
     case .return_value(value) { assert(value == none); }
-    case .exception(reference) {
-        const ignored = reference;
+    case .exception {
         assert(false);
     }
     }
@@ -4076,8 +4043,7 @@ fn assert_void_result(result: FrameResult): void {
 
 fn assert_exception_result(result: FrameResult, expected: Reference): void {
     switch result {
-    case .return_value(value) {
-        const ignored = value;
+    case .return_value {
         assert(false);
     }
     case .exception(reference) {
@@ -4194,8 +4160,7 @@ test "instruction executes ldc numeric constants" {
         const step_result = execute_next(&context, &vm);
         switch step_result {
         case .ok {}
-        case .err(error_value) {
-            const ignored = error_value;
+        case .err {
             assert(false);
         }
         }
@@ -4276,8 +4241,7 @@ test "instruction caches ldc class constants" {
         const step_result = execute_next(&context, &vm);
         switch step_result {
         case .ok {}
-        case .err(error_value) {
-            const ignored = error_value;
+        case .err {
             assert(false);
         }
         }
@@ -4364,8 +4328,7 @@ test "instruction interns ldc string constants" {
         const step_result = execute_next(&context, &vm);
         switch step_result {
         case .ok {}
-        case .err(error_value) {
-            const ignored = error_value;
+        case .err {
             assert(false);
         }
         }
@@ -4453,8 +4416,7 @@ test "instruction interns ldc method type constants" {
         const step_result = execute_next(&context, &vm);
         switch step_result {
         case .ok {}
-        case .err(error_value) {
-            const ignored = error_value;
+        case .err {
             assert(false);
         }
         }
@@ -4547,8 +4509,7 @@ test "instruction interns ldc method handle constants" {
         const step_result = execute_next(&context, &vm);
         switch step_result {
         case .ok {}
-        case .err(error_value) {
-            const ignored = error_value;
+        case .err {
             assert(false);
         }
         }
@@ -4643,8 +4604,7 @@ test "instruction executes field access ops" {
     const put_static = execute_next(&context, &vm);
     switch put_static {
     case .ok {}
-    case .err(error_value) {
-        const ignored = error_value;
+    case .err {
         assert(false);
     }
     }
@@ -4652,8 +4612,7 @@ test "instruction executes field access ops" {
     const get_static = execute_next(&context, &vm);
     switch get_static {
     case .ok {}
-    case .err(error_value) {
-        const ignored = error_value;
+    case .err {
         assert(false);
     }
     }
@@ -4663,8 +4622,7 @@ test "instruction executes field access ops" {
     const put_instance = execute_next(&context, &vm);
     switch put_instance {
     case .ok {}
-    case .err(error_value) {
-        const ignored = error_value;
+    case .err {
         assert(false);
     }
     }
@@ -4673,8 +4631,7 @@ test "instruction executes field access ops" {
     const get_instance = execute_next(&context, &vm);
     switch get_instance {
     case .ok {}
-    case .err(error_value) {
-        const ignored = error_value;
+    case .err {
         assert(false);
     }
     }
@@ -5091,8 +5048,7 @@ test "instruction executes native AccessController.doPrivileged callback" {
             assert(false);
         }
     }
-    case .exception(reference) {
-        const ignored = reference;
+    case .exception {
         assert(false);
     }
     }
@@ -5354,8 +5310,7 @@ test "instruction executes new object allocation" {
     const execute_result = execute_next(&context, &vm);
     switch execute_result {
     case .ok {}
-    case .err(error_value) {
-        const ignored = error_value;
+    case .err {
         assert(false);
     }
     }
@@ -5475,8 +5430,7 @@ test "instruction executes invokespecial constructor initialization" {
             assert(false);
         }
     }
-    case .exception(reference) {
-        const ignored = reference;
+    case .exception {
         assert(false);
     }
     }
@@ -7091,8 +7045,7 @@ test "instruction executes athrow with existing exception reference" {
     const execute_result = execute_next(&context, &vm);
     switch execute_result {
     case .ok {}
-    case .err(error_value) {
-        const ignored = error_value;
+    case .err {
         assert(false);
     }
     }
@@ -8033,8 +7986,7 @@ test "instruction executes reference array load store ops" {
     const store_result = execute_next(&context, &vm);
     switch store_result {
     case .ok {}
-    case .err(error_value) {
-        const ignored = error_value;
+    case .err {
         assert(false);
     }
     }
@@ -8049,8 +8001,7 @@ test "instruction executes reference array load store ops" {
     const load_result = execute_next(&context, &vm);
     switch load_result {
     case .ok {}
-    case .err(error_value) {
-        const ignored = error_value;
+    case .err {
         assert(false);
     }
     }

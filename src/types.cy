@@ -538,44 +538,34 @@ pub struct Class {
 
 fn fail_unexpected_value(value: Value): void {
     switch value {
-    case .byte_value(ignored) {
-        const unused = ignored;
+    case .byte_value {
         assert(false);
     }
-    case .short_value(ignored) {
-        const unused = ignored;
+    case .short_value {
         assert(false);
     }
-    case .char_value(ignored) {
-        const unused = ignored;
+    case .char_value {
         assert(false);
     }
-    case .int_value(ignored) {
-        const unused = ignored;
+    case .int_value {
         assert(false);
     }
-    case .long_value(ignored) {
-        const unused = ignored;
+    case .long_value {
         assert(false);
     }
-    case .float_value(ignored) {
-        const unused = ignored;
+    case .float_value {
         assert(false);
     }
-    case .double_value(ignored) {
-        const unused = ignored;
+    case .double_value {
         assert(false);
     }
-    case .boolean_value(ignored) {
-        const unused = ignored;
+    case .boolean_value {
         assert(false);
     }
-    case .return_address_value(ignored) {
-        const unused = ignored;
+    case .return_address_value {
         assert(false);
     }
-    case .ref_value(ignored) {
-        const unused = ignored;
+    case .ref_value {
         assert(false);
     }
     }

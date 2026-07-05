@@ -23,9 +23,7 @@ pub struct VM {
         }
         switch self.method_area.resolve_class(copy name) {
         case .ok(class_index) { return .ok(class_index); }
-        case .err(error_value) {
-            const ignored = error_value;
-        }
+        case .err {}
         }
         return .err(InstructionError.invalid_constant);
     }
@@ -99,15 +97,15 @@ pub struct VM {
                         return .ok();
                     }
                 }
-                case .byte_value(ignored) { const unused = ignored; }
-                case .short_value(ignored) { const unused = ignored; }
-                case .char_value(ignored) { const unused = ignored; }
-                case .int_value(ignored) { const unused = ignored; }
-                case .long_value(ignored) { const unused = ignored; }
-                case .float_value(ignored) { const unused = ignored; }
-                case .double_value(ignored) { const unused = ignored; }
-                case .boolean_value(ignored) { const unused = ignored; }
-                case .return_address_value(ignored) { const unused = ignored; }
+                case .byte_value {}
+                case .short_value {}
+                case .char_value {}
+                case .int_value {}
+                case .long_value {}
+                case .float_value {}
+                case .double_value {}
+                case .boolean_value {}
+                case .return_address_value {}
                 }
             }
         }
