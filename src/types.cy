@@ -365,35 +365,29 @@ pub fn java_utf16_units_from_utf8(source: []const u8): [:]u16 {
         if first < 128 {
             out.push(first as u16);
             index = index + 1;
+        } else if first >= 192 and first < 224 and index + 1 < source.len() {
+            const second = source[index + 1];
+            const code = ((first as u32) & 31) << 6 | ((second as u32) & 63);
+            out.push(code as u16);
+            index = index + 2;
+        } else if first >= 224 and first < 240 and index + 2 < source.len() {
+            const second = source[index + 1];
+            const third = source[index + 2];
+            const code = ((first as u32) & 15) << 12 | (((second as u32) & 63) << 6) | ((third as u32) & 63);
+            out.push(code as u16);
+            index = index + 3;
+        } else if first >= 240 and first < 248 and index + 3 < source.len() {
+            const second = source[index + 1];
+            const third = source[index + 2];
+            const fourth = source[index + 3];
+            const code = ((first as u32) & 7) << 18 | (((second as u32) & 63) << 12) | (((third as u32) & 63) << 6) | ((fourth as u32) & 63);
+            const adjusted = code - 65536;
+            out.push((55296 + ((adjusted >> 10) & 1023)) as u16);
+            out.push((56320 + (adjusted & 1023)) as u16);
+            index = index + 4;
         } else {
-            if first >= 192 and first < 224 and index + 1 < source.len() {
-                const second = source[index + 1];
-                const code = ((first as u32) & 31) << 6 | ((second as u32) & 63);
-                out.push(code as u16);
-                index = index + 2;
-            } else {
-                if first >= 224 and first < 240 and index + 2 < source.len() {
-                    const second = source[index + 1];
-                    const third = source[index + 2];
-                    const code = ((first as u32) & 15) << 12 | (((second as u32) & 63) << 6) | ((third as u32) & 63);
-                    out.push(code as u16);
-                    index = index + 3;
-                } else {
-                    if first >= 240 and first < 248 and index + 3 < source.len() {
-                        const second = source[index + 1];
-                        const third = source[index + 2];
-                        const fourth = source[index + 3];
-                        const code = ((first as u32) & 7) << 18 | (((second as u32) & 63) << 12) | (((third as u32) & 63) << 6) | ((fourth as u32) & 63);
-                        const adjusted = code - 65536;
-                        out.push((55296 + ((adjusted >> 10) & 1023)) as u16);
-                        out.push((56320 + (adjusted & 1023)) as u16);
-                        index = index + 4;
-                    } else {
-                        out.push(first as u16);
-                        index = index + 1;
-                    }
-                }
-            }
+            out.push(first as u16);
+            index = index + 1;
         }
     }
     return out;

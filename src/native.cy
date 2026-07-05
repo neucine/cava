@@ -246,10 +246,8 @@ fn native_reference_assignable_to(classes: []Class, actual_index: usize, expecte
                 if native_reference_assignable_to(classes, actual_interface_index, expected_index) {
                     return true;
                 }
-            } else {
-                if interface_name == expected_class.name {
-                    return true;
-                }
+            } else if interface_name == expected_class.name {
+                return true;
             }
             interface_index = interface_index + 1;
         }
@@ -1592,10 +1590,8 @@ struct SunMiscUnsafe {
         const ignored_expected = expected;
         if object.kind == ReferenceKind.array and offset >= 0 {
             const ignored_set = vm.heap.set_element(object, offset as usize, .ref_value(value));
-        } else {
-            if offset >= 0 {
-                const ignored_set = vm.heap.set_field(object, offset as u16, .ref_value(value));
-            }
+        } else if offset >= 0 {
+            const ignored_set = vm.heap.set_field(object, offset as u16, .ref_value(value));
         }
         return return_value(.boolean_value(1));
     }
@@ -1608,10 +1604,8 @@ struct SunMiscUnsafe {
             if vm.heap.get_element(object, offset as usize) is value {
                 return return_value(value);
             }
-        } else {
-            if vm.heap.get_field(object, offset as u16) is value {
-                return return_value(value);
-            }
+        } else if vm.heap.get_field(object, offset as u16) is value {
+            return return_value(value);
         }
         return .err(InstructionError.invalid_constant);
     }
@@ -1621,11 +1615,9 @@ struct SunMiscUnsafe {
             if vm.heap.get_element(object, offset as usize) is value {
                 return return_value(value);
             }
-        } else {
-            if offset >= 0 {
-                if vm.heap.get_field(object, offset as u16) is value {
-                    return return_value(value);
-                }
+        } else if offset >= 0 {
+            if vm.heap.get_field(object, offset as u16) is value {
+                return return_value(value);
             }
         }
         return return_value(.ref_value(null_ref));
@@ -1634,10 +1626,8 @@ struct SunMiscUnsafe {
     pub fn putObjectVolatile(context: &Context, vm: &VM, object: Reference, offset: i64, value: Reference): result<?Value, InstructionError> {
         if object.kind == ReferenceKind.array and offset >= 0 {
             const ignored_set = vm.heap.set_element(object, offset as usize, .ref_value(value));
-        } else {
-            if offset >= 0 {
-                const ignored_set = vm.heap.set_field(object, offset as u16, .ref_value(value));
-            }
+        } else if offset >= 0 {
+            const ignored_set = vm.heap.set_field(object, offset as u16, .ref_value(value));
         }
         return .ok(none);
     }

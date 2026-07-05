@@ -1918,12 +1918,10 @@ fn lcmp(context: &Context, vm: &VM): result<void, InstructionError> {
     const value1 = expect_long(context.frame.pop());
     if value1 > value2 {
         push_int(context, 1);
+    } else if value1 == value2 {
+        push_int(context, 0);
     } else {
-        if value1 == value2 {
-            push_int(context, 0);
-        } else {
-            push_int(context, 0 - 1);
-        }
+        push_int(context, 0 - 1);
     }
     return .ok();
 }
@@ -1933,12 +1931,10 @@ fn fcmpl(context: &Context, vm: &VM): result<void, InstructionError> {
     const value1 = expect_float(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 < value2 {
         push_int(context, 0 - 1);
+    } else if value1 == value2 {
+        push_int(context, 0);
     } else {
-        if value1 == value2 {
-            push_int(context, 0);
-        } else {
-            push_int(context, 1);
-        }
+        push_int(context, 1);
     }
     return .ok();
 }
@@ -1948,12 +1944,10 @@ fn fcmpg(context: &Context, vm: &VM): result<void, InstructionError> {
     const value1 = expect_float(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 > value2 {
         push_int(context, 1);
+    } else if value1 == value2 {
+        push_int(context, 0);
     } else {
-        if value1 == value2 {
-            push_int(context, 0);
-        } else {
-            push_int(context, 0 - 1);
-        }
+        push_int(context, 0 - 1);
     }
     return .ok();
 }
@@ -1963,12 +1957,10 @@ fn dcmpl(context: &Context, vm: &VM): result<void, InstructionError> {
     const value1 = expect_double(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 < value2 {
         push_int(context, 0 - 1);
+    } else if value1 == value2 {
+        push_int(context, 0);
     } else {
-        if value1 == value2 {
-            push_int(context, 0);
-        } else {
-            push_int(context, 1);
-        }
+        push_int(context, 1);
     }
     return .ok();
 }
@@ -1978,12 +1970,10 @@ fn dcmpg(context: &Context, vm: &VM): result<void, InstructionError> {
     const value1 = expect_double(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 > value2 {
         push_int(context, 1);
+    } else if value1 == value2 {
+        push_int(context, 0);
     } else {
-        if value1 == value2 {
-            push_int(context, 0);
-        } else {
-            push_int(context, 0 - 1);
-        }
+        push_int(context, 0 - 1);
     }
     return .ok();
 }

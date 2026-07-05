@@ -208,20 +208,14 @@ pub fn execution_exit_code(error_value: InstructionError): i32 {
 pub fn print_execution_error(error_value: InstructionError): void {
     if error_value == InstructionError.unsupported_opcode {
         println("execution failed: unsupported opcode");
+    } else if error_value == InstructionError.unsupported_native {
+        println("execution failed: unsupported native");
+    } else if error_value == InstructionError.invalid_constant {
+        println("execution failed: invalid or missing constant/class/member");
+    } else if error_value == InstructionError.missing_return {
+        println("execution failed: missing return");
     } else {
-        if error_value == InstructionError.unsupported_native {
-            println("execution failed: unsupported native");
-        } else {
-            if error_value == InstructionError.invalid_constant {
-                println("execution failed: invalid or missing constant/class/member");
-            } else {
-                if error_value == InstructionError.missing_return {
-                    println("execution failed: missing return");
-                } else {
-                    println("execution failed");
-                }
-            }
-        }
+        println("execution failed");
     }
 }
 

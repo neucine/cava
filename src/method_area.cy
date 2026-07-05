@@ -141,10 +141,8 @@ pub fn reference_assignable_to(classes: []Class, actual_index: usize, expected_i
                 if reference_assignable_to(classes, actual_interface_index, expected_index) {
                     return true;
                 }
-            } else {
-                if interface_name == expected_class.name {
-                    return true;
-                }
+            } else if interface_name == expected_class.name {
+                return true;
             }
             interface_index = interface_index + 1;
         }
@@ -619,43 +617,11 @@ pub struct MethodArea {
                             }
                         }
                     }
-                    case .unusable {}
-                    case .integer {}
-                    case .float {}
-                    case .long {}
-                    case .double {}
-                    case .class_ref {}
-                    case .string_ref {}
-                    case .field_ref {}
-                    case .method_ref {}
-                    case .interface_method_ref {}
-                    case .name_and_type {}
-                    case .method_handle {}
-                    case .method_type {}
-                    case .dynamic {}
-                    case .invoke_dynamic {}
-                    case .module_ref {}
-                    case .package_ref {}
+                    else {}
                     }
                 }
             }
-            case .unusable {}
-            case .utf8 {}
-            case .integer {}
-            case .float {}
-            case .long {}
-            case .double {}
-            case .string_ref {}
-            case .field_ref {}
-            case .method_ref {}
-            case .interface_method_ref {}
-            case .name_and_type {}
-            case .method_handle {}
-            case .method_type {}
-            case .dynamic {}
-            case .invoke_dynamic {}
-            case .module_ref {}
-            case .package_ref {}
+            else {}
             }
             constant_index = constant_index + 1;
         }
@@ -691,43 +657,11 @@ pub struct MethodArea {
                             }
                         }
                     }
-                    case .unusable {}
-                    case .integer {}
-                    case .float {}
-                    case .long {}
-                    case .double {}
-                    case .class_ref {}
-                    case .string_ref {}
-                    case .field_ref {}
-                    case .method_ref {}
-                    case .interface_method_ref {}
-                    case .name_and_type {}
-                    case .method_handle {}
-                    case .method_type {}
-                    case .dynamic {}
-                    case .invoke_dynamic {}
-                    case .module_ref {}
-                    case .package_ref {}
+                    else {}
                     }
                 }
             }
-            case .unusable {}
-            case .utf8 {}
-            case .integer {}
-            case .float {}
-            case .long {}
-            case .double {}
-            case .string_ref {}
-            case .field_ref {}
-            case .method_ref {}
-            case .interface_method_ref {}
-            case .name_and_type {}
-            case .method_handle {}
-            case .method_type {}
-            case .dynamic {}
-            case .invoke_dynamic {}
-            case .module_ref {}
-            case .package_ref {}
+            else {}
             }
             constant_index = constant_index + 1;
         }
@@ -1166,12 +1100,10 @@ fn apply_code_attribute_info(classfile: &ClassFile, name_index: u16, raw: []cons
         const count = try reader.read_u2();
         info.line_number_count = info.line_number_count + (count as u32);
         try reader.skip((count as usize) * 4);
-    } else {
-        if is_local_variable_table {
-            const count = try reader.read_u2();
-            info.local_var_count = info.local_var_count + (count as u32);
-            try reader.skip((count as usize) * 10);
-        }
+    } else if is_local_variable_table {
+        const count = try reader.read_u2();
+        info.local_var_count = info.local_var_count + (count as u32);
+        try reader.skip((count as usize) * 10);
     }
     drop reader;
     drop name;
