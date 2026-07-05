@@ -93,31 +93,31 @@ fn descriptor_tag(descriptor: []const u8): u8 {
 
 pub fn default_value(descriptor: []const u8): Value {
     const ch = descriptor_tag(descriptor);
-    if ch == 66 {
+    if ch == 'B' {
         return .byte_value(0);
     }
-    if ch == 67 {
+    if ch == 'C' {
         return .char_value(0);
     }
-    if ch == 68 {
+    if ch == 'D' {
         return .double_value(0.0);
     }
-    if ch == 70 {
+    if ch == 'F' {
         return .float_value(0.0);
     }
-    if ch == 73 {
+    if ch == 'I' {
         return .int_value(0);
     }
-    if ch == 74 {
+    if ch == 'J' {
         return .long_value(0);
     }
-    if ch == 83 {
+    if ch == 'S' {
         return .short_value(0);
     }
-    if ch == 90 {
+    if ch == 'Z' {
         return .boolean_value(false_value);
     }
-    if ch == 76 or ch == 91 {
+    if ch == 'L' or ch == '[' {
         return .ref_value(null_ref);
     }
 
@@ -130,26 +130,26 @@ pub fn is_primitive_descriptor(descriptor: []const u8): bool {
     }
 
     const ch = descriptor_tag(descriptor);
-    return ch == 66 or ch == 67 or ch == 68 or ch == 70 or ch == 73 or ch == 74 or ch == 83 or ch == 90;
+    return ch == 'B' or ch == 'C' or ch == 'D' or ch == 'F' or ch == 'I' or ch == 'J' or ch == 'S' or ch == 'Z';
 }
 
 pub fn method_argument_count(descriptor: string): result<usize, InstructionError> {
     const bytes = descriptor.bytes();
-    if bytes.len() < 2 or bytes[0] != 40 {
+    if bytes.len() < 2 or bytes[0] != '(' {
         return .err(InstructionError.invalid_constant);
     }
 
     var index: usize = 1;
     var count: usize = 0;
-    while index < bytes.len() and bytes[index] != 41 {
-        while index < bytes.len() and bytes[index] == 91 {
+    while index < bytes.len() and bytes[index] != ')' {
+        while index < bytes.len() and bytes[index] == '[' {
             index = index + 1;
         }
         if index >= bytes.len() {
             return .err(InstructionError.invalid_constant);
         }
-        if bytes[index] == 76 {
-            while index < bytes.len() and bytes[index] != 59 {
+        if bytes[index] == 'L' {
+            while index < bytes.len() and bytes[index] != ';' {
                 index = index + 1;
             }
             if index >= bytes.len() {
@@ -160,7 +160,7 @@ pub fn method_argument_count(descriptor: string): result<usize, InstructionError
         count = count + 1;
     }
 
-    if index >= bytes.len() or bytes[index] != 41 {
+    if index >= bytes.len() or bytes[index] != ')' {
         return .err(InstructionError.invalid_constant);
     }
     return .ok(count);
@@ -168,7 +168,7 @@ pub fn method_argument_count(descriptor: string): result<usize, InstructionError
 
 pub fn reference_array_component_descriptor(class_name: string): string {
     const name_bytes = class_name.bytes();
-    if name_bytes.len() > 0 and name_bytes[0] == 91 {
+    if name_bytes.len() > 0 and name_bytes[0] == '[' {
         return string.from(name_bytes);
     }
 
@@ -181,7 +181,7 @@ pub fn reference_array_descriptor(component_descriptor: string): string {
 
 pub fn array_component_descriptor(descriptor: string): string {
     const bytes = descriptor.bytes();
-    if bytes.len() == 0 or bytes[0] != 91 {
+    if bytes.len() == 0 or bytes[0] != '[' {
         return string.from(bytes[0..0]);
     }
     return string.from(bytes[1..bytes.len()]);

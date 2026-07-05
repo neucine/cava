@@ -462,7 +462,7 @@ fn descriptor_class_object(context: &Context, vm: &VM, descriptor: []const u8): 
         index = index + 1;
     }
     drop descriptor_text;
-    if descriptor.len() > 2 and descriptor[0] == 76 {
+    if descriptor.len() > 2 and descriptor[0] == 'L' {
         const name = string.from(descriptor[1..descriptor.len() - 1]);
         const found = find_or_load_native_class_index(context, vm, name);
         drop name;
@@ -511,14 +511,14 @@ fn new_java_reflect_field(context: &Context, vm: &VM, declaring_class: Reference
 
 fn descriptor_end(descriptor: []const u8, start: usize): usize {
     var index = start;
-    while index < descriptor.len() and descriptor[index] == 91 {
+    while index < descriptor.len() and descriptor[index] == '[' {
         index = index + 1;
     }
     if index >= descriptor.len() {
         return descriptor.len();
     }
-    if descriptor[index] == 76 {
-        while index < descriptor.len() and descriptor[index] != 59 {
+    if descriptor[index] == 'L' {
+        while index < descriptor.len() and descriptor[index] != ';' {
             index = index + 1;
         }
         if index < descriptor.len() {
@@ -535,7 +535,7 @@ fn new_class_array_for_method_parameters(context: &Context, vm: &VM, method: &Me
     const descriptor = method.descriptor.bytes();
     var descriptor_index: usize = 1;
     var parameter_index: usize = 0;
-    while descriptor_index < descriptor.len() and descriptor[descriptor_index] != 41 and parameter_index < method.parameter_count as usize {
+    while descriptor_index < descriptor.len() and descriptor[descriptor_index] != ')' and parameter_index < method.parameter_count as usize {
         const end = descriptor_end(descriptor, descriptor_index);
         const class_reference = try descriptor_class_object(context, vm, descriptor[descriptor_index..end]);
         const ignored_set = vm.heap.set_element(array, parameter_index, .ref_value(class_reference));
@@ -1107,7 +1107,7 @@ struct JavaLangClass {
                 return return_value(.ref_value(null_ref));
             }
             const component = class.component_type.bytes();
-            if component.len() > 2 and component[0] == 76 {
+            if component.len() > 2 and component[0] == 'L' {
                 const name = string.from(component[1..component.len() - 1]);
                 switch find_or_load_native_class_index(context, vm, name) {
                 case .ok(component_index) {
@@ -1121,7 +1121,7 @@ struct JavaLangClass {
                 }
                 }
             }
-            if component.len() > 0 and component[0] == 91 {
+            if component.len() > 0 and component[0] == '[' {
                 const name = string.from(component);
                 switch find_or_load_native_class_index(context, vm, name) {
                 case .ok(component_index) {

@@ -1006,13 +1006,13 @@ test "classfile resolves constant pool symbolic references" {
     assert(pair.name.bytes()[0] == 97);
     assert(pair.name.bytes()[5] == 114);
     assert(pair.descriptor.bytes().len() == 1);
-    assert(pair.descriptor.bytes()[0] == 73);
+    assert(pair.descriptor.bytes()[0] == 'I');
     drop pair;
 
     const member = try classfile.member_ref(6);
     assert(member.class_name.bytes()[0] == 77);
     assert(member.name.bytes()[0] == 97);
-    assert(member.descriptor.bytes()[0] == 73);
+    assert(member.descriptor.bytes()[0] == 'I');
     drop member;
 
     switch classfile.utf8(2) {

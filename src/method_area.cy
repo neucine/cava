@@ -318,7 +318,7 @@ pub struct MethodArea {
 
     pub fn resolve_class(self: &MethodArea, class_name: string): result<usize, MethodAreaError> {
         const class_name_bytes = class_name.bytes();
-        if class_name_bytes.len() > 0 and class_name_bytes[0] == 91 {
+        if class_name_bytes.len() > 0 and class_name_bytes[0] == '[' {
             return .ok(self.define_array_class(copy class_name));
         }
         if self.find_class_index(copy class_name) is existing {
@@ -386,7 +386,7 @@ pub struct MethodArea {
         const name = try classfile.class_name(constant_index);
         var resolved: ?usize = none;
         if name != "" {
-            if name.bytes()[0] == 91 {
+            if name.bytes()[0] == '[' {
                 resolved = self.define_array_class(copy name);
             }
         }
@@ -630,7 +630,7 @@ pub struct MethodArea {
                     case .utf8(name) {
                         const name_bytes = name.bytes();
                         if name_bytes.len() > 0 {
-                            if name_bytes[0] == 91 {
+                            if name_bytes[0] == '[' {
                                 const ignored_array = self.define_array_class(string.from(name_bytes));
                             } else {
                                 const array_name = array_descriptor_from_class_name(copy name);
@@ -715,7 +715,7 @@ pub struct MethodArea {
                     case .utf8(name) {
                         const name_bytes = name.bytes();
                         if name_bytes.len() > 0 {
-                            if name_bytes[0] == 91 {
+                            if name_bytes[0] == '[' {
                                 const ignored_array = self.define_array_class(string.from(name_bytes));
                             } else {
                                 const array_name = array_descriptor_from_class_name(copy name);
@@ -790,7 +790,7 @@ pub struct MethodArea {
     fn define_descriptor_array_references(self: &MethodArea, descriptor: []const u8): void {
         var index: usize = 0;
         while index < descriptor.len() {
-            if descriptor[index] == 91 {
+            if descriptor[index] == '[' {
                 const end = descriptor_array_end(descriptor, index);
                 if end > index {
                     const array_name = string.from(descriptor[index..end]);
@@ -996,14 +996,14 @@ fn array_descriptor_from_class_name(name: string): string {
 
 fn descriptor_array_end(descriptor: []const u8, start: usize): usize {
     var index = start;
-    while index < descriptor.len() and descriptor[index] == 91 {
+    while index < descriptor.len() and descriptor[index] == '[' {
         index = index + 1;
     }
     if index >= descriptor.len() {
         return descriptor.len();
     }
-    if descriptor[index] == 76 {
-        while index < descriptor.len() and descriptor[index] != 59 {
+    if descriptor[index] == 'L' {
+        while index < descriptor.len() and descriptor[index] != ';' {
             index = index + 1;
         }
         if index < descriptor.len() {
@@ -1041,20 +1041,20 @@ fn first_type_bytes(descriptor: []const u8): []const u8 {
     }
 
     const tag = descriptor[0];
-    if tag == 66 or tag == 67 or tag == 68 or tag == 70 or tag == 73 or tag == 74 or tag == 83 or tag == 90 or tag == 86 {
+    if tag == 'B' or tag == 'C' or tag == 'D' or tag == 'F' or tag == 'I' or tag == 'J' or tag == 'S' or tag == 'Z' or tag == 'V' {
         return descriptor[0..1];
     }
-    if tag == 76 {
+    if tag == 'L' {
         var index: usize = 1;
         while index < descriptor.len() {
-            if descriptor[index] == 59 {
+            if descriptor[index] == ';' {
                 return descriptor[0..index + 1];
             }
             index = index + 1;
         }
         return descriptor[0..0];
     }
-    if tag == 91 {
+    if tag == '[' {
         const component = first_type_bytes(descriptor[1..descriptor.len()]);
         if component.len() == 0 {
             return component;
@@ -1066,13 +1066,13 @@ fn first_type_bytes(descriptor: []const u8): []const u8 {
 
 pub fn method_parameter_count(descriptor: string): usize {
     const bytes = descriptor.bytes();
-    if bytes.len() == 0 or bytes[0] != 40 {
+    if bytes.len() == 0 or bytes[0] != '(' {
         return 0;
     }
 
     var index: usize = 1;
     var count: usize = 0;
-    while index < bytes.len() and bytes[index] != 41 {
+    while index < bytes.len() and bytes[index] != ')' {
         const param = first_type_bytes(bytes[index..bytes.len()]);
         if param.len() == 0 {
             return count;
@@ -1087,7 +1087,7 @@ pub fn method_return_descriptor(descriptor: string): string {
     const bytes = descriptor.bytes();
     var index: usize = 0;
     while index < bytes.len() {
-        if bytes[index] == 41 {
+        if bytes[index] == ')' {
             return string.from(bytes[index + 1..bytes.len()]);
         }
         index = index + 1;
@@ -1097,7 +1097,7 @@ pub fn method_return_descriptor(descriptor: string): string {
 
 pub fn array_component_type(name: string): string {
     const bytes = name.bytes();
-    if bytes.len() == 0 or bytes[0] != 91 {
+    if bytes.len() == 0 or bytes[0] != '[' {
         return string.from(bytes[0..0]);
     }
     return string.from(bytes[1..bytes.len()]);
@@ -1105,12 +1105,12 @@ pub fn array_component_type(name: string): string {
 
 pub fn array_element_type(name: string): string {
     const bytes = name.bytes();
-    if bytes.len() == 0 or bytes[0] != 91 {
+    if bytes.len() == 0 or bytes[0] != '[' {
         return string.from(bytes[0..0]);
     }
     var index: usize = 0;
     while index < bytes.len() {
-        if bytes[index] != 91 {
+        if bytes[index] != '[' {
             return string.from(bytes[index..bytes.len()]);
         }
         index = index + 1;
@@ -1122,11 +1122,11 @@ pub fn array_dimensions(name: string): u32 {
     const bytes = name.bytes();
     var dimensions: u32 = 1;
     var index: usize = 1;
-    if bytes.len() == 0 or bytes[0] != 91 {
+    if bytes.len() == 0 or bytes[0] != '[' {
         return 0;
     }
     while index < bytes.len() {
-        if bytes[index] == 91 {
+        if bytes[index] == '[' {
             dimensions = dimensions + 1;
         }
         index = index + 1;
@@ -1458,14 +1458,14 @@ test "method descriptor parser extracts parameter count and return type" {
     const descriptor_bytes = descriptor.bytes();
     const first = first_type_bytes(descriptor_bytes[1..descriptor_bytes.len()]);
     assert(first.len() == 19);
-    assert(first[0] == 91);
-    assert(first[18] == 59);
+    assert(first[0] == '[');
+    assert(first[18] == ';');
     assert(method_parameter_count(descriptor) == 2);
 
     const ret = method_return_descriptor(descriptor);
     assert(ret.len() == 18);
-    assert(ret.bytes()[0] == 76);
-    assert(ret.bytes()[17] == 59);
+    assert(ret.bytes()[0] == 'L');
+    assert(ret.bytes()[17] == ';');
     drop ret;
 }
 
@@ -1480,8 +1480,8 @@ test "method area parses array class descriptor metadata" {
     assert(class.interfaces.len() == 2);
     const component_type = class.component_type.bytes();
     const element_type = class.element_type.bytes();
-    assert(component_type[0] == 91);
-    assert(element_type[0] == 76);
+    assert(component_type[0] == '[');
+    assert(element_type[0] == 'L');
     assert(class.dimensions == 2);
     assert(class.fields.len() == 0);
     assert(class.methods.len() == 0);
@@ -1537,7 +1537,7 @@ test "method area synthesizes array classes once" {
     assert(area.classes.len() == 1);
     assert(area.classes[0].is_array);
     const component_type = area.classes[0].component_type.bytes();
-    assert(component_type[0] == 73);
+    assert(component_type[0] == 'I');
     assert(area.has_class("[I"));
 }
 
@@ -1678,7 +1678,7 @@ test "method area derives class metadata from classfile" {
     var class = try derive_class(&classfile);
     assert(class.name.bytes()[0] == 77);
     assert(class.descriptor.len() == 6);
-    assert(class.descriptor.bytes()[0] == 76);
+    assert(class.descriptor.bytes()[0] == 'L');
     assert(class.super_class.bytes()[0] == 106);
     assert(class.source_file.bytes()[0] == 77);
     assert(class.source_file.bytes().len() == 9);
@@ -1712,7 +1712,7 @@ test "method area derives class metadata from classfile" {
     assert(class.methods[0].line_number_count == 1);
     assert(class.methods[0].local_var_count == 1);
     assert(class.methods[0].parameter_count == 0);
-    assert(class.methods[0].return_descriptor.bytes()[0] == 73);
+    assert(class.methods[0].return_descriptor.bytes()[0] == 'I');
     class.clear();
     drop class;
     classfile.clear();
