@@ -1,8 +1,10 @@
 # Cava
 
-Cava is a Cyna rewrite of [Zava](https://github.com/chaoyangnz/zava), a small Java VM originally written in Zig.
+Cava is a [Cyna](https://cyna.dev) rewrite of [Zava](https://github.com/chaoyangnz/zava), a small Java VM originally written in Zig.
 
 The goal is not to build a full JVM, add a JIT, or redesign Zava. The goal is to reimplement the behavior that Zava already supports, using the Zig codebase as the executable reference, while exercising Cyna on a real systems-programming workload.
+
+I am proud to be the author of Cyna. ✨🚀💛
 
 ## Purpose
 
@@ -27,10 +29,11 @@ In scope:
 - Current exception handling behavior.
 - Current native method bridge.
 - Current example programs and supported JDK classes.
+- A simple post-parity stop-the-world mark/sweep garbage collector.
 
 Out of scope:
 
-- Garbage collection.
+- Moving, generational, concurrent, or performance-oriented garbage collection.
 - JIT compilation.
 - JVM verifier.
 - Full JVM compliance.

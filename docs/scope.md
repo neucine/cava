@@ -35,12 +35,13 @@ This includes both supported behavior and unsupported behavior. If Zava currentl
 - Exceptions as currently handled.
 - Native methods as currently implemented.
 - Existing Zava examples and supported JDK classes.
+- A simple post-parity stop-the-world mark/sweep garbage collector.
 
 ## Out of Scope
 
 - Full JVM specification compliance.
 - Bytecode verifier.
-- Garbage collector.
+- Moving, generational, concurrent, or performance-oriented garbage collection.
 - JIT compiler.
 - Threads and monitors beyond current Zava behavior.
 - Performance-oriented redesign.
@@ -57,4 +58,3 @@ Known examples from Zava:
 - `Base62`
 - `Calendar`
 - `Pyramid`
-
