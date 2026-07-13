@@ -1353,8 +1353,10 @@ struct JavaLangThread {
         return return_value(.boolean_value(0));
     }
 
-    pub fn holdsLock(context: &Context, object: Reference): result<?Value, InstructionError> {
-        const ignored_object = object;
+    pub fn holdsLock(context: &Context, vm: &VM, object: Reference): result<?Value, InstructionError> {
+        if vm.heap.monitor_held_by_current_thread(object) {
+            return return_value(.boolean_value(1));
+        }
         return return_value(.boolean_value(0));
     }
 
@@ -1899,7 +1901,7 @@ pub fn execute_native_method(context: &Context, vm: &VM, class_index: usize, met
         if method_is(method, "sleep", "(J)V") { return JavaLangThread.sleep(context, long_arg(&args, 0)); }
         if method_is(method, "interrupt0", "()V") { return JavaLangThread.interrupt0(context, try receiver_ref(receiver)); }
         if method_is(method, "isInterrupted", "(Z)Z") { return JavaLangThread.isInterrupted(context, try receiver_ref(receiver), int_arg(&args, 0)); }
-        if method_is(method, "holdsLock", "(Ljava/lang/Object;)Z") { return JavaLangThread.holdsLock(context, ref_arg(&args, 0)); }
+        if method_is(method, "holdsLock", "(Ljava/lang/Object;)Z") { return JavaLangThread.holdsLock(context, vm, ref_arg(&args, 0)); }
         if method_is(method, "yield0", "()V") { return JavaLangThread.yield0(context); }
         if method_is(method, "clearInterruptEvent", "()V") { return JavaLangThread.clearInterruptEvent(context); }
         if method_is(method, "setNativeName", "(Ljava/lang/String;)V") { return JavaLangThread.setNativeName(context, try receiver_ref(receiver), ref_arg(&args, 0)); }

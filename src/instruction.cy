@@ -3169,16 +3169,16 @@ fn instanceof(context: &Context, vm: &VM): result<void, InstructionError> {
 
 fn monitorenter(context: &Context, vm: &VM): result<void, InstructionError> {
     const reference = expect_ref(context.frame.pop());
-    if reference.is_null() {
-        assert(false);
+    if !vm.heap.monitor_enter(reference) {
+        return .err(InstructionError.invalid_constant);
     }
     return .ok();
 }
 
 fn monitorexit(context: &Context, vm: &VM): result<void, InstructionError> {
     const reference = expect_ref(context.frame.pop());
-    if reference.is_null() {
-        assert(false);
+    if !vm.heap.monitor_exit(reference) {
+        return .err(InstructionError.invalid_constant);
     }
     return .ok();
 }

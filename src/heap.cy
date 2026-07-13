@@ -1,4 +1,6 @@
 import { Class, Field, Method, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, default_value, field_access_flags, null_ref } from .types;
+import { Mutex, SyncStatus } from std.sync;
+import { ThreadId, current_id } from std.thread;
 
 pub struct Object {
     pub class_index: usize;
@@ -30,6 +32,13 @@ pub struct InternedMethodHandle {
     pub reference: Reference;
 }
 
+pub struct Monitor {
+    pub reference: Reference;
+    pub mutex: Mutex;
+    pub owner: ?ThreadId;
+    pub depth: u32;
+}
+
 pub struct Heap {
     pub objects: SlotMap<Object>;
     pub arrays: SlotMap<ArrayObject>;
@@ -37,17 +46,28 @@ pub struct Heap {
     pub method_types: List<InternedMethodType>;
     pub method_handles: List<InternedMethodHandle>;
     pub current_thread: ?Reference;
+    pub monitors: List<Monitor>;
+    pub monitor_table_mutex: Mutex;
+    pub monitor_table_active: bool;
 
     pub fn clear(self: &Heap): void {
         while self.strings.len() > 0 {
             var value = self.strings.pop();
             drop value;
         }
+        while self.monitors.len() > 0 {
+            const monitor = self.monitors.pop();
+            const ignored_destroy = monitor.mutex.destroy();
+        }
         self.objects.clear();
         self.arrays.clear();
         self.method_types.clear();
         self.method_handles.clear();
         self.current_thread = none;
+        if self.monitor_table_active {
+            const ignored_destroy = self.monitor_table_mutex.destroy();
+            self.monitor_table_active = false;
+        }
     }
 
     pub fn allocate_object(self: &Heap, class_index: usize, class: &Class): Reference {
@@ -379,6 +399,133 @@ pub struct Heap {
     pub fn set_current_thread(self: &Heap, reference: Reference): void {
         self.current_thread = reference;
     }
+
+    pub fn monitor_enter(self: &Heap, reference: Reference): bool {
+        if reference.is_null() {
+            return false;
+        }
+        if !lock_ok(self.monitor_table_mutex) {
+            return false;
+        }
+        const monitor_index = self.monitor_index_or_create(reference);
+        if !unlock_ok(self.monitor_table_mutex) {
+            return false;
+        }
+        if monitor_index is actual_index {
+            const current = current_monitor_owner_id();
+            var monitor = self.monitors[actual_index];
+            if monitor.owner is owner {
+                if owner.equals(current) {
+                    monitor.depth = monitor.depth + 1;
+                    self.monitors[actual_index] = monitor;
+                    return true;
+                }
+            }
+            const mutex = monitor.mutex;
+            if !lock_ok(mutex) {
+                return false;
+            }
+            monitor.owner = current;
+            monitor.depth = 1;
+            self.monitors[actual_index] = monitor;
+            return true;
+        }
+        return false;
+    }
+
+    pub fn monitor_exit(self: &Heap, reference: Reference): bool {
+        if reference.is_null() {
+            return false;
+        }
+        const current = current_monitor_owner_id();
+        if !lock_ok(self.monitor_table_mutex) {
+            return false;
+        }
+        const monitor_index = self.monitor_index(reference);
+        if !unlock_ok(self.monitor_table_mutex) {
+            return false;
+        }
+        if monitor_index is actual_index {
+            var monitor = self.monitors[actual_index];
+            if monitor.owner is owner {
+                if owner.equals(current) {
+                    if monitor.depth > 1 {
+                        monitor.depth = monitor.depth - 1;
+                        self.monitors[actual_index] = monitor;
+                        return true;
+                    }
+                    monitor.depth = 0;
+                    monitor.owner = none;
+                    const mutex = monitor.mutex;
+                    self.monitors[actual_index] = monitor;
+                    return unlock_ok(mutex);
+                }
+            }
+        }
+        return false;
+    }
+
+    pub fn monitor_held_by_current_thread(self: &Heap, reference: Reference): bool {
+        if reference.is_null() {
+            return false;
+        }
+        const current = current_monitor_owner_id();
+        if !lock_ok(self.monitor_table_mutex) {
+            return false;
+        }
+        const monitor_index = self.monitor_index(reference);
+        if !unlock_ok(self.monitor_table_mutex) {
+            return false;
+        }
+        if monitor_index is actual_index {
+            if self.monitors[actual_index].owner is owner {
+                if owner.equals(current) {
+                    return self.monitors[actual_index].depth > 0;
+                }
+            }
+        }
+        return false;
+    }
+
+    fn monitor_index(self: &Heap, reference: Reference): ?usize {
+        var index: usize = 0;
+        while index < self.monitors.len() {
+            if self.monitors[index].reference.equals(reference) {
+                return index;
+            }
+            index = index + 1;
+        }
+        return none;
+    }
+
+    fn monitor_index_or_create(self: &Heap, reference: Reference): ?usize {
+        if self.monitor_index(reference) is existing {
+            return existing;
+        }
+        const mutex = Mutex.init();
+        if !mutex.is_valid() {
+            return none;
+        }
+        self.monitors.push(Monitor {
+            reference: reference,
+            mutex: mutex,
+            owner: none,
+            depth: 0,
+        });
+        return self.monitors.len() - 1;
+    }
+}
+
+fn lock_ok(mutex: Mutex): bool {
+    return mutex.lock() == SyncStatus.ok;
+}
+
+fn unlock_ok(mutex: Mutex): bool {
+    return mutex.unlock() == SyncStatus.ok;
+}
+
+fn current_monitor_owner_id(): ThreadId {
+    return current_id();
 }
 
 fn find_class_index(classes: []Class, name: string): ?usize {
@@ -421,6 +568,9 @@ pub fn new_heap(): Heap {
         method_types: [],
         method_handles: [],
         current_thread: none,
+        monitors: [],
+        monitor_table_mutex: Mutex.init(),
+        monitor_table_active: true,
     };
 }
 
@@ -742,4 +892,25 @@ test "heap interns method handle objects by reference kind and index" {
     assert(heap.method_handles.len() == 3);
     assert(heap.method_handles[0].reference_kind == 6);
     assert(heap.method_handles[0].reference_index == 7);
+}
+
+test "heap monitors are reentrant for current native thread" {
+    var heap = new_heap();
+    const reference = Reference {
+        kind: ReferenceKind.object,
+        slot: 1,
+        generation: 0,
+    };
+
+    assert(!heap.monitor_held_by_current_thread(reference));
+    assert(heap.monitor_enter(reference));
+    assert(heap.monitor_held_by_current_thread(reference));
+    assert(heap.monitor_enter(reference));
+    assert(heap.monitor_held_by_current_thread(reference));
+    assert(heap.monitor_exit(reference));
+    assert(heap.monitor_held_by_current_thread(reference));
+    assert(heap.monitor_exit(reference));
+    assert(!heap.monitor_held_by_current_thread(reference));
+    assert(!heap.monitor_exit(reference));
+    heap.clear();
 }
