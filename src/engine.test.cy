@@ -3,7 +3,12 @@ import { execute_next, find_class_index_by_constant, print_instruction_error_con
 import { class_matches } from .method_area;
 import { VM, new_vm } from .vm;
 import { Class, ExceptionHandler, InstructionError, Reference, Value } from .types;
-import { max_call_stack, ThreadStatus, FrameResult, Frame, new_frame, Thread, new_thread, Context, execution_exit_code, print_execution_error, handler_matches, dispatch_exception, apply_method_result, execute_method_frame_with_vm, execute_method_area_with_vm, execute_classfile_method_area_with_vm, expect_ref_for_engine, assert_int_value } from .engine;
+import {
+    max_call_stack, ThreadStatus, FrameResult, Frame, new_frame,
+    Thread, new_thread, Context, execution_exit_code, print_execution_error,
+    handler_matches, dispatch_exception, apply_method_result, execute_method_frame_with_vm, execute_method_area_with_vm,
+    execute_classfile_method_area_with_vm, expect_ref_for_engine, assert_int_value
+} from .engine;
 
 test "frame manages locals operand stack and pc" {
     var frame = new_frame(2, 3, 2, 4);

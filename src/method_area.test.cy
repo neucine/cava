@@ -1,8 +1,27 @@
-import { AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant, ConstantMemberRef, ConstantNameAndType, MemberInfo, new_classfile, parse_classfile } from .classfile;
-import { Class, ExceptionHandler, Field, Method, Reference, Value, byte_buffer, class_access_flags, default_value, field_access_flags, method_access_flags, null_ref } from .types;
+import {
+    AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant,
+    ConstantMemberRef, ConstantNameAndType, MemberInfo, new_classfile, parse_classfile
+} from .classfile;
+import {
+    Class, ExceptionHandler, Field, Method, Reference,
+    Value, byte_buffer, class_access_flags, default_value, field_access_flags,
+    method_access_flags, null_ref
+} from .types;
 import { FsError, read_file } from std.fs;
 import { index_of } from std.mem;
-import { MethodAreaError, method_area_error_from_fs, SymbolPool, new_symbol_pool, ResolvedMethod, find_loaded_class_index, class_matches, class_named, reference_assignable_to, class_index_by_name, class_instance_var_count, hierarchy_instance_var_count, field_slot_offset, runtime_field_slot, contains_class_index, project_root_from_example_class_path, MethodArea, duplicate_loaded_class, new_method_area, empty_code, owned_text, builtin_field, builtin_method, builtin_object_class, builtin_print_stream_class, builtin_system_class, builtin_string_builder_class, builtin_class, array_descriptor_from_class_name, descriptor_array_end, class_file_path, ResolvedFieldRef, ResolvedMethodRef, first_type_bytes, method_parameter_count, method_return_descriptor, array_component_type, array_element_type, array_dimensions, class_descriptor_from_name, derive_array_class, CodeInfo, empty_code_info, apply_code_attribute_info, code_info_from_attribute, member_code_info, derive_interfaces_into, derive_fields, derive_static_vars, instance_var_count, derive_source_file, derive_methods, derive_class } from .method_area;
+import {
+    MethodAreaError, method_area_error_from_fs, SymbolPool, new_symbol_pool, ResolvedMethod,
+    find_loaded_class_index, class_matches, class_named, reference_assignable_to, class_index_by_name,
+    class_instance_var_count, hierarchy_instance_var_count, field_slot_offset, runtime_field_slot, contains_class_index,
+    project_root_from_example_class_path, MethodArea, duplicate_loaded_class, new_method_area, empty_code,
+    owned_text, builtin_field, builtin_method, builtin_object_class, builtin_print_stream_class,
+    builtin_system_class, builtin_string_builder_class, builtin_class, array_descriptor_from_class_name, descriptor_array_end,
+    class_file_path, ResolvedFieldRef, ResolvedMethodRef, first_type_bytes, method_parameter_count,
+    method_return_descriptor, array_component_type, array_element_type, array_dimensions, class_descriptor_from_name,
+    derive_array_class, CodeInfo, empty_code_info, apply_code_attribute_info, code_info_from_attribute,
+    member_code_info, derive_interfaces_into, derive_fields, derive_static_vars, instance_var_count,
+    derive_source_file, derive_methods, derive_class
+} from .method_area;
 
 test "method descriptor parser extracts parameter count and return type" {
     const descriptor = "([Ljava/lang/String;I)Ljava/lang/Object;";

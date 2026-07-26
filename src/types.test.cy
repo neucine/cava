@@ -1,5 +1,16 @@
 import { Constant } from .classfile;
-import { byte, short, char, int, long, float, double, boolean, return_address, ReferenceKind, Reference, Value, true_value, false_value, InstructionError, ObjectRef, ArrayRef, JavaLangClass, JavaLangString, JavaLangThread, JavaLangThrowable, JavaLangClassLoader, JavaLangReflectField, JavaLangReflectConstructor, null_ref, descriptor_tag, default_value, is_primitive_descriptor, method_argument_count, reference_array_component_descriptor, reference_array_descriptor, array_component_descriptor, ClassAccessFlags, FieldAccessFlags, MethodAccessFlags, class_access_flags, field_access_flags, method_access_flags, raw_class_access, raw_field_access, raw_method_access, ExceptionHandler, Field, Method, byte_buffer, java_utf16_units_from_utf8, LocalVariable, LineNumber, Class, fail_unexpected_value } from .types;
+import {
+    byte, short, char, int, long,
+    float, double, boolean, return_address, ReferenceKind,
+    Reference, Value, true_value, false_value, InstructionError,
+    ObjectRef, ArrayRef, JavaLangClass, JavaLangString, JavaLangThread,
+    JavaLangThrowable, JavaLangClassLoader, JavaLangReflectField, JavaLangReflectConstructor, null_ref,
+    descriptor_tag, default_value, is_primitive_descriptor, method_argument_count, reference_array_component_descriptor,
+    reference_array_descriptor, array_component_descriptor, ClassAccessFlags, FieldAccessFlags, MethodAccessFlags,
+    class_access_flags, field_access_flags, method_access_flags, raw_class_access, raw_field_access,
+    raw_method_access, ExceptionHandler, Field, Method, byte_buffer,
+    java_utf16_units_from_utf8, LocalVariable, LineNumber, Class, fail_unexpected_value
+} from .types;
 
 test "types decodes UTF-8 bytes to Java UTF-16 units" {
     const raw: [4]u8 = [0x37, 0xE4, 0xA0, 0x80];

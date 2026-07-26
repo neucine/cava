@@ -1,7 +1,15 @@
-import { Class, Field, Method, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, default_value, field_access_flags, null_ref } from .types;
+import {
+    Class, Field, Method, Reference, ReferenceKind,
+    Value, byte_buffer, class_access_flags, default_value, field_access_flags,
+    null_ref
+} from .types;
 import { Mutex, SyncStatus } from std.sync;
 import { ThreadId, current_id } from std.thread;
-import { Object, ArrayObject, InternedString, InternedStringBytes, InternedMethodType, InternedMethodHandle, Monitor, Heap, lock_ok, unlock_ok, current_monitor_owner_id, find_class_index, append_hierarchy_fields, new_heap, assert_int_value } from .heap;
+import {
+    Object, ArrayObject, InternedString, InternedStringBytes, InternedMethodType,
+    InternedMethodHandle, Monitor, Heap, lock_ok, unlock_ok,
+    current_monitor_owner_id, find_class_index, append_hierarchy_fields, new_heap, assert_int_value
+} from .heap;
 
 test "heap allocates objects with default instance fields" {
     const static_field = Field {

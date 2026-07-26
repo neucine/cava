@@ -3,9 +3,31 @@ import { Context } from .engine;
 import { new_frame } from .engine;
 import { VM } from .vm;
 import { new_vm } from .vm;
-import { Class, Field, InstructionError, Method, MethodAccessFlags, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, field_access_flags, java_utf16_units_from_utf8, null_ref, raw_class_access, raw_field_access, raw_method_access } from .types;
+import {
+    Class, Field, InstructionError, Method, MethodAccessFlags,
+    Reference, ReferenceKind, Value, byte_buffer, class_access_flags,
+    field_access_flags, java_utf16_units_from_utf8, null_ref, raw_class_access, raw_field_access,
+    raw_method_access
+} from .types;
 import { monotonic_ns, now_ns, ns_to_ms } from std.time;
-import { ref_arg, value_ref_or_null, int_arg, long_arg, float_arg, double_arg, receiver_ref, return_value, identity_hash_code, set_system_static_ref, find_native_class_index, load_native_class_index, find_or_load_native_class_index, find_loaded_class_index, find_class_object_index_in, native_class_index_by_name, native_hierarchy_instance_var_count, native_field_runtime_slot, native_class_named, native_reference_assignable_to, set_instance_field, set_instance_field_in, get_instance_field, get_instance_field_in, java_string, java_string_bytes, is_primitive_class_object, ensure_class_object, descriptor_class_object, new_java_reflect_field, descriptor_end, new_class_array_for_method_parameters, new_java_reflect_constructor, array_descriptor_for_component, class_name_from_java_name, java_string_buffer, concat_java_string, print_java_string, new_thread_group, new_java_lang_thread, arraycopy, clone_array, clone_object, JavaLangSystem, JavaLangObject, JavaLangClass, JavaLangClassLoader, JavaLangClassLoaderNativeLibrary, JavaLangReflectArray, JavaLangPackage, JavaLangString, java_lang_string_builder_append, java_lang_string_builder_init, java_lang_string_builder_to_string, java_io_print_stream_println, JavaLangFloat, JavaLangDouble, JavaLangThread, JavaLangThrowable, JavaLangRuntime, JavaLangShutdown, JavaLangRefFinalizer, JavaLangRefReference, SunReflectReflection, JdkInternalReflectReflection, JavaSecurityAccessController, SunMiscVM, SunMiscUnsafe, JavaIoFileDescriptor, JavaIoFileInputStream, JavaIoFileOutputStream, JavaIoUnixFileSystem, JavaUtilConcurrentAtomicAtomicLong, JavaUtilZipZipFile, method_is, execute_native_method, seed_test_vm } from .native;
+import {
+    ref_arg, value_ref_or_null, int_arg, long_arg, float_arg,
+    double_arg, receiver_ref, return_value, identity_hash_code, set_system_static_ref,
+    find_native_class_index, load_native_class_index, find_or_load_native_class_index, find_loaded_class_index, find_class_object_index_in,
+    native_class_index_by_name, native_hierarchy_instance_var_count, native_field_runtime_slot, native_class_named, native_reference_assignable_to,
+    set_instance_field, set_instance_field_in, get_instance_field, get_instance_field_in, java_string,
+    java_string_bytes, is_primitive_class_object, ensure_class_object, descriptor_class_object, new_java_reflect_field,
+    descriptor_end, new_class_array_for_method_parameters, new_java_reflect_constructor, array_descriptor_for_component, class_name_from_java_name,
+    java_string_buffer, concat_java_string, print_java_string, new_thread_group, new_java_lang_thread,
+    arraycopy, clone_array, clone_object, JavaLangSystem, JavaLangObject,
+    JavaLangClass, JavaLangClassLoader, JavaLangClassLoaderNativeLibrary, JavaLangReflectArray, JavaLangPackage,
+    JavaLangString, java_lang_string_builder_append, java_lang_string_builder_init, java_lang_string_builder_to_string, java_io_print_stream_println,
+    JavaLangFloat, JavaLangDouble, JavaLangThread, JavaLangThrowable, JavaLangRuntime,
+    JavaLangShutdown, JavaLangRefFinalizer, JavaLangRefReference, SunReflectReflection, JdkInternalReflectReflection,
+    JavaSecurityAccessController, SunMiscVM, SunMiscUnsafe, JavaIoFileDescriptor, JavaIoFileInputStream,
+    JavaIoFileOutputStream, JavaIoUnixFileSystem, JavaUtilConcurrentAtomicAtomicLong, JavaUtilZipZipFile, method_is,
+    execute_native_method, seed_test_vm
+} from .native;
 
 test "native Object.clone copies instance fields" {
     const native_code: [0]u8 = [];

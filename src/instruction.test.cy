@@ -1,12 +1,82 @@
 import { Constant, ConstantMemberRef, ConstantMethodHandle, ConstantNameAndType, ConstantWide } from .classfile;
-import { Context, Frame, FrameResult, apply_method_result, dispatch_exception, execute_method_frame_with_vm, new_frame } from .engine;
-import { MethodArea, ResolvedMethod, class_matches, find_loaded_class_index, new_method_area, reference_assignable_to, runtime_field_slot } from .method_area;
+import {
+    Context, Frame, FrameResult, apply_method_result, dispatch_exception,
+    execute_method_frame_with_vm, new_frame
+} from .engine;
+import {
+    MethodArea, ResolvedMethod, class_matches, find_loaded_class_index, new_method_area,
+    reference_assignable_to, runtime_field_slot
+} from .method_area;
 import { VM } from .vm;
 import { new_vm } from .vm;
 import { execute_native_method } from .native;
-import { Class, Field, InstructionError, Method, Reference, ReferenceKind, Value, array_component_descriptor, byte_buffer, class_access_flags, field_access_flags, method_access_flags, method_argument_count, null_ref, reference_array_component_descriptor, reference_array_descriptor } from .types;
+import {
+    Class, Field, InstructionError, Method, Reference,
+    ReferenceKind, Value, array_component_descriptor, byte_buffer, class_access_flags,
+    field_access_flags, method_access_flags, method_argument_count, null_ref, reference_array_component_descriptor,
+    reference_array_descriptor
+} from .types;
 import { env_get } from std.process;
-import { Opcode, Instruction, ExecuteFn, constant_utf8, constant_class_name, constant_utf8_equals, find_class_index_by_constant, find_class_index, field_runtime_slot, find_field_index_by_constants, find_field_in_hierarchy, find_field_by_name_in_hierarchy, find_field_index, find_static_method_index_by_constants, find_instance_method_index_by_constants, find_static_method_index_in_hierarchy, find_instance_method_index_in_hierarchy, find_interface_method_index_in_hierarchy, find_instance_method_by_name_in_hierarchy, resolve_field, resolve_static_method, resolve_instance_method, resolve_interface_method, push_int, expect_int, expect_ref, expect_long, expect_float, expect_double, expect_return_address, expect_array_load, store_array_value, load_int, load_long, load_float, load_double, store_int, store_long, store_float, store_double, load_ref, store_ref_like, is_category2, sign_extend_u1, wide_bits, load_constant, load_class_constant, load_string_constant, load_method_type_constant, load_method_handle_constant, unsupported, nop, aconst_null, iconst_m1, iconst_0, iconst_1, iconst_2, iconst_3, iconst_4, iconst_5, lconst_0, lconst_1, fconst_0, fconst_1, fconst_2, dconst_0, dconst_1, ldc, ldc_w, ldc2_w, bipush, sipush, iload, lload, fload, dload, aload, iload_0, iload_1, iload_2, iload_3, lload_0, lload_1, lload_2, lload_3, fload_0, fload_1, fload_2, fload_3, dload_0, dload_1, dload_2, dload_3, aload_0, aload_1, aload_2, aload_3, istore, lstore, fstore, dstore, astore, istore_0, istore_1, istore_2, istore_3, lstore_0, lstore_1, lstore_2, lstore_3, fstore_0, fstore_1, fstore_2, fstore_3, dstore_0, dstore_1, dstore_2, dstore_3, astore_0, astore_1, astore_2, astore_3, iaload, laload, faload, daload, aaload, baload, caload, saload, pop, pop2, dup, dup_x1, dup_x2, dup2, dup2_x1, dup2_x2, swap, iastore, lastore, fastore, dastore, aastore, bastore, castore, sastore, iadd, ladd, fadd, dadd, isub, lsub, fsub, dsub, imul, lmul, fmul, dmul, fdiv, ddiv, idiv, ldiv, irem, lrem, ineg, lneg, fneg, dneg, ishl, lshl, ishr, lshr, iushr, lushr, iand, land, ior, lor, ixor, lxor, iinc, i2l, i2f, i2d, l2i, l2f, l2d, f2d, jvm_f2i_value, jvm_f2l_value, jvm_d2i_value, jvm_d2l_value, f2i, f2l, d2i, d2l, d2f, i2b, i2c, i2s, lcmp, fcmpl, fcmpg, dcmpl, dcmpg, branch, ifeq, ifne, iflt, ifge, ifgt, ifle, if_icmpeq, if_icmpne, if_icmplt, if_icmpge, if_icmpgt, if_icmple, if_acmpeq, if_acmpne, goto_, goto_w, jsr, ret, tableswitch, lookupswitch, jsr_w, ireturn, lreturn, freturn, dreturn, areturn, return_, value_local_width, instruction_length_for_scan, read_scan_i4, native_arguments, is_access_controller_do_privileged, invoke_privileged_action, invoke_instance_method_direct, find_class_object_index_instruction, get_instance_field_by_name, java_string_bytes_instruction, invoke_reflect_constructor, set_java_system_property, initialize_java_system_properties, invoke_static, invoke_special, invoke_virtual, invoke_interface, new_, getstatic, initialize_static_class, initialize_system_static_fields, initialize_vm_static_fields, putstatic, getfield, putfield, athrow, newarray, anewarray, checkcast, instanceof, monitorenter, monitorexit, allocate_multi_array, multianewarray, arraylength, wide, ifnull, ifnonnull, registry, fetch, execute_next, print_instruction_gap, instruction_error_name, print_instruction_error_context, instruction_trace_enabled, opcode_name, trace_instruction, execute_method, assert_int_result, assert_long_result, assert_float_result, assert_double_result, assert_null_ref_result, assert_void_result, assert_exception_result, seed_test_vm } from .instruction;
+import {
+    Opcode, Instruction, ExecuteFn, constant_utf8, constant_class_name,
+    constant_utf8_equals, find_class_index_by_constant, find_class_index, field_runtime_slot, find_field_index_by_constants,
+    find_field_in_hierarchy, find_field_by_name_in_hierarchy, find_field_index, find_static_method_index_by_constants, find_instance_method_index_by_constants,
+    find_static_method_index_in_hierarchy, find_instance_method_index_in_hierarchy, find_interface_method_index_in_hierarchy, find_instance_method_by_name_in_hierarchy, resolve_field,
+    resolve_static_method, resolve_instance_method, resolve_interface_method, push_int, expect_int,
+    expect_ref, expect_long, expect_float, expect_double, expect_return_address,
+    expect_array_load, store_array_value, load_int, load_long, load_float,
+    load_double, store_int, store_long, store_float, store_double,
+    load_ref, store_ref_like, is_category2, sign_extend_u1, wide_bits,
+    load_constant, load_class_constant, load_string_constant, load_method_type_constant, load_method_handle_constant,
+    unsupported, nop, aconst_null, iconst_m1, iconst_0,
+    iconst_1, iconst_2, iconst_3, iconst_4, iconst_5,
+    lconst_0, lconst_1, fconst_0, fconst_1, fconst_2,
+    dconst_0, dconst_1, ldc, ldc_w, ldc2_w,
+    bipush, sipush, iload, lload, fload,
+    dload, aload, iload_0, iload_1, iload_2,
+    iload_3, lload_0, lload_1, lload_2, lload_3,
+    fload_0, fload_1, fload_2, fload_3, dload_0,
+    dload_1, dload_2, dload_3, aload_0, aload_1,
+    aload_2, aload_3, istore, lstore, fstore,
+    dstore, astore, istore_0, istore_1, istore_2,
+    istore_3, lstore_0, lstore_1, lstore_2, lstore_3,
+    fstore_0, fstore_1, fstore_2, fstore_3, dstore_0,
+    dstore_1, dstore_2, dstore_3, astore_0, astore_1,
+    astore_2, astore_3, iaload, laload, faload,
+    daload, aaload, baload, caload, saload,
+    pop, pop2, dup, dup_x1, dup_x2,
+    dup2, dup2_x1, dup2_x2, swap, iastore,
+    lastore, fastore, dastore, aastore, bastore,
+    castore, sastore, iadd, ladd, fadd,
+    dadd, isub, lsub, fsub, dsub,
+    imul, lmul, fmul, dmul, fdiv,
+    ddiv, idiv, ldiv, irem, lrem,
+    ineg, lneg, fneg, dneg, ishl,
+    lshl, ishr, lshr, iushr, lushr,
+    iand, land, ior, lor, ixor,
+    lxor, iinc, i2l, i2f, i2d,
+    l2i, l2f, l2d, f2d, jvm_f2i_value,
+    jvm_f2l_value, jvm_d2i_value, jvm_d2l_value, f2i, f2l,
+    d2i, d2l, d2f, i2b, i2c,
+    i2s, lcmp, fcmpl, fcmpg, dcmpl,
+    dcmpg, branch, ifeq, ifne, iflt,
+    ifge, ifgt, ifle, if_icmpeq, if_icmpne,
+    if_icmplt, if_icmpge, if_icmpgt, if_icmple, if_acmpeq,
+    if_acmpne, goto_, goto_w, jsr, ret,
+    tableswitch, lookupswitch, jsr_w, ireturn, lreturn,
+    freturn, dreturn, areturn, return_, value_local_width,
+    instruction_length_for_scan, read_scan_i4, native_arguments, is_access_controller_do_privileged, invoke_privileged_action,
+    invoke_instance_method_direct, find_class_object_index_instruction, get_instance_field_by_name, java_string_bytes_instruction, invoke_reflect_constructor,
+    set_java_system_property, initialize_java_system_properties, invoke_static, invoke_special, invoke_virtual,
+    invoke_interface, new_, getstatic, initialize_static_class, initialize_system_static_fields,
+    initialize_vm_static_fields, putstatic, getfield, putfield, athrow,
+    newarray, anewarray, checkcast, instanceof, monitorenter,
+    monitorexit, allocate_multi_array, multianewarray, arraylength, wide,
+    ifnull, ifnonnull, registry, fetch, execute_next,
+    print_instruction_gap, instruction_error_name, print_instruction_error_context, instruction_trace_enabled, opcode_name,
+    trace_instruction, execute_method, assert_int_result, assert_long_result, assert_float_result,
+    assert_double_result, assert_null_ref_result, assert_void_result, assert_exception_result, seed_test_vm
+} from .instruction;
 
 test "instruction executes iconst and ireturn" {
     const code: [2]u8 = [4, 172];
