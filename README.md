@@ -57,6 +57,16 @@ If Cyna has a language, runtime, library, or tooling limitation that prevents a 
 - [Cyna Gap Policy](docs/cyna-gap-policy.md)
 - [Gap Log](docs/gap-log.md)
 
+## Testing
+
+Cava tests live beside their production modules as `src/*.test.cy` files.
+Each test file explicitly imports its sibling module and is compiled as an
+independent root:
+
+```sh
+cyna test
+```
+
 ## Tracing
 
 Set `CAVA_TRACE=1` to print each executed bytecode instruction:
