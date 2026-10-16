@@ -1,14 +1,38 @@
 import {
-    Class, Field, Method, Reference, ReferenceKind,
-    Value, byte_buffer, class_access_flags, default_value, field_access_flags,
+    Class,
+    Field,
+    Method,
+    Reference,
+    ReferenceKind,
+    Value,
+    byte_buffer,
+    class_access_flags,
+    default_value,
+    field_access_flags,
     null_ref
 } from .types;
-import { Mutex, SyncStatus } from std.sync;
+import std.sync;
+import { ConcurrentSlotMap, Mutex, SyncStatus } from std.sync;
 import { ThreadId, current_id } from std.thread;
 import {
-    Object, ArrayObject, InternedString, InternedStringBytes, InternedMethodType,
-    InternedMethodHandle, Monitor, Heap, lock_ok, unlock_ok,
-    current_monitor_owner_id, find_class_index, append_hierarchy_fields, new_heap, assert_int_value
+    Object,
+    ArrayObject,
+    InternedString,
+    InternedStringBytes,
+    InternedMethodType,
+    InternedMethodHandle,
+    Monitor,
+    JavaThreadState,
+    IndexedSlotMapKey,
+    IndexedValueUpdate,
+    Heap,
+    lock_ok,
+    unlock_ok,
+    current_monitor_owner_id,
+    find_class_index,
+    append_hierarchy_fields,
+    new_heap,
+    assert_int_value
 } from .heap;
 
 test "heap allocates objects with default instance fields" {
@@ -53,7 +77,7 @@ test "heap allocates objects with default instance fields" {
     const reference = heap.allocate_object(0, &class);
     assert(reference.non_null());
     assert(heap.has_object(reference));
-    assert(heap.objects.len() == 1);
+    assert(heap.object_count() == 1);
     if heap.object_class_index(reference) is class_index {
         assert(class_index == 0);
     } else {
@@ -201,8 +225,11 @@ test "heap allocates reference arrays with null elements" {
 
     if heap.get_element(reference, 0) is value {
         switch value {
-        case .ref_value(actual) { assert(actual.is_null()); }
-        else { assert(false); }
+            case .ref_value(actual) {
+                assert(actual.is_null());
+            } else {
+                assert(false);
+            }
         }
     } else {
         assert(false);
@@ -238,7 +265,7 @@ test "heap interns string objects by byte content" {
 
     assert(first.equals(second));
     assert(!first.equals(third));
-    assert(heap.objects.len() == 2);
+    assert(heap.object_count() == 2);
     assert(heap.strings.len() == 2);
     assert(heap.strings[0].value[..] == "hello".bytes());
     assert(heap.strings[1].value[..] == "world".bytes());
@@ -273,7 +300,7 @@ test "heap interns method type objects by descriptor" {
 
     assert(first.equals(second));
     assert(!first.equals(third));
-    assert(heap.objects.len() == 2);
+    assert(heap.object_count() == 2);
     assert(heap.method_types.len() == 2);
     assert(heap.method_types[0].descriptor == "(I)V");
     assert(heap.method_types[1].descriptor == "()V");
@@ -310,7 +337,7 @@ test "heap interns method handle objects by reference kind and index" {
     assert(first.equals(second));
     assert(!first.equals(third));
     assert(!first.equals(fourth));
-    assert(heap.objects.len() == 3);
+    assert(heap.object_count() == 3);
     assert(heap.method_handles.len() == 3);
     assert(heap.method_handles[0].reference_kind == 6);
     assert(heap.method_handles[0].reference_index == 7);

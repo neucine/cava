@@ -1,5 +1,7 @@
 import { Constant, ConstantMemberRef, ConstantMethodHandle, ConstantNameAndType, ConstantWide } from .classfile;
-import { Context, Frame, FrameResult, apply_method_result, dispatch_exception, execute_method_frame_with_vm, new_frame } from .engine;
+import { Context, Frame, FrameResult, apply_method_result, dispatch_exception, execute_method_frame_with_runtime, execute_method_frame_with_vm, new_frame } from .engine;
+import { InitializationDecision } from .class_initialization;
+import { enter_monitor } from .method_monitor;
 import { MethodArea, ResolvedMethod, class_matches, find_loaded_class_index, new_method_area, reference_assignable_to, runtime_field_slot } from .method_area;
 import { VM } from .vm;
 import { new_vm } from .vm;
@@ -215,18 +217,23 @@ pub struct Instruction {
     pub opcode: Opcode;
     pub length: u32;
     pub execute: ExecuteFn;
+    pub local_execute: LocalExecuteFn;
+    pub is_local: bool;
 }
 
-type ExecuteFn = fn(context: &Context, vm: &VM): result<void, InstructionError>;
-
+type ExecuteFn = fn (context: &Context, vm: &VM): result<void, InstructionError>;
+type LocalExecuteFn = fn (context: &Context): result<void, InstructionError>;
 
 pub fn constant_utf8(context: &Context, index: u16): result<string, InstructionError> {
     if index as usize >= context.constant_pool.len() {
         return .err(InstructionError.invalid_constant);
     }
     switch context.constant_pool[index as usize] {
-    case .utf8(value) { return .ok(string.from(value.bytes())); }
-    else { return .err(InstructionError.invalid_constant); }
+        case .utf8(value) {
+            return .ok(string.from(value.bytes()));
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 }
 
@@ -235,8 +242,11 @@ pub fn constant_class_name(context: &Context, index: u16): result<string, Instru
         return .err(InstructionError.invalid_constant);
     }
     switch context.constant_pool[index as usize] {
-    case .class_ref(name_index) { return constant_utf8(context, name_index); }
-    else { return .err(InstructionError.invalid_constant); }
+        case .class_ref(name_index) {
+            return constant_utf8(context, name_index);
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 }
 
@@ -245,8 +255,11 @@ fn constant_utf8_equals(context: &Context, index: u16, expected: string): result
         return .err(InstructionError.invalid_constant);
     }
     switch context.constant_pool[index as usize] {
-    case .utf8(value) { return .ok(value == expected); }
-    else { return .err(InstructionError.invalid_constant); }
+        case .utf8(value) {
+            return .ok(value == expected);
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 }
 
@@ -256,15 +269,21 @@ pub fn find_class_index_by_constant(context: &Context, vm: &VM, index: u16): res
     }
     var name_index: u16 = 0;
     switch context.constant_pool[index as usize] {
-    case .class_ref(actual) { name_index = actual; }
-    else { return .err(InstructionError.invalid_constant); }
+        case .class_ref(actual) {
+            name_index = actual;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
     if name_index as usize >= context.constant_pool.len() {
         return .err(InstructionError.invalid_constant);
     }
     switch context.constant_pool[name_index as usize] {
-    case .utf8(name) { return vm.resolve_class_index(copy name); }
-    else { return .err(InstructionError.invalid_constant); }
+        case .utf8(name) {
+            return vm.resolve_class_index(copy name);
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 }
 
@@ -299,10 +318,10 @@ fn find_field_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         switch find_field_index_by_constants(class, context, name_index, descriptor_index) {
-        case .ok(field_index) {
-            return .ok(class.fields[field_index]);
-        }
-        case .err {}
+            case .ok(field_index) {
+                return .ok(class.fields[field_index]);
+            }
+            case .err {}
         }
         if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
@@ -374,10 +393,13 @@ fn find_static_method_index_in_hierarchy(context: &Context, vm: &VM, class_index
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         switch find_static_method_index_by_constants(class, context, name_index, descriptor_index) {
-        case .ok(method_index) {
-            return .ok(ResolvedMethod { class_index: current_index, method_index: method_index });
-        }
-        case .err {}
+            case .ok(method_index) {
+                return .ok(ResolvedMethod {
+                    class_index: current_index,
+                    method_index: method_index
+                });
+            }
+            case .err {}
         }
         if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
@@ -393,10 +415,13 @@ fn find_instance_method_index_in_hierarchy(context: &Context, vm: &VM, class_ind
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         switch find_instance_method_index_by_constants(class, context, name_index, descriptor_index) {
-        case .ok(method_index) {
-            return .ok(ResolvedMethod { class_index: current_index, method_index: method_index });
-        }
-        case .err {}
+            case .ok(method_index) {
+                return .ok(ResolvedMethod {
+                    class_index: current_index,
+                    method_index: method_index
+                });
+            }
+            case .err {}
         }
         if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
@@ -412,22 +437,27 @@ fn find_interface_method_index_in_hierarchy(context: &Context, vm: &VM, class_in
     }
     var classes = vm.method_area.classes[..];
     switch find_instance_method_index_by_constants(&classes[class_index], context, name_index, descriptor_index) {
-    case .ok(method_index) {
-        return .ok(ResolvedMethod { class_index: class_index, method_index: method_index });
-    }
-    case .err {}
+        case .ok(method_index) {
+            return .ok(ResolvedMethod {
+                class_index: class_index,
+                method_index: method_index
+            });
+        }
+        case .err {}
     }
 
     var interface_index: usize = 0;
     while interface_index < classes[class_index].interfaces.len() {
         switch vm.resolve_class_index(copy classes[class_index].interfaces[interface_index]) {
-        case .ok(parent_index) {
-            switch find_interface_method_index_in_hierarchy(context, vm, parent_index, name_index, descriptor_index) {
-            case .ok(found) { return .ok(found); }
-            case .err {}
+            case .ok(parent_index) {
+                switch find_interface_method_index_in_hierarchy(context, vm, parent_index, name_index, descriptor_index) {
+                    case .ok(found) {
+                        return .ok(found);
+                    }
+                    case .err {}
+                }
             }
-        }
-        case .err {}
+            case .err {}
         }
         interface_index = interface_index + 1;
     }
@@ -440,7 +470,10 @@ pub fn find_instance_method_by_name_in_hierarchy(context: &Context, vm: &VM, cla
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         if class.method_index(name, descriptor, false) is method_index {
-            return .ok(ResolvedMethod { class_index: current_index, method_index: method_index as usize });
+            return .ok(ResolvedMethod {
+                class_index: current_index,
+                method_index: method_index as usize
+            });
         }
         if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
@@ -458,11 +491,12 @@ pub fn resolve_field(context: &Context, vm: &VM, index: u16): result<Field, Inst
     var class_index: u16 = 0;
     var name_and_type_index: u16 = 0;
     switch context.constant_pool[index as usize] {
-    case .field_ref(member) {
-        class_index = member.class_index;
-        name_and_type_index = member.name_and_type_index;
-    }
-    else { return .err(InstructionError.invalid_constant); }
+        case .field_ref(member) {
+            class_index = member.class_index;
+            name_and_type_index = member.name_and_type_index;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
@@ -471,11 +505,12 @@ pub fn resolve_field(context: &Context, vm: &VM, index: u16): result<Field, Inst
     var name_index: u16 = 0;
     var descriptor_index: u16 = 0;
     switch context.constant_pool[name_and_type_index as usize] {
-    case .name_and_type(pair) {
-        name_index = pair.name_index;
-        descriptor_index = pair.descriptor_index;
-    }
-    else { return .err(InstructionError.invalid_constant); }
+        case .name_and_type(pair) {
+            name_index = pair.name_index;
+            descriptor_index = pair.descriptor_index;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 
     const actual_class_index = try find_class_index_by_constant(context, vm, class_index);
@@ -490,11 +525,12 @@ pub fn resolve_static_method(context: &Context, vm: &VM, index: u16): result<Res
     var class_index: u16 = 0;
     var name_and_type_index: u16 = 0;
     switch context.constant_pool[index as usize] {
-    case .method_ref(member) {
-        class_index = member.class_index;
-        name_and_type_index = member.name_and_type_index;
-    }
-    else { return .err(InstructionError.invalid_constant); }
+        case .method_ref(member) {
+            class_index = member.class_index;
+            name_and_type_index = member.name_and_type_index;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
@@ -503,11 +539,12 @@ pub fn resolve_static_method(context: &Context, vm: &VM, index: u16): result<Res
     var name_index: u16 = 0;
     var descriptor_index: u16 = 0;
     switch context.constant_pool[name_and_type_index as usize] {
-    case .name_and_type(pair) {
-        name_index = pair.name_index;
-        descriptor_index = pair.descriptor_index;
-    }
-    else { return .err(InstructionError.invalid_constant); }
+        case .name_and_type(pair) {
+            name_index = pair.name_index;
+            descriptor_index = pair.descriptor_index;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 
     const actual_class_index = try find_class_index_by_constant(context, vm, class_index);
@@ -522,11 +559,12 @@ pub fn resolve_instance_method(context: &Context, vm: &VM, index: u16): result<R
     var class_index: u16 = 0;
     var name_and_type_index: u16 = 0;
     switch context.constant_pool[index as usize] {
-    case .method_ref(member) {
-        class_index = member.class_index;
-        name_and_type_index = member.name_and_type_index;
-    }
-    else { return .err(InstructionError.invalid_constant); }
+        case .method_ref(member) {
+            class_index = member.class_index;
+            name_and_type_index = member.name_and_type_index;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
@@ -535,11 +573,12 @@ pub fn resolve_instance_method(context: &Context, vm: &VM, index: u16): result<R
     var name_index: u16 = 0;
     var descriptor_index: u16 = 0;
     switch context.constant_pool[name_and_type_index as usize] {
-    case .name_and_type(pair) {
-        name_index = pair.name_index;
-        descriptor_index = pair.descriptor_index;
-    }
-    else { return .err(InstructionError.invalid_constant); }
+        case .name_and_type(pair) {
+            name_index = pair.name_index;
+            descriptor_index = pair.descriptor_index;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 
     const actual_class_index = try find_class_index_by_constant(context, vm, class_index);
@@ -554,11 +593,12 @@ pub fn resolve_interface_method(context: &Context, vm: &VM, index: u16): result<
     var class_index: u16 = 0;
     var name_and_type_index: u16 = 0;
     switch context.constant_pool[index as usize] {
-    case .interface_method_ref(member) {
-        class_index = member.class_index;
-        name_and_type_index = member.name_and_type_index;
-    }
-    else { return .err(InstructionError.invalid_constant); }
+        case .interface_method_ref(member) {
+            class_index = member.class_index;
+            name_and_type_index = member.name_and_type_index;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
@@ -567,17 +607,17 @@ pub fn resolve_interface_method(context: &Context, vm: &VM, index: u16): result<
     var name_index: u16 = 0;
     var descriptor_index: u16 = 0;
     switch context.constant_pool[name_and_type_index as usize] {
-    case .name_and_type(pair) {
-        name_index = pair.name_index;
-        descriptor_index = pair.descriptor_index;
-    }
-    else { return .err(InstructionError.invalid_constant); }
+        case .name_and_type(pair) {
+            name_index = pair.name_index;
+            descriptor_index = pair.descriptor_index;
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 
     const actual_class_index = try find_class_index_by_constant(context, vm, class_index);
     return find_interface_method_index_in_hierarchy(context, vm, actual_class_index, name_index, descriptor_index);
 }
-
 
 fn push_int(context: &Context, value: i32): void {
     context.frame.stack.push(.int_value(value));
@@ -585,52 +625,78 @@ fn push_int(context: &Context, value: i32): void {
 
 fn expect_int(value: Value): i32 {
     switch value {
-    case .int_value(actual) { return actual; }
-    case .boolean_value(actual) { return actual as i32; }
-    case .byte_value(actual) { return actual as i32; }
-    case .short_value(actual) { return actual as i32; }
-    case .char_value(actual) { return actual as i32; }
-    else { assert(false); }
+        case .int_value(actual) {
+            return actual;
+        }
+        case .boolean_value(actual) {
+            return actual as i32;
+        }
+        case .byte_value(actual) {
+            return actual as i32;
+        }
+        case .short_value(actual) {
+            return actual as i32;
+        }
+        case .char_value(actual) {
+            return actual as i32;
+        } else {
+            assert(false);
+        }
     }
     return 0;
 }
 
 fn expect_ref(value: Value): Reference {
     switch value {
-    case .ref_value(actual) { return actual; }
-    else { assert(false); }
+        case .ref_value(actual) {
+            return actual;
+        } else {
+            assert(false);
+        }
     }
     return null_ref;
 }
 
 fn expect_long(value: Value): i64 {
     switch value {
-    case .long_value(actual) { return actual; }
-    else { assert(false); }
+        case .long_value(actual) {
+            return actual;
+        } else {
+            assert(false);
+        }
     }
     return 0;
 }
 
 fn expect_float(value: Value): f32 {
     switch value {
-    case .float_value(actual) { return actual; }
-    else { assert(false); }
+        case .float_value(actual) {
+            return actual;
+        } else {
+            assert(false);
+        }
     }
     return 0.0;
 }
 
 fn expect_double(value: Value): f64 {
     switch value {
-    case .double_value(actual) { return actual; }
-    else { assert(false); }
+        case .double_value(actual) {
+            return actual;
+        } else {
+            assert(false);
+        }
     }
     return 0.0;
 }
 
 fn expect_return_address(value: Value): u32 {
     switch value {
-    case .return_address_value(actual) { return actual; }
-    else { assert(false); }
+        case .return_address_value(actual) {
+            return actual;
+        } else {
+            assert(false);
+        }
     }
     return 0;
 }
@@ -699,17 +765,27 @@ fn load_ref(context: &Context, index: u16): void {
 fn store_ref_like(context: &Context, index: u16): void {
     const value = context.frame.pop();
     switch value {
-    case .ref_value(reference) { context.frame.store(index, .ref_value(reference)); }
-    case .return_address_value(address) { context.frame.store(index, .return_address_value(address)); }
-    else { assert(false); }
+        case .ref_value(reference) {
+            context.frame.store(index, .ref_value(reference));
+        }
+        case .return_address_value(address) {
+            context.frame.store(index, .return_address_value(address));
+        } else {
+            assert(false);
+        }
     }
 }
 
 fn is_category2(value: Value): bool {
     switch value {
-    case .long_value { return true; }
-    case .double_value { return true; }
-    else { return false; }
+        case .long_value {
+            return true;
+        }
+        case .double_value {
+            return true;
+        } else {
+            return false;
+        }
     }
 }
 
@@ -731,61 +807,60 @@ fn load_constant(context: &Context, vm: &VM, index: u16, wide: bool): result<voi
 
     const constant = context.constant_pool[index as usize];
     switch constant {
-    case .integer(bits) {
-        if wide {
+        case .integer(bits) {
+            if wide {
+                return .err(InstructionError.invalid_constant);
+            }
+            context.frame.push(.int_value(bits as! i32));
+            return .ok();
+        }
+        case .float(bits) {
+            if wide {
+                return .err(InstructionError.invalid_constant);
+            }
+            context.frame.push(.float_value(bits as! f32));
+            return .ok();
+        }
+        case .long(bits) {
+            if !wide {
+                return .err(InstructionError.invalid_constant);
+            }
+            context.frame.push(.long_value(wide_bits(bits) as! i64));
+            return .ok();
+        }
+        case .double(bits) {
+            if !wide {
+                return .err(InstructionError.invalid_constant);
+            }
+            context.frame.push(.double_value(wide_bits(bits) as! f64));
+            return .ok();
+        }
+        case .class_ref(name_index) {
+            if wide {
+                return .err(InstructionError.invalid_constant);
+            }
+            return load_class_constant(context, vm, index, name_index);
+        }
+        case .string_ref(utf8_index) {
+            if wide {
+                return .err(InstructionError.invalid_constant);
+            }
+            return load_string_constant(context, vm, utf8_index);
+        }
+        case .method_type(descriptor_index) {
+            if wide {
+                return .err(InstructionError.invalid_constant);
+            }
+            return load_method_type_constant(context, vm, descriptor_index);
+        }
+        case .method_handle(handle) {
+            if wide {
+                return .err(InstructionError.invalid_constant);
+            }
+            return load_method_handle_constant(context, vm, handle);
+        } else {
             return .err(InstructionError.invalid_constant);
         }
-        context.frame.push(.int_value(bits as! i32));
-        return .ok();
-    }
-    case .float(bits) {
-        if wide {
-            return .err(InstructionError.invalid_constant);
-        }
-        context.frame.push(.float_value(bits as! f32));
-        return .ok();
-    }
-    case .long(bits) {
-        if !wide {
-            return .err(InstructionError.invalid_constant);
-        }
-        context.frame.push(.long_value(wide_bits(bits) as! i64));
-        return .ok();
-    }
-    case .double(bits) {
-        if !wide {
-            return .err(InstructionError.invalid_constant);
-        }
-        context.frame.push(.double_value(wide_bits(bits) as! f64));
-        return .ok();
-    }
-    case .class_ref(name_index) {
-        if wide {
-            return .err(InstructionError.invalid_constant);
-        }
-        return load_class_constant(context, vm, index, name_index);
-    }
-    case .string_ref(utf8_index) {
-        if wide {
-            return .err(InstructionError.invalid_constant);
-        }
-        return load_string_constant(context, vm, utf8_index);
-    }
-    case .method_type(descriptor_index) {
-        if wide {
-            return .err(InstructionError.invalid_constant);
-        }
-        return load_method_type_constant(context, vm, descriptor_index);
-    }
-    case .method_handle(handle) {
-        if wide {
-            return .err(InstructionError.invalid_constant);
-        }
-        return load_method_handle_constant(context, vm, handle);
-    }
-    else {
-        return .err(InstructionError.invalid_constant);
-    }
     }
 }
 
@@ -810,15 +885,18 @@ fn load_string_constant(context: &Context, vm: &VM, utf8_index: u16): result<voi
 
     var value: []const u8 = "".bytes();
     switch context.constant_pool[utf8_index as usize] {
-    case .utf8(actual) { value = actual.bytes(); }
-    else { return .err(InstructionError.invalid_constant); }
+        case .utf8(actual) {
+            value = actual.bytes();
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 
     switch vm.method_area.resolve_class("java/lang/String") {
-    case .ok {}
-    case .err {
-        return .err(InstructionError.invalid_constant);
-    }
+        case .ok {}
+        case .err {
+            return .err(InstructionError.invalid_constant);
+        }
     }
     const reference = try vm.allocate_java_string(value);
     context.frame.push(.ref_value(reference));
@@ -832,8 +910,11 @@ fn load_method_type_constant(context: &Context, vm: &VM, descriptor_index: u16):
 
     var descriptor: []const u8 = "".bytes();
     switch context.constant_pool[descriptor_index as usize] {
-    case .utf8(actual) { descriptor = actual.bytes(); }
-    else { return .err(InstructionError.invalid_constant); }
+        case .utf8(actual) {
+            descriptor = actual.bytes();
+        } else {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 
     const method_type_class_index = try vm.resolve_class_index("java/lang/invoke/MethodType");
@@ -862,81 +943,81 @@ fn unsupported(context: &Context, vm: &VM): result<void, InstructionError> {
     return .err(InstructionError.unsupported_opcode);
 }
 
-fn nop(context: &Context, vm: &VM): result<void, InstructionError> {
+fn nop(context: &Context): result<void, InstructionError> {
     return .ok();
 }
 
-fn aconst_null(context: &Context, vm: &VM): result<void, InstructionError> {
+fn aconst_null(context: &Context): result<void, InstructionError> {
     context.frame.push(.ref_value(null_ref));
     return .ok();
 }
 
-fn iconst_m1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iconst_m1(context: &Context): result<void, InstructionError> {
     push_int(context, 0 - 1);
     return .ok();
 }
 
-fn iconst_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iconst_0(context: &Context): result<void, InstructionError> {
     push_int(context, 0);
     return .ok();
 }
 
-fn iconst_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iconst_1(context: &Context): result<void, InstructionError> {
     push_int(context, 1);
     return .ok();
 }
 
-fn iconst_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iconst_2(context: &Context): result<void, InstructionError> {
     push_int(context, 2);
     return .ok();
 }
 
-fn iconst_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iconst_3(context: &Context): result<void, InstructionError> {
     push_int(context, 3);
     return .ok();
 }
 
-fn iconst_4(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iconst_4(context: &Context): result<void, InstructionError> {
     push_int(context, 4);
     return .ok();
 }
 
-fn iconst_5(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iconst_5(context: &Context): result<void, InstructionError> {
     push_int(context, 5);
     return .ok();
 }
 
-fn lconst_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lconst_0(context: &Context): result<void, InstructionError> {
     context.frame.push(.long_value(0));
     return .ok();
 }
 
-fn lconst_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lconst_1(context: &Context): result<void, InstructionError> {
     context.frame.push(.long_value(1));
     return .ok();
 }
 
-fn fconst_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fconst_0(context: &Context): result<void, InstructionError> {
     context.frame.push(.float_value(0.0));
     return .ok();
 }
 
-fn fconst_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fconst_1(context: &Context): result<void, InstructionError> {
     context.frame.push(.float_value(1.0));
     return .ok();
 }
 
-fn fconst_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fconst_2(context: &Context): result<void, InstructionError> {
     context.frame.push(.float_value(2.0));
     return .ok();
 }
 
-fn dconst_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dconst_0(context: &Context): result<void, InstructionError> {
     context.frame.push(.double_value(0.0));
     return .ok();
 }
 
-fn dconst_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dconst_1(context: &Context): result<void, InstructionError> {
     context.frame.push(.double_value(1.0));
     return .ok();
 }
@@ -953,262 +1034,262 @@ fn ldc2_w(context: &Context, vm: &VM): result<void, InstructionError> {
     return load_constant(context, vm, context.read_u2(), true);
 }
 
-fn bipush(context: &Context, vm: &VM): result<void, InstructionError> {
+fn bipush(context: &Context): result<void, InstructionError> {
     push_int(context, sign_extend_u1(context.read_u1()));
     return .ok();
 }
 
-fn sipush(context: &Context, vm: &VM): result<void, InstructionError> {
+fn sipush(context: &Context): result<void, InstructionError> {
     push_int(context, context.read_i2() as i32);
     return .ok();
 }
 
-fn iload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iload(context: &Context): result<void, InstructionError> {
     load_int(context, context.read_u1() as u16);
     return .ok();
 }
 
-fn lload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lload(context: &Context): result<void, InstructionError> {
     load_long(context, context.read_u1() as u16);
     return .ok();
 }
 
-fn fload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fload(context: &Context): result<void, InstructionError> {
     load_float(context, context.read_u1() as u16);
     return .ok();
 }
 
-fn dload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dload(context: &Context): result<void, InstructionError> {
     load_double(context, context.read_u1() as u16);
     return .ok();
 }
 
-fn aload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn aload(context: &Context): result<void, InstructionError> {
     load_ref(context, context.read_u1() as u16);
     return .ok();
 }
 
-fn iload_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iload_0(context: &Context): result<void, InstructionError> {
     load_int(context, 0);
     return .ok();
 }
 
-fn iload_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iload_1(context: &Context): result<void, InstructionError> {
     load_int(context, 1);
     return .ok();
 }
 
-fn iload_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iload_2(context: &Context): result<void, InstructionError> {
     load_int(context, 2);
     return .ok();
 }
 
-fn iload_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iload_3(context: &Context): result<void, InstructionError> {
     load_int(context, 3);
     return .ok();
 }
 
-fn lload_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lload_0(context: &Context): result<void, InstructionError> {
     load_long(context, 0);
     return .ok();
 }
 
-fn lload_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lload_1(context: &Context): result<void, InstructionError> {
     load_long(context, 1);
     return .ok();
 }
 
-fn lload_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lload_2(context: &Context): result<void, InstructionError> {
     load_long(context, 2);
     return .ok();
 }
 
-fn lload_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lload_3(context: &Context): result<void, InstructionError> {
     load_long(context, 3);
     return .ok();
 }
 
-fn fload_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fload_0(context: &Context): result<void, InstructionError> {
     load_float(context, 0);
     return .ok();
 }
 
-fn fload_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fload_1(context: &Context): result<void, InstructionError> {
     load_float(context, 1);
     return .ok();
 }
 
-fn fload_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fload_2(context: &Context): result<void, InstructionError> {
     load_float(context, 2);
     return .ok();
 }
 
-fn fload_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fload_3(context: &Context): result<void, InstructionError> {
     load_float(context, 3);
     return .ok();
 }
 
-fn dload_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dload_0(context: &Context): result<void, InstructionError> {
     load_double(context, 0);
     return .ok();
 }
 
-fn dload_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dload_1(context: &Context): result<void, InstructionError> {
     load_double(context, 1);
     return .ok();
 }
 
-fn dload_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dload_2(context: &Context): result<void, InstructionError> {
     load_double(context, 2);
     return .ok();
 }
 
-fn dload_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dload_3(context: &Context): result<void, InstructionError> {
     load_double(context, 3);
     return .ok();
 }
 
-fn aload_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn aload_0(context: &Context): result<void, InstructionError> {
     load_ref(context, 0);
     return .ok();
 }
 
-fn aload_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn aload_1(context: &Context): result<void, InstructionError> {
     load_ref(context, 1);
     return .ok();
 }
 
-fn aload_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn aload_2(context: &Context): result<void, InstructionError> {
     load_ref(context, 2);
     return .ok();
 }
 
-fn aload_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn aload_3(context: &Context): result<void, InstructionError> {
     load_ref(context, 3);
     return .ok();
 }
 
-fn istore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn istore(context: &Context): result<void, InstructionError> {
     store_int(context, context.read_u1() as u16);
     return .ok();
 }
 
-fn lstore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lstore(context: &Context): result<void, InstructionError> {
     store_long(context, context.read_u1() as u16);
     return .ok();
 }
 
-fn fstore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fstore(context: &Context): result<void, InstructionError> {
     store_float(context, context.read_u1() as u16);
     return .ok();
 }
 
-fn dstore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dstore(context: &Context): result<void, InstructionError> {
     store_double(context, context.read_u1() as u16);
     return .ok();
 }
 
-fn astore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn astore(context: &Context): result<void, InstructionError> {
     store_ref_like(context, context.read_u1() as u16);
     return .ok();
 }
 
-fn istore_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn istore_0(context: &Context): result<void, InstructionError> {
     store_int(context, 0);
     return .ok();
 }
 
-fn istore_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn istore_1(context: &Context): result<void, InstructionError> {
     store_int(context, 1);
     return .ok();
 }
 
-fn istore_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn istore_2(context: &Context): result<void, InstructionError> {
     store_int(context, 2);
     return .ok();
 }
 
-fn istore_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn istore_3(context: &Context): result<void, InstructionError> {
     store_int(context, 3);
     return .ok();
 }
 
-fn lstore_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lstore_0(context: &Context): result<void, InstructionError> {
     store_long(context, 0);
     return .ok();
 }
 
-fn lstore_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lstore_1(context: &Context): result<void, InstructionError> {
     store_long(context, 1);
     return .ok();
 }
 
-fn lstore_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lstore_2(context: &Context): result<void, InstructionError> {
     store_long(context, 2);
     return .ok();
 }
 
-fn lstore_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lstore_3(context: &Context): result<void, InstructionError> {
     store_long(context, 3);
     return .ok();
 }
 
-fn fstore_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fstore_0(context: &Context): result<void, InstructionError> {
     store_float(context, 0);
     return .ok();
 }
 
-fn fstore_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fstore_1(context: &Context): result<void, InstructionError> {
     store_float(context, 1);
     return .ok();
 }
 
-fn fstore_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fstore_2(context: &Context): result<void, InstructionError> {
     store_float(context, 2);
     return .ok();
 }
 
-fn fstore_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fstore_3(context: &Context): result<void, InstructionError> {
     store_float(context, 3);
     return .ok();
 }
 
-fn dstore_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dstore_0(context: &Context): result<void, InstructionError> {
     store_double(context, 0);
     return .ok();
 }
 
-fn dstore_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dstore_1(context: &Context): result<void, InstructionError> {
     store_double(context, 1);
     return .ok();
 }
 
-fn dstore_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dstore_2(context: &Context): result<void, InstructionError> {
     store_double(context, 2);
     return .ok();
 }
 
-fn dstore_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dstore_3(context: &Context): result<void, InstructionError> {
     store_double(context, 3);
     return .ok();
 }
 
-fn astore_0(context: &Context, vm: &VM): result<void, InstructionError> {
+fn astore_0(context: &Context): result<void, InstructionError> {
     store_ref_like(context, 0);
     return .ok();
 }
 
-fn astore_1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn astore_1(context: &Context): result<void, InstructionError> {
     store_ref_like(context, 1);
     return .ok();
 }
 
-fn astore_2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn astore_2(context: &Context): result<void, InstructionError> {
     store_ref_like(context, 2);
     return .ok();
 }
 
-fn astore_3(context: &Context, vm: &VM): result<void, InstructionError> {
+fn astore_3(context: &Context): result<void, InstructionError> {
     store_ref_like(context, 3);
     return .ok();
 }
@@ -1241,9 +1322,14 @@ fn aaload(context: &Context, vm: &VM): result<void, InstructionError> {
 fn baload(context: &Context, vm: &VM): result<void, InstructionError> {
     const value = expect_array_load(context, vm);
     switch value {
-    case .byte_value(actual) { push_int(context, actual as i32); }
-    case .boolean_value(actual) { push_int(context, actual as i32); }
-    else { assert(false); }
+        case .byte_value(actual) {
+            push_int(context, actual as i32);
+        }
+        case .boolean_value(actual) {
+            push_int(context, actual as i32);
+        } else {
+            assert(false);
+        }
     }
     return .ok();
 }
@@ -1251,8 +1337,11 @@ fn baload(context: &Context, vm: &VM): result<void, InstructionError> {
 fn caload(context: &Context, vm: &VM): result<void, InstructionError> {
     const value = expect_array_load(context, vm);
     switch value {
-    case .char_value(actual) { push_int(context, actual as i32); }
-    else { assert(false); }
+        case .char_value(actual) {
+            push_int(context, actual as i32);
+        } else {
+            assert(false);
+        }
     }
     return .ok();
 }
@@ -1260,18 +1349,21 @@ fn caload(context: &Context, vm: &VM): result<void, InstructionError> {
 fn saload(context: &Context, vm: &VM): result<void, InstructionError> {
     const value = expect_array_load(context, vm);
     switch value {
-    case .short_value(actual) { push_int(context, actual as i32); }
-    else { assert(false); }
+        case .short_value(actual) {
+            push_int(context, actual as i32);
+        } else {
+            assert(false);
+        }
     }
     return .ok();
 }
 
-fn pop(context: &Context, vm: &VM): result<void, InstructionError> {
+fn pop(context: &Context): result<void, InstructionError> {
     const ignored = context.frame.pop();
     return .ok();
 }
 
-fn pop2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn pop2(context: &Context): result<void, InstructionError> {
     const first = context.frame.pop();
     if !is_category2(first) {
         const second = context.frame.pop();
@@ -1280,14 +1372,14 @@ fn pop2(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn dup(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dup(context: &Context): result<void, InstructionError> {
     const value = context.frame.pop();
     context.frame.push(value);
     context.frame.push(value);
     return .ok();
 }
 
-fn dup_x1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dup_x1(context: &Context): result<void, InstructionError> {
     const value1 = context.frame.pop();
     const value2 = context.frame.pop();
     if is_category2(value1) or is_category2(value2) {
@@ -1299,7 +1391,7 @@ fn dup_x1(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn dup_x2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dup_x2(context: &Context): result<void, InstructionError> {
     const value1 = context.frame.pop();
     if is_category2(value1) {
         assert(false);
@@ -1322,7 +1414,7 @@ fn dup_x2(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn dup2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dup2(context: &Context): result<void, InstructionError> {
     const value1 = context.frame.pop();
     if is_category2(value1) {
         context.frame.push(value1);
@@ -1340,7 +1432,7 @@ fn dup2(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn dup2_x1(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dup2_x1(context: &Context): result<void, InstructionError> {
     const value1 = context.frame.pop();
     if is_category2(value1) {
         const value2 = context.frame.pop();
@@ -1365,7 +1457,7 @@ fn dup2_x1(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn dup2_x2(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dup2_x2(context: &Context): result<void, InstructionError> {
     const value1 = context.frame.pop();
     if is_category2(value1) {
         const value2 = context.frame.pop();
@@ -1411,7 +1503,7 @@ fn dup2_x2(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn swap(context: &Context, vm: &VM): result<void, InstructionError> {
+fn swap(context: &Context): result<void, InstructionError> {
     const value1 = context.frame.pop();
     const value2 = context.frame.pop();
     if is_category2(value1) or is_category2(value2) {
@@ -1461,19 +1553,20 @@ fn bastore(context: &Context, vm: &VM): result<void, InstructionError> {
     }
     if vm.heap.get_element(reference, index as usize) is current {
         switch current {
-        case .boolean_value {
-            const low_bit: u8 = (raw & 1) as u8;
-            if vm.heap.set_element(reference, index as usize, .boolean_value(low_bit)) {
-                return .ok();
+            case .boolean_value {
+                const low_bit: u8 = (raw & 1) as u8;
+                if vm.heap.set_element(reference, index as usize, .boolean_value(low_bit)) {
+                    return .ok();
+                }
             }
-        }
-        case .byte_value {
-            const low_bits: u8 = (raw & 255) as u8;
-            if vm.heap.set_element(reference, index as usize, .byte_value(low_bits as! i8)) {
-                return .ok();
+            case .byte_value {
+                const low_bits: u8 = (raw & 255) as u8;
+                if vm.heap.set_element(reference, index as usize, .byte_value(low_bits as! i8)) {
+                    return .ok();
+                }
+            } else {
+                assert(false);
             }
-        }
-        else { assert(false); }
         }
     }
     assert(false);
@@ -1494,105 +1587,105 @@ fn sastore(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn iadd(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iadd(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 +% value2);
     return .ok();
 }
 
-fn ladd(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ladd(context: &Context): result<void, InstructionError> {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 +% value2));
     return .ok();
 }
 
-fn fadd(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fadd(context: &Context): result<void, InstructionError> {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     context.frame.push(.float_value(value1 + value2));
     return .ok();
 }
 
-fn dadd(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dadd(context: &Context): result<void, InstructionError> {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     context.frame.push(.double_value(value1 + value2));
     return .ok();
 }
 
-fn isub(context: &Context, vm: &VM): result<void, InstructionError> {
+fn isub(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 -% value2);
     return .ok();
 }
 
-fn lsub(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lsub(context: &Context): result<void, InstructionError> {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 -% value2));
     return .ok();
 }
 
-fn fsub(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fsub(context: &Context): result<void, InstructionError> {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     context.frame.push(.float_value(value1 - value2));
     return .ok();
 }
 
-fn dsub(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dsub(context: &Context): result<void, InstructionError> {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     context.frame.push(.double_value(value1 - value2));
     return .ok();
 }
 
-fn imul(context: &Context, vm: &VM): result<void, InstructionError> {
+fn imul(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 *% value2);
     return .ok();
 }
 
-fn lmul(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lmul(context: &Context): result<void, InstructionError> {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 *% value2));
     return .ok();
 }
 
-fn fmul(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fmul(context: &Context): result<void, InstructionError> {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     context.frame.push(.float_value(value1 * value2));
     return .ok();
 }
 
-fn dmul(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dmul(context: &Context): result<void, InstructionError> {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     context.frame.push(.double_value(value1 * value2));
     return .ok();
 }
 
-fn fdiv(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fdiv(context: &Context): result<void, InstructionError> {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     context.frame.push(.float_value(value1 / value2));
     return .ok();
 }
 
-fn ddiv(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ddiv(context: &Context): result<void, InstructionError> {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     context.frame.push(.double_value(value1 / value2));
     return .ok();
 }
 
-fn idiv(context: &Context, vm: &VM): result<void, InstructionError> {
+fn idiv(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     if value2 == 0 {
@@ -1607,7 +1700,7 @@ fn idiv(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn ldiv(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ldiv(context: &Context): result<void, InstructionError> {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     if value2 == 0 {
@@ -1622,7 +1715,7 @@ fn ldiv(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn irem(context: &Context, vm: &VM): result<void, InstructionError> {
+fn irem(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     if value2 == 0 {
@@ -1632,7 +1725,7 @@ fn irem(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn lrem(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lrem(context: &Context): result<void, InstructionError> {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     if value2 == 0 {
@@ -1642,60 +1735,60 @@ fn lrem(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn ineg(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ineg(context: &Context): result<void, InstructionError> {
     const value = expect_int(context.frame.pop());
     push_int(context, 0 -% value);
     return .ok();
 }
 
-fn lneg(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lneg(context: &Context): result<void, InstructionError> {
     const value = expect_long(context.frame.pop());
     context.frame.push(.long_value(0 -% value));
     return .ok();
 }
 
-fn fneg(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fneg(context: &Context): result<void, InstructionError> {
     const value = expect_float(context.frame.pop());
     const zero: f32 = 0.0;
     context.frame.push(.float_value(zero - value));
     return .ok();
 }
 
-fn dneg(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dneg(context: &Context): result<void, InstructionError> {
     const value = expect_double(context.frame.pop());
     context.frame.push(.double_value(0.0 - value));
     return .ok();
 }
 
-fn ishl(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ishl(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 << (value2 & 31));
     return .ok();
 }
 
-fn lshl(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lshl(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 << (value2 & 63)));
     return .ok();
 }
 
-fn ishr(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ishr(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 >> (value2 & 31));
     return .ok();
 }
 
-fn lshr(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lshr(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 >> (value2 & 63)));
     return .ok();
 }
 
-fn iushr(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iushr(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     const bits: u32 = value1 as! u32;
@@ -1703,7 +1796,7 @@ fn iushr(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn lushr(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lushr(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     const bits: u64 = value1 as! u64;
@@ -1711,49 +1804,49 @@ fn lushr(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn iand(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iand(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 & value2);
     return .ok();
 }
 
-fn land(context: &Context, vm: &VM): result<void, InstructionError> {
+fn land(context: &Context): result<void, InstructionError> {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 & value2));
     return .ok();
 }
 
-fn ior(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ior(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 | value2);
     return .ok();
 }
 
-fn lor(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lor(context: &Context): result<void, InstructionError> {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 | value2));
     return .ok();
 }
 
-fn ixor(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ixor(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, (value1 | value2) -% (value1 & value2));
     return .ok();
 }
 
-fn lxor(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lxor(context: &Context): result<void, InstructionError> {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value((value1 | value2) -% (value1 & value2)));
     return .ok();
 }
 
-fn iinc(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iinc(context: &Context): result<void, InstructionError> {
     const index = context.read_u1() as u16;
     const increment = sign_extend_u1(context.read_u1());
     const value = expect_int(context.frame.load(index));
@@ -1761,47 +1854,47 @@ fn iinc(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn i2l(context: &Context, vm: &VM): result<void, InstructionError> {
+fn i2l(context: &Context): result<void, InstructionError> {
     context.frame.push(.long_value(expect_int(context.frame.pop()) as i64));
     return .ok();
 }
 
-fn i2f(context: &Context, vm: &VM): result<void, InstructionError> {
+fn i2f(context: &Context): result<void, InstructionError> {
     const value = expect_int(context.frame.pop());
     const zero: f32 = 0.0;
     context.frame.push(.float_value(value + zero));
     return .ok();
 }
 
-fn i2d(context: &Context, vm: &VM): result<void, InstructionError> {
+fn i2d(context: &Context): result<void, InstructionError> {
     const value = expect_int(context.frame.pop());
     const zero: f64 = 0.0;
     context.frame.push(.double_value(value + zero));
     return .ok();
 }
 
-fn l2i(context: &Context, vm: &VM): result<void, InstructionError> {
+fn l2i(context: &Context): result<void, InstructionError> {
     const value = expect_long(context.frame.pop());
     const low_bits: u32 = (value & 4294967295) as u32;
     push_int(context, low_bits as! i32);
     return .ok();
 }
 
-fn l2f(context: &Context, vm: &VM): result<void, InstructionError> {
+fn l2f(context: &Context): result<void, InstructionError> {
     const value = expect_long(context.frame.pop());
     const zero: f32 = 0.0;
     context.frame.push(.float_value(value + zero));
     return .ok();
 }
 
-fn l2d(context: &Context, vm: &VM): result<void, InstructionError> {
+fn l2d(context: &Context): result<void, InstructionError> {
     const value = expect_long(context.frame.pop());
     const zero: f64 = 0.0;
     context.frame.push(.double_value(value + zero));
     return .ok();
 }
 
-fn f2d(context: &Context, vm: &VM): result<void, InstructionError> {
+fn f2d(context: &Context): result<void, InstructionError> {
     const value = expect_float(context.frame.pop());
     context.frame.push(.double_value(value as f64));
     return .ok();
@@ -1867,53 +1960,53 @@ fn jvm_d2l_value(value: f64): i64 {
     return value as i64;
 }
 
-fn f2i(context: &Context, vm: &VM): result<void, InstructionError> {
+fn f2i(context: &Context): result<void, InstructionError> {
     push_int(context, jvm_f2i_value(expect_float(context.frame.pop())));
     return .ok();
 }
 
-fn f2l(context: &Context, vm: &VM): result<void, InstructionError> {
+fn f2l(context: &Context): result<void, InstructionError> {
     context.frame.push(.long_value(jvm_f2l_value(expect_float(context.frame.pop()))));
     return .ok();
 }
 
-fn d2i(context: &Context, vm: &VM): result<void, InstructionError> {
+fn d2i(context: &Context): result<void, InstructionError> {
     push_int(context, jvm_d2i_value(expect_double(context.frame.pop())));
     return .ok();
 }
 
-fn d2l(context: &Context, vm: &VM): result<void, InstructionError> {
+fn d2l(context: &Context): result<void, InstructionError> {
     context.frame.push(.long_value(jvm_d2l_value(expect_double(context.frame.pop()))));
     return .ok();
 }
 
-fn d2f(context: &Context, vm: &VM): result<void, InstructionError> {
+fn d2f(context: &Context): result<void, InstructionError> {
     context.frame.push(.float_value(expect_double(context.frame.pop()) as f32));
     return .ok();
 }
 
-fn i2b(context: &Context, vm: &VM): result<void, InstructionError> {
+fn i2b(context: &Context): result<void, InstructionError> {
     const value = expect_int(context.frame.pop());
     const low_bits: u8 = (value & 255) as u8;
     push_int(context, (low_bits as! i8) as i32);
     return .ok();
 }
 
-fn i2c(context: &Context, vm: &VM): result<void, InstructionError> {
+fn i2c(context: &Context): result<void, InstructionError> {
     const value = expect_int(context.frame.pop());
     const low_bits: u16 = (value & 65535) as u16;
     push_int(context, low_bits as i32);
     return .ok();
 }
 
-fn i2s(context: &Context, vm: &VM): result<void, InstructionError> {
+fn i2s(context: &Context): result<void, InstructionError> {
     const value = expect_int(context.frame.pop());
     const low_bits: u16 = (value & 65535) as u16;
     push_int(context, (low_bits as! i16) as i32);
     return .ok();
 }
 
-fn lcmp(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lcmp(context: &Context): result<void, InstructionError> {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     if value1 > value2 {
@@ -1926,7 +2019,7 @@ fn lcmp(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn fcmpl(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fcmpl(context: &Context): result<void, InstructionError> {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 < value2 {
@@ -1939,7 +2032,7 @@ fn fcmpl(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn fcmpg(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fcmpg(context: &Context): result<void, InstructionError> {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 > value2 {
@@ -1952,7 +2045,7 @@ fn fcmpg(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn dcmpl(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dcmpl(context: &Context): result<void, InstructionError> {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 < value2 {
@@ -1965,7 +2058,7 @@ fn dcmpl(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn dcmpg(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dcmpg(context: &Context): result<void, InstructionError> {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 > value2 {
@@ -1985,116 +2078,116 @@ fn branch(context: &Context, should_branch: bool): void {
     }
 }
 
-fn ifeq(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ifeq(context: &Context): result<void, InstructionError> {
     branch(context, expect_int(context.frame.pop()) == 0);
     return .ok();
 }
 
-fn ifne(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ifne(context: &Context): result<void, InstructionError> {
     branch(context, expect_int(context.frame.pop()) != 0);
     return .ok();
 }
 
-fn iflt(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iflt(context: &Context): result<void, InstructionError> {
     branch(context, expect_int(context.frame.pop()) < 0);
     return .ok();
 }
 
-fn ifge(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ifge(context: &Context): result<void, InstructionError> {
     branch(context, expect_int(context.frame.pop()) >= 0);
     return .ok();
 }
 
-fn ifgt(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ifgt(context: &Context): result<void, InstructionError> {
     branch(context, expect_int(context.frame.pop()) > 0);
     return .ok();
 }
 
-fn ifle(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ifle(context: &Context): result<void, InstructionError> {
     branch(context, expect_int(context.frame.pop()) <= 0);
     return .ok();
 }
 
-fn if_icmpeq(context: &Context, vm: &VM): result<void, InstructionError> {
+fn if_icmpeq(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 == value2);
     return .ok();
 }
 
-fn if_icmpne(context: &Context, vm: &VM): result<void, InstructionError> {
+fn if_icmpne(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 != value2);
     return .ok();
 }
 
-fn if_icmplt(context: &Context, vm: &VM): result<void, InstructionError> {
+fn if_icmplt(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 < value2);
     return .ok();
 }
 
-fn if_icmpge(context: &Context, vm: &VM): result<void, InstructionError> {
+fn if_icmpge(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 >= value2);
     return .ok();
 }
 
-fn if_icmpgt(context: &Context, vm: &VM): result<void, InstructionError> {
+fn if_icmpgt(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 > value2);
     return .ok();
 }
 
-fn if_icmple(context: &Context, vm: &VM): result<void, InstructionError> {
+fn if_icmple(context: &Context): result<void, InstructionError> {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 <= value2);
     return .ok();
 }
 
-fn if_acmpeq(context: &Context, vm: &VM): result<void, InstructionError> {
+fn if_acmpeq(context: &Context): result<void, InstructionError> {
     const value2 = expect_ref(context.frame.pop());
     const value1 = expect_ref(context.frame.pop());
     branch(context, value1.equals(value2));
     return .ok();
 }
 
-fn if_acmpne(context: &Context, vm: &VM): result<void, InstructionError> {
+fn if_acmpne(context: &Context): result<void, InstructionError> {
     const value2 = expect_ref(context.frame.pop());
     const value1 = expect_ref(context.frame.pop());
     branch(context, !value1.equals(value2));
     return .ok();
 }
 
-fn goto_(context: &Context, vm: &VM): result<void, InstructionError> {
+fn goto_(context: &Context): result<void, InstructionError> {
     context.frame.next(context.read_i2() as i32);
     return .ok();
 }
 
-fn goto_w(context: &Context, vm: &VM): result<void, InstructionError> {
+fn goto_w(context: &Context): result<void, InstructionError> {
     context.frame.next(context.read_i4());
     return .ok();
 }
 
-fn jsr(context: &Context, vm: &VM): result<void, InstructionError> {
+fn jsr(context: &Context): result<void, InstructionError> {
     const return_address = context.frame.pc + 3;
     context.frame.push(.return_address_value(return_address));
     context.frame.next(context.read_i2() as i32);
     return .ok();
 }
 
-fn ret(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ret(context: &Context): result<void, InstructionError> {
     const index = context.read_u1() as u16;
     context.frame.pc = expect_return_address(context.frame.load(index));
     return .ok();
 }
 
-fn tableswitch(context: &Context, vm: &VM): result<void, InstructionError> {
+fn tableswitch(context: &Context): result<void, InstructionError> {
     const key = expect_int(context.frame.pop());
     context.padding();
     const default_offset = context.read_i4();
@@ -2118,7 +2211,7 @@ fn tableswitch(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn lookupswitch(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lookupswitch(context: &Context): result<void, InstructionError> {
     const key = expect_int(context.frame.pop());
     context.padding();
     const default_offset = context.read_i4();
@@ -2142,48 +2235,48 @@ fn lookupswitch(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn jsr_w(context: &Context, vm: &VM): result<void, InstructionError> {
+fn jsr_w(context: &Context): result<void, InstructionError> {
     const return_address = context.frame.pc + 5;
     context.frame.push(.return_address_value(return_address));
     context.frame.next(context.read_i4());
     return .ok();
 }
 
-fn ireturn(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ireturn(context: &Context): result<void, InstructionError> {
     const result: FrameResult = .return_value(context.frame.stack.pop());
     context.frame.result = result;
     return .ok();
 }
 
-fn lreturn(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lreturn(context: &Context): result<void, InstructionError> {
     const value: Value = .long_value(expect_long(context.frame.pop()));
     const result: FrameResult = .return_value(value);
     context.frame.result = result;
     return .ok();
 }
 
-fn freturn(context: &Context, vm: &VM): result<void, InstructionError> {
+fn freturn(context: &Context): result<void, InstructionError> {
     const value: Value = .float_value(expect_float(context.frame.pop()));
     const result: FrameResult = .return_value(value);
     context.frame.result = result;
     return .ok();
 }
 
-fn dreturn(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dreturn(context: &Context): result<void, InstructionError> {
     const value: Value = .double_value(expect_double(context.frame.pop()));
     const result: FrameResult = .return_value(value);
     context.frame.result = result;
     return .ok();
 }
 
-fn areturn(context: &Context, vm: &VM): result<void, InstructionError> {
+fn areturn(context: &Context): result<void, InstructionError> {
     const value: Value = .ref_value(expect_ref(context.frame.pop()));
     const result: FrameResult = .return_value(value);
     context.frame.result = result;
     return .ok();
 }
 
-fn return_(context: &Context, vm: &VM): result<void, InstructionError> {
+fn return_(context: &Context): result<void, InstructionError> {
     const result: FrameResult = .return_value(none);
     context.frame.result = result;
     return .ok();
@@ -2199,19 +2292,25 @@ fn value_local_width(value: Value): u16 {
 fn instruction_length_for_scan(opcode: u8, code: []const u8): usize {
     if opcode == 170 {
         const padding = (4 - ((1) % 4)) % 4;
-        if code.len() < 1 + padding + 12 { return 1; }
+        if code.len() < 1 + padding + 12 {
+            return 1;
+        }
         const low = read_scan_i4(code, 1 + padding + 4);
         const high = read_scan_i4(code, 1 + padding + 8);
         return 1 + padding + 12 + (((high - low + 1) as usize) * 4);
     }
     if opcode == 171 {
         const padding = (4 - ((1) % 4)) % 4;
-        if code.len() < 1 + padding + 8 { return 1; }
+        if code.len() < 1 + padding + 8 {
+            return 1;
+        }
         const npairs = read_scan_i4(code, 1 + padding + 4);
         return 1 + padding + 8 + ((npairs as usize) * 8);
     }
     if opcode == 196 {
-        if code.len() > 1 and code[1] == 132 { return 6; }
+        if code.len() > 1 and code[1] == 132 {
+            return 6;
+        }
         return 4;
     }
     if registry[opcode as usize].opcode == Opcode.unsupported {
@@ -2236,7 +2335,7 @@ fn native_arguments(arguments: List<Value>): List<Value> {
     return out;
 }
 
-fn is_access_controller_do_privileged(classes: []Class, class_index: usize, method_index: usize): bool {
+pub fn is_access_controller_do_privileged(classes: []Class, class_index: usize, method_index: usize): bool {
     if classes[class_index].name != "java/security/AccessController" {
         return false;
     }
@@ -2246,12 +2345,19 @@ fn is_access_controller_do_privileged(classes: []Class, class_index: usize, meth
         return false;
     }
     return descriptor == "(Ljava/security/PrivilegedAction;)Ljava/lang/Object;"
-        or descriptor == "(Ljava/security/PrivilegedExceptionAction;)Ljava/lang/Object;"
-        or descriptor == "(Ljava/security/PrivilegedAction;Ljava/security/AccessControlContext;)Ljava/lang/Object;"
-        or descriptor == "(Ljava/security/PrivilegedExceptionAction;Ljava/security/AccessControlContext;)Ljava/lang/Object;";
+    or descriptor == "(Ljava/security/PrivilegedExceptionAction;)Ljava/lang/Object;"
+    or descriptor == "(Ljava/security/PrivilegedAction;Ljava/security/AccessControlContext;)Ljava/lang/Object;"
+    or descriptor == "(Ljava/security/PrivilegedExceptionAction;Ljava/security/AccessControlContext;)Ljava/lang/Object;";
 }
 
-fn invoke_privileged_action(context: &Context, vm: &VM, action: Reference): result<?Value, InstructionError> {
+fn execute_child_method_frame(context: &Context, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
+    if context.runtime is runtime {
+        return execute_method_frame_with_runtime(copy runtime, vm, class_index, method_index, frame, constant_pool);
+    }
+    return execute_method_frame_with_vm(vm, class_index, method_index, frame, constant_pool);
+}
+
+pub fn invoke_privileged_action(context: &Context, vm: &VM, action: Reference): result<?Value, InstructionError> {
     if action.is_null() {
         return .err(InstructionError.invalid_constant);
     }
@@ -2270,12 +2376,14 @@ fn invoke_privileged_action(context: &Context, vm: &VM, action: Reference): resu
     }
     var frame = new_frame(action_class_index, run_method_index, classes[action_class_index].methods[run_method_index].max_locals, classes[action_class_index].methods[run_method_index].max_stack);
     frame.store(0, .ref_value(action));
-    const result = try execute_method_frame_with_vm(vm, action_class_index, run_method_index, frame, context.constant_pool);
+    const result = try execute_child_method_frame(context, vm, action_class_index, run_method_index, frame, context.constant_pool);
     switch result {
-    case .return_value(value) { return .ok(value); }
-    case .exception {
-        return .err(InstructionError.invalid_constant);
-    }
+        case .return_value(value) {
+            return .ok(value);
+        }
+        case .exception {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 }
 
@@ -2310,12 +2418,14 @@ fn invoke_instance_method_direct(context: &Context, vm: &VM, receiver: Reference
         argument_index = argument_index + 1;
     }
 
-    const result = try execute_method_frame_with_vm(vm, target.class_index, target.method_index, frame, context.constant_pool);
+    const result = try execute_child_method_frame(context, vm, target.class_index, target.method_index, frame, context.constant_pool);
     switch result {
-    case .return_value(value) { return .ok(value); }
-    case .exception {
-        return .err(InstructionError.invalid_constant);
-    }
+        case .return_value(value) {
+            return .ok(value);
+        }
+        case .exception {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 }
 
@@ -2351,34 +2461,38 @@ fn java_string_bytes_instruction(context: &Context, vm: &VM, reference: Referenc
     const string_class_index = try vm.resolve_class_index("java/lang/String");
     const value_field = try get_instance_field_by_name(context, vm, reference, string_class_index, "value", "[C");
     switch value_field {
-    case .ref_value(chars_reference) {
-        if vm.heap.array_length(chars_reference) is length {
-            var bytes: List<u8> = [];
-            var index: usize = 0;
-            while index < length {
-                if vm.heap.get_element(chars_reference, index) is element {
-                    switch element {
-                    case .char_value(ch) { bytes.push(ch as u8); }
-                    case .byte_value(ch) { bytes.push(ch as u8); }
-                    else {
+        case .ref_value(chars_reference) {
+            if vm.heap.array_length(chars_reference) is length {
+                var bytes: List<u8> = [];
+                var index: usize = 0;
+                while index < length {
+                    if vm.heap.get_element(chars_reference, index) is element {
+                        switch element {
+                            case .char_value(ch) {
+                                bytes.push(ch as u8);
+                            }
+                            case .byte_value(ch) {
+                                bytes.push(ch as u8);
+                            } else {
+                                return .err(InstructionError.invalid_constant);
+                            }
+                        }
+                    } else {
                         return .err(InstructionError.invalid_constant);
                     }
-                    }
-                } else {
-                    return .err(InstructionError.invalid_constant);
+                    index = index + 1;
                 }
-                index = index + 1;
+                const out = byte_buffer(bytes[..]);
+                return .ok(out);
             }
-            const out = byte_buffer(bytes[..]);
-            return .ok(out);
+        } else {
+            return .err(InstructionError.invalid_constant);
         }
-    }
-    else { return .err(InstructionError.invalid_constant); }
     }
     return .err(InstructionError.invalid_constant);
 }
 
-fn invoke_reflect_constructor(context: &Context, vm: &VM, constructor: Reference, args_array: Reference): result<?Value, InstructionError> {
+pub fn invoke_reflect_constructor(context: &Context, vm: &VM, constructor: Reference, args_array: Reference): result<?Value, InstructionError> {
     const constructor_class_index = try vm.resolve_class_index("java/lang/reflect/Constructor");
     const clazz_value = try get_instance_field_by_name(context, vm, constructor, constructor_class_index, "clazz", "Ljava/lang/Class;");
     const signature_value = try get_instance_field_by_name(context, vm, constructor, constructor_class_index, "signature", "Ljava/lang/String;");
@@ -2416,15 +2530,15 @@ fn invoke_reflect_constructor(context: &Context, vm: &VM, constructor: Reference
             }
         }
     }
-    const result = try execute_method_frame_with_vm(vm, target_class_index, constructor_method_index, frame, target_class.constant_pool[..]);
+    const result = try execute_child_method_frame(context, vm, target_class_index, constructor_method_index, frame, target_class.constant_pool[..]);
     switch result {
-    case .return_value {
-        const out: Value = .ref_value(object);
-        return .ok(out);
-    }
-    case .exception {
-        return .err(InstructionError.invalid_constant);
-    }
+        case .return_value {
+            const out: Value = .ref_value(object);
+            return .ok(out);
+        }
+        case .exception {
+            return .err(InstructionError.invalid_constant);
+        }
     }
 }
 
@@ -2440,7 +2554,7 @@ fn set_java_system_property(context: &Context, vm: &VM, properties: Reference, k
     return .ok();
 }
 
-fn initialize_java_system_properties(context: &Context, vm: &VM, properties: Reference): result<?Value, InstructionError> {
+pub fn initialize_java_system_properties(context: &Context, vm: &VM, properties: Reference): result<?Value, InstructionError> {
     try set_java_system_property(context, vm, properties, "java.version".bytes(), "1.8.0_152-ea".bytes());
     try set_java_system_property(context, vm, properties, "java.home".bytes(), "".bytes());
     try set_java_system_property(context, vm, properties, "java.specification.name".bytes(), "Java Platform API Specification".bytes());
@@ -2529,11 +2643,9 @@ fn invoke_static(context: &Context, vm: &VM): result<void, InstructionError> {
     const active_method = &active_methods[resolved.method_index];
 
     if active_method.is_native() {
-        if is_access_controller_do_privileged(active_classes, resolved.class_index, resolved.method_index) {
-            var native_args = native_arguments(arguments);
-            const result = invoke_privileged_action(context, vm, expect_ref(native_args[0]));
-            drop native_args;
-            switch result {
+        const native_args = native_arguments(arguments);
+        const result = execute_native_method(context, vm, resolved.class_index, resolved.method_index, none, native_args);
+        switch result {
             case .ok(value) {
                 if value is actual {
                     context.frame.push(actual);
@@ -2542,59 +2654,6 @@ fn invoke_static(context: &Context, vm: &VM): result<void, InstructionError> {
             }
             case .err(error_value) {
                 return .err(error_value);
-            }
-            }
-        } else {
-            const native_args = native_arguments(arguments);
-            if active_class.name == "java/lang/System" and active_method.name == "initProperties" and active_method.descriptor == "(Ljava/util/Properties;)Ljava/util/Properties;" {
-                if native_args.len() > 0 {
-                    const properties = expect_ref(native_args[0]);
-                    if properties.non_null() {
-                        const result = initialize_java_system_properties(context, vm, properties);
-                        switch result {
-                        case .ok(value) {
-                            if value is actual {
-                                context.frame.push(actual);
-                            }
-                            return .ok();
-                        }
-                        case .err(error_value) {
-                            return .err(error_value);
-                        }
-                        }
-                    }
-                } else {
-                    return .err(InstructionError.invalid_constant);
-                }
-            }
-            if active_class.name == "sun/reflect/NativeConstructorAccessorImpl" and active_method.name == "newInstance0" and active_method.descriptor == "(Ljava/lang/reflect/Constructor;[Ljava/lang/Object;)Ljava/lang/Object;" {
-                if native_args.len() > 1 {
-                    const result = invoke_reflect_constructor(context, vm, expect_ref(native_args[0]), expect_ref(native_args[1]));
-                    switch result {
-                    case .ok(value) {
-                        if value is actual {
-                            context.frame.push(actual);
-                        }
-                        return .ok();
-                    }
-                    case .err(error_value) {
-                        return .err(error_value);
-                    }
-                    }
-                }
-                return .err(InstructionError.invalid_constant);
-            }
-            const result = execute_native_method(context, vm, resolved.class_index, resolved.method_index, none, native_args);
-            switch result {
-            case .ok(value) {
-                if value is actual {
-                    context.frame.push(actual);
-                }
-                return .ok();
-            }
-            case .err(error_value) {
-                return .err(error_value);
-            }
             }
         }
     } else {
@@ -2609,7 +2668,7 @@ fn invoke_static(context: &Context, vm: &VM): result<void, InstructionError> {
         }
         drop arguments;
 
-        const result = try execute_method_frame_with_vm(vm, resolved.class_index, resolved.method_index, frame, context.constant_pool);
+        const result = try execute_child_method_frame(context, vm, resolved.class_index, resolved.method_index, frame, context.constant_pool);
         return apply_method_result(context, vm, result);
     }
 }
@@ -2641,15 +2700,15 @@ fn invoke_special(context: &Context, vm: &VM): result<void, InstructionError> {
         const native_args = native_arguments(arguments);
         const result = execute_native_method(context, vm, resolved.class_index, resolved.method_index, receiver, native_args);
         switch result {
-        case .ok(value) {
-            if value is actual {
-                context.frame.push(actual);
+            case .ok(value) {
+                if value is actual {
+                    context.frame.push(actual);
+                }
+                return .ok();
             }
-            return .ok();
-        }
-        case .err(error_value) {
-            return .err(error_value);
-        }
+            case .err(error_value) {
+                return .err(error_value);
+            }
         }
     } else {
         var frame = new_frame(resolved.class_index, resolved.method_index, method.max_locals, method.max_stack);
@@ -2664,7 +2723,7 @@ fn invoke_special(context: &Context, vm: &VM): result<void, InstructionError> {
         }
         drop arguments;
 
-        const result = try execute_method_frame_with_vm(vm, resolved.class_index, resolved.method_index, frame, context.constant_pool);
+        const result = try execute_child_method_frame(context, vm, resolved.class_index, resolved.method_index, frame, context.constant_pool);
         return apply_method_result(context, vm, result);
     }
 }
@@ -2726,15 +2785,15 @@ fn invoke_virtual(context: &Context, vm: &VM): result<void, InstructionError> {
             const native_args: List<Value> = [];
             const result = execute_native_method(context, vm, declared.class_index, declared.method_index, receiver, native_args);
             switch result {
-            case .ok(value) {
-                if value is actual {
-                    context.frame.push(actual);
+                case .ok(value) {
+                    if value is actual {
+                        context.frame.push(actual);
+                    }
+                    return .ok();
                 }
-                return .ok();
-            }
-            case .err(error_value) {
-                return .err(error_value);
-            }
+                case .err(error_value) {
+                    return .err(error_value);
+                }
             }
         }
     }
@@ -2756,15 +2815,15 @@ fn invoke_virtual(context: &Context, vm: &VM): result<void, InstructionError> {
         const native_args = native_arguments(arguments);
         const result = execute_native_method(context, vm, target.class_index, target.method_index, receiver, native_args);
         switch result {
-        case .ok(value) {
-            if value is actual {
-                context.frame.push(actual);
+            case .ok(value) {
+                if value is actual {
+                    context.frame.push(actual);
+                }
+                return .ok();
             }
-            return .ok();
-        }
-        case .err(error_value) {
-            return .err(error_value);
-        }
+            case .err(error_value) {
+                return .err(error_value);
+            }
         }
     } else {
         var frame = new_frame(target.class_index, target.method_index, target_method.max_locals, target_method.max_stack);
@@ -2779,7 +2838,7 @@ fn invoke_virtual(context: &Context, vm: &VM): result<void, InstructionError> {
         }
         drop arguments;
 
-        const result = try execute_method_frame_with_vm(vm, target.class_index, target.method_index, frame, context.constant_pool);
+        const result = try execute_child_method_frame(context, vm, target.class_index, target.method_index, frame, context.constant_pool);
         return apply_method_result(context, vm, result);
     }
 }
@@ -2828,15 +2887,15 @@ fn invoke_interface(context: &Context, vm: &VM): result<void, InstructionError> 
         const native_args = native_arguments(arguments);
         const result = execute_native_method(context, vm, target.class_index, target.method_index, receiver, native_args);
         switch result {
-        case .ok(value) {
-            if value is actual {
-                context.frame.push(actual);
+            case .ok(value) {
+                if value is actual {
+                    context.frame.push(actual);
+                }
+                return .ok();
             }
-            return .ok();
-        }
-        case .err(error_value) {
-            return .err(error_value);
-        }
+            case .err(error_value) {
+                return .err(error_value);
+            }
         }
     } else {
         var frame = new_frame(target.class_index, target.method_index, target_method.max_locals, target_method.max_stack);
@@ -2851,7 +2910,7 @@ fn invoke_interface(context: &Context, vm: &VM): result<void, InstructionError> 
         }
         drop arguments;
 
-        const result = try execute_method_frame_with_vm(vm, target.class_index, target.method_index, frame, context.constant_pool);
+        const result = try execute_child_method_frame(context, vm, target.class_index, target.method_index, frame, context.constant_pool);
         return apply_method_result(context, vm, result);
     }
 }
@@ -2885,6 +2944,35 @@ fn getstatic(context: &Context, vm: &VM): result<void, InstructionError> {
 }
 
 fn initialize_static_class(context: &Context, vm: &VM, class_index: usize): result<void, InstructionError> {
+    if context.runtime is runtime {
+        var decision = runtime.initializers.begin(class_index);
+        while decision == InitializationDecision.waiting {
+            if !runtime.pause(1) {
+                return .err(InstructionError.invalid_constant);
+            }
+            decision = runtime.initializers.begin(class_index);
+        }
+        if decision == InitializationDecision.failed {
+            return .err(InstructionError.invalid_constant);
+        }
+        if decision == InitializationDecision.complete or decision == InitializationDecision.recursive {
+            return .ok();
+        }
+        const result = initialize_static_class_body(context, vm, class_index);
+        switch result {
+            case .ok {
+                runtime.initializers.finish(class_index, true);
+            }
+            case .err {
+                runtime.initializers.finish(class_index, false);
+            }
+        }
+        return result;
+    }
+    return initialize_static_class_body(context, vm, class_index);
+}
+
+fn initialize_static_class_body(context: &Context, vm: &VM, class_index: usize): result<void, InstructionError> {
     if class_index >= vm.method_area.classes.len() {
         return .err(InstructionError.invalid_constant);
     }
@@ -2893,27 +2981,30 @@ fn initialize_static_class(context: &Context, vm: &VM, class_index: usize): resu
     if class.linked {
         return .ok();
     }
+    const class_name = copy class.name;
     if class.super_class.len() > 0 {
         if find_loaded_class_index(classes, copy class.super_class) is super_index {
             try initialize_static_class(context, vm, super_index);
         }
     }
-    class.linked = true;
-    if class.method_index("<clinit>", "()V", true) is clinit_index_value {
+    var active_classes = vm.method_area.classes[..];
+    const active_class = &active_classes[class_index];
+    active_class.linked = true;
+    if active_class.method_index("<clinit>", "()V", true) is clinit_index_value {
         const clinit_index = clinit_index_value as usize;
-        var frame = new_frame(class_index, clinit_index, class.methods[clinit_index].max_locals, class.methods[clinit_index].max_stack);
-        const result = try execute_method_frame_with_vm(vm, class_index, clinit_index, frame, class.constant_pool[..]);
+        var frame = new_frame(class_index, clinit_index, active_class.methods[clinit_index].max_locals, active_class.methods[clinit_index].max_stack);
+        const result = try execute_child_method_frame(context, vm, class_index, clinit_index, frame, active_class.constant_pool[..]);
         switch result {
-        case .return_value {}
-        case .exception {
-            return .err(InstructionError.invalid_constant);
-        }
+            case .return_value {}
+            case .exception {
+                return .err(InstructionError.invalid_constant);
+            }
         }
     }
-    if class.name == "java/lang/System" {
+    if class_name == "java/lang/System" {
         try initialize_system_static_fields(context, vm, class_index);
     }
-    if class.name == "sun/misc/VM" {
+    if class_name == "sun/misc/VM" {
         try initialize_vm_static_fields(context, vm, class_index);
     }
     return .ok();
@@ -2954,18 +3045,19 @@ fn initialize_vm_static_fields(context: &Context, vm: &VM, vm_index: usize): res
         var fields = vm_class.fields[..];
         const field = &fields[field_index_value as usize];
         switch vm_class.static_vars[field.slot as usize] {
-        case .ref_value(props_reference) {
-            if props_reference.is_null() {
+            case .ref_value(props_reference) {
+                if props_reference.is_null() {
+                    return .ok();
+                }
+                if vm.heap.object_class_index(props_reference) is props_class_index {
+                    const count_field = try find_field_by_name_in_hierarchy(context, vm, props_class_index, "count", "I", false);
+                    if field_runtime_slot(vm, props_reference, count_field) is count_slot {
+                        const ignored_set = vm.heap.set_field(props_reference, count_slot, .int_value(1));
+                    }
+                }
+            } else {
                 return .ok();
             }
-            if vm.heap.object_class_index(props_reference) is props_class_index {
-                const count_field = try find_field_by_name_in_hierarchy(context, vm, props_class_index, "count", "I", false);
-                if field_runtime_slot(vm, props_reference, count_field) is count_slot {
-                    const ignored_set = vm.heap.set_field(props_reference, count_slot, .int_value(1));
-                }
-            }
-        }
-        else { return .ok(); }
         }
     }
     return .ok();
@@ -3104,8 +3196,10 @@ fn anewarray(context: &Context, vm: &VM): result<void, InstructionError> {
     const array_descriptor = reference_array_descriptor(descriptor);
     var array_class_index: usize = 0;
     switch vm.resolve_class_index(copy array_descriptor) {
-    case .ok(found_index) { array_class_index = found_index; }
-    case .err {}
+        case .ok(found_index) {
+            array_class_index = found_index;
+        }
+        case .err {}
     }
     const reference = vm.heap.allocate_array(array_class_index, descriptor.bytes(), count as usize);
     context.frame.push(.ref_value(reference));
@@ -3169,10 +3263,7 @@ fn instanceof(context: &Context, vm: &VM): result<void, InstructionError> {
 
 fn monitorenter(context: &Context, vm: &VM): result<void, InstructionError> {
     const reference = expect_ref(context.frame.pop());
-    if !vm.heap.monitor_enter(reference) {
-        return .err(InstructionError.invalid_constant);
-    }
-    return .ok();
+    return enter_monitor(context.runtime, vm, reference);
 }
 
 fn monitorexit(context: &Context, vm: &VM): result<void, InstructionError> {
@@ -3239,7 +3330,7 @@ fn arraylength(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn wide(context: &Context, vm: &VM): result<void, InstructionError> {
+fn wide(context: &Context): result<void, InstructionError> {
     const modified_opcode = context.read_u1();
     const index = context.read_u2();
     var handled = false;
@@ -3306,273 +3397,1808 @@ fn wide(context: &Context, vm: &VM): result<void, InstructionError> {
     return .ok();
 }
 
-fn ifnull(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ifnull(context: &Context): result<void, InstructionError> {
     branch(context, expect_ref(context.frame.pop()).is_null());
     return .ok();
 }
 
-fn ifnonnull(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ifnonnull(context: &Context): result<void, InstructionError> {
     branch(context, expect_ref(context.frame.pop()).non_null());
     return .ok();
 }
 
-const registry: [256]Instruction = [
-    { opcode: .nop, length: 1, execute: nop }, // 0x00 nop
-    { opcode: .aconst_null, length: 1, execute: aconst_null }, // 0x01 aconst_null
-    { opcode: .iconst_m1, length: 1, execute: iconst_m1 }, // 0x02 iconst_m1
-    { opcode: .iconst_0, length: 1, execute: iconst_0 }, // 0x03 iconst_0
-    { opcode: .iconst_1, length: 1, execute: iconst_1 }, // 0x04 iconst_1
-    { opcode: .iconst_2, length: 1, execute: iconst_2 }, // 0x05 iconst_2
-    { opcode: .iconst_3, length: 1, execute: iconst_3 }, // 0x06 iconst_3
-    { opcode: .iconst_4, length: 1, execute: iconst_4 }, // 0x07 iconst_4
-    { opcode: .iconst_5, length: 1, execute: iconst_5 }, // 0x08 iconst_5
-    { opcode: .lconst_0, length: 1, execute: lconst_0 }, // 0x09 lconst_0
-    { opcode: .lconst_1, length: 1, execute: lconst_1 }, // 0x0A lconst_1
-    { opcode: .fconst_0, length: 1, execute: fconst_0 }, // 0x0B fconst_0
-    { opcode: .fconst_1, length: 1, execute: fconst_1 }, // 0x0C fconst_1
-    { opcode: .fconst_2, length: 1, execute: fconst_2 }, // 0x0D fconst_2
-    { opcode: .dconst_0, length: 1, execute: dconst_0 }, // 0x0E dconst_0
-    { opcode: .dconst_1, length: 1, execute: dconst_1 }, // 0x0F dconst_1
-    { opcode: .bipush, length: 2, execute: bipush }, // 0x10 bipush
-    { opcode: .sipush, length: 3, execute: sipush }, // 0x11 sipush
-    { opcode: .ldc, length: 2, execute: ldc }, // 0x12 ldc
-    { opcode: .ldc_w, length: 3, execute: ldc_w }, // 0x13 ldc_w
-    { opcode: .ldc2_w, length: 3, execute: ldc2_w }, // 0x14 ldc2_w
-    { opcode: .iload, length: 2, execute: iload }, // 0x15 iload
-    { opcode: .lload, length: 2, execute: lload }, // 0x16 lload
-    { opcode: .fload, length: 2, execute: fload }, // 0x17 fload
-    { opcode: .dload, length: 2, execute: dload }, // 0x18 dload
-    { opcode: .aload, length: 2, execute: aload }, // 0x19 aload
-    { opcode: .iload_0, length: 1, execute: iload_0 }, // 0x1A iload_0
-    { opcode: .iload_1, length: 1, execute: iload_1 }, // 0x1B iload_1
-    { opcode: .iload_2, length: 1, execute: iload_2 }, // 0x1C iload_2
-    { opcode: .iload_3, length: 1, execute: iload_3 }, // 0x1D iload_3
-    { opcode: .lload_0, length: 1, execute: lload_0 }, // 0x1E lload_0
-    { opcode: .lload_1, length: 1, execute: lload_1 }, // 0x1F lload_1
-    { opcode: .lload_2, length: 1, execute: lload_2 }, // 0x20 lload_2
-    { opcode: .lload_3, length: 1, execute: lload_3 }, // 0x21 lload_3
-    { opcode: .fload_0, length: 1, execute: fload_0 }, // 0x22 fload_0
-    { opcode: .fload_1, length: 1, execute: fload_1 }, // 0x23 fload_1
-    { opcode: .fload_2, length: 1, execute: fload_2 }, // 0x24 fload_2
-    { opcode: .fload_3, length: 1, execute: fload_3 }, // 0x25 fload_3
-    { opcode: .dload_0, length: 1, execute: dload_0 }, // 0x26 dload_0
-    { opcode: .dload_1, length: 1, execute: dload_1 }, // 0x27 dload_1
-    { opcode: .dload_2, length: 1, execute: dload_2 }, // 0x28 dload_2
-    { opcode: .dload_3, length: 1, execute: dload_3 }, // 0x29 dload_3
-    { opcode: .aload_0, length: 1, execute: aload_0 }, // 0x2A aload_0
-    { opcode: .aload_1, length: 1, execute: aload_1 }, // 0x2B aload_1
-    { opcode: .aload_2, length: 1, execute: aload_2 }, // 0x2C aload_2
-    { opcode: .aload_3, length: 1, execute: aload_3 }, // 0x2D aload_3
-    { opcode: .iaload, length: 1, execute: iaload }, // 0x2E iaload
-    { opcode: .laload, length: 1, execute: laload }, // 0x2F laload
-    { opcode: .faload, length: 1, execute: faload }, // 0x30 faload
-    { opcode: .daload, length: 1, execute: daload }, // 0x31 daload
-    { opcode: .aaload, length: 1, execute: aaload }, // 0x32 aaload
-    { opcode: .baload, length: 1, execute: baload }, // 0x33 baload
-    { opcode: .caload, length: 1, execute: caload }, // 0x34 caload
-    { opcode: .saload, length: 1, execute: saload }, // 0x35 saload
-    { opcode: .istore, length: 2, execute: istore }, // 0x36 istore
-    { opcode: .lstore, length: 2, execute: lstore }, // 0x37 lstore
-    { opcode: .fstore, length: 2, execute: fstore }, // 0x38 fstore
-    { opcode: .dstore, length: 2, execute: dstore }, // 0x39 dstore
-    { opcode: .astore, length: 2, execute: astore }, // 0x3A astore
-    { opcode: .istore_0, length: 1, execute: istore_0 }, // 0x3B istore_0
-    { opcode: .istore_1, length: 1, execute: istore_1 }, // 0x3C istore_1
-    { opcode: .istore_2, length: 1, execute: istore_2 }, // 0x3D istore_2
-    { opcode: .istore_3, length: 1, execute: istore_3 }, // 0x3E istore_3
-    { opcode: .lstore_0, length: 1, execute: lstore_0 }, // 0x3F lstore_0
-    { opcode: .lstore_1, length: 1, execute: lstore_1 }, // 0x40 lstore_1
-    { opcode: .lstore_2, length: 1, execute: lstore_2 }, // 0x41 lstore_2
-    { opcode: .lstore_3, length: 1, execute: lstore_3 }, // 0x42 lstore_3
-    { opcode: .fstore_0, length: 1, execute: fstore_0 }, // 0x43 fstore_0
-    { opcode: .fstore_1, length: 1, execute: fstore_1 }, // 0x44 fstore_1
-    { opcode: .fstore_2, length: 1, execute: fstore_2 }, // 0x45 fstore_2
-    { opcode: .fstore_3, length: 1, execute: fstore_3 }, // 0x46 fstore_3
-    { opcode: .dstore_0, length: 1, execute: dstore_0 }, // 0x47 dstore_0
-    { opcode: .dstore_1, length: 1, execute: dstore_1 }, // 0x48 dstore_1
-    { opcode: .dstore_2, length: 1, execute: dstore_2 }, // 0x49 dstore_2
-    { opcode: .dstore_3, length: 1, execute: dstore_3 }, // 0x4A dstore_3
-    { opcode: .astore_0, length: 1, execute: astore_0 }, // 0x4B astore_0
-    { opcode: .astore_1, length: 1, execute: astore_1 }, // 0x4C astore_1
-    { opcode: .astore_2, length: 1, execute: astore_2 }, // 0x4D astore_2
-    { opcode: .astore_3, length: 1, execute: astore_3 }, // 0x4E astore_3
-    { opcode: .iastore, length: 1, execute: iastore }, // 0x4F iastore
-    { opcode: .lastore, length: 1, execute: lastore }, // 0x50 lastore
-    { opcode: .fastore, length: 1, execute: fastore }, // 0x51 fastore
-    { opcode: .dastore, length: 1, execute: dastore }, // 0x52 dastore
-    { opcode: .aastore, length: 1, execute: aastore }, // 0x53 aastore
-    { opcode: .bastore, length: 1, execute: bastore }, // 0x54 bastore
-    { opcode: .castore, length: 1, execute: castore }, // 0x55 castore
-    { opcode: .sastore, length: 1, execute: sastore }, // 0x56 sastore
-    { opcode: .pop, length: 1, execute: pop }, // 0x57 pop
-    { opcode: .pop2, length: 1, execute: pop2 }, // 0x58 pop2
-    { opcode: .dup, length: 1, execute: dup }, // 0x59 dup
-    { opcode: .dup_x1, length: 1, execute: dup_x1 }, // 0x5A dup_x1
-    { opcode: .dup_x2, length: 1, execute: dup_x2 }, // 0x5B dup_x2
-    { opcode: .dup2, length: 1, execute: dup2 }, // 0x5C dup2
-    { opcode: .dup2_x1, length: 1, execute: dup2_x1 }, // 0x5D dup2_x1
-    { opcode: .dup2_x2, length: 1, execute: dup2_x2 }, // 0x5E dup2_x2
-    { opcode: .swap, length: 1, execute: swap }, // 0x5F swap
-    { opcode: .iadd, length: 1, execute: iadd }, // 0x60 iadd
-    { opcode: .ladd, length: 1, execute: ladd }, // 0x61 ladd
-    { opcode: .fadd, length: 1, execute: fadd }, // 0x62 fadd
-    { opcode: .dadd, length: 1, execute: dadd }, // 0x63 dadd
-    { opcode: .isub, length: 1, execute: isub }, // 0x64 isub
-    { opcode: .lsub, length: 1, execute: lsub }, // 0x65 lsub
-    { opcode: .fsub, length: 1, execute: fsub }, // 0x66 fsub
-    { opcode: .dsub, length: 1, execute: dsub }, // 0x67 dsub
-    { opcode: .imul, length: 1, execute: imul }, // 0x68 imul
-    { opcode: .lmul, length: 1, execute: lmul }, // 0x69 lmul
-    { opcode: .fmul, length: 1, execute: fmul }, // 0x6A fmul
-    { opcode: .dmul, length: 1, execute: dmul }, // 0x6B dmul
-    { opcode: .idiv, length: 1, execute: idiv }, // 0x6C idiv
-    { opcode: .ldiv, length: 1, execute: ldiv }, // 0x6D ldiv
-    { opcode: .fdiv, length: 1, execute: fdiv }, // 0x6E fdiv
-    { opcode: .ddiv, length: 1, execute: ddiv }, // 0x6F ddiv
-    { opcode: .irem, length: 1, execute: irem }, // 0x70 irem
-    { opcode: .lrem, length: 1, execute: lrem }, // 0x71 lrem
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x72 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0x73 unsupported
-    { opcode: .ineg, length: 1, execute: ineg }, // 0x74 ineg
-    { opcode: .lneg, length: 1, execute: lneg }, // 0x75 lneg
-    { opcode: .fneg, length: 1, execute: fneg }, // 0x76 fneg
-    { opcode: .dneg, length: 1, execute: dneg }, // 0x77 dneg
-    { opcode: .ishl, length: 1, execute: ishl }, // 0x78 ishl
-    { opcode: .lshl, length: 1, execute: lshl }, // 0x79 lshl
-    { opcode: .ishr, length: 1, execute: ishr }, // 0x7A ishr
-    { opcode: .lshr, length: 1, execute: lshr }, // 0x7B lshr
-    { opcode: .iushr, length: 1, execute: iushr }, // 0x7C iushr
-    { opcode: .lushr, length: 1, execute: lushr }, // 0x7D lushr
-    { opcode: .iand, length: 1, execute: iand }, // 0x7E iand
-    { opcode: .land, length: 1, execute: land }, // 0x7F land
-    { opcode: .ior, length: 1, execute: ior }, // 0x80 ior
-    { opcode: .lor, length: 1, execute: lor }, // 0x81 lor
-    { opcode: .ixor, length: 1, execute: ixor }, // 0x82 ixor
-    { opcode: .lxor, length: 1, execute: lxor }, // 0x83 lxor
-    { opcode: .iinc, length: 3, execute: iinc }, // 0x84 iinc
-    { opcode: .i2l, length: 1, execute: i2l }, // 0x85 i2l
-    { opcode: .i2f, length: 1, execute: i2f }, // 0x86 i2f
-    { opcode: .i2d, length: 1, execute: i2d }, // 0x87 i2d
-    { opcode: .l2i, length: 1, execute: l2i }, // 0x88 l2i
-    { opcode: .l2f, length: 1, execute: l2f }, // 0x89 l2f
-    { opcode: .l2d, length: 1, execute: l2d }, // 0x8A l2d
-    { opcode: .f2i, length: 1, execute: f2i }, // 0x8B f2i
-    { opcode: .f2l, length: 1, execute: f2l }, // 0x8C f2l
-    { opcode: .f2d, length: 1, execute: f2d }, // 0x8D f2d
-    { opcode: .d2i, length: 1, execute: d2i }, // 0x8E d2i
-    { opcode: .d2l, length: 1, execute: d2l }, // 0x8F d2l
-    { opcode: .d2f, length: 1, execute: d2f }, // 0x90 d2f
-    { opcode: .i2b, length: 1, execute: i2b }, // 0x91 i2b
-    { opcode: .i2c, length: 1, execute: i2c }, // 0x92 i2c
-    { opcode: .i2s, length: 1, execute: i2s }, // 0x93 i2s
-    { opcode: .lcmp, length: 1, execute: lcmp }, // 0x94 lcmp
-    { opcode: .fcmpl, length: 1, execute: fcmpl }, // 0x95 fcmpl
-    { opcode: .fcmpg, length: 1, execute: fcmpg }, // 0x96 fcmpg
-    { opcode: .dcmpl, length: 1, execute: dcmpl }, // 0x97 dcmpl
-    { opcode: .dcmpg, length: 1, execute: dcmpg }, // 0x98 dcmpg
-    { opcode: .ifeq, length: 3, execute: ifeq }, // 0x99 ifeq
-    { opcode: .ifne, length: 3, execute: ifne }, // 0x9A ifne
-    { opcode: .iflt, length: 3, execute: iflt }, // 0x9B iflt
-    { opcode: .ifge, length: 3, execute: ifge }, // 0x9C ifge
-    { opcode: .ifgt, length: 3, execute: ifgt }, // 0x9D ifgt
-    { opcode: .ifle, length: 3, execute: ifle }, // 0x9E ifle
-    { opcode: .if_icmpeq, length: 3, execute: if_icmpeq }, // 0x9F if_icmpeq
-    { opcode: .if_icmpne, length: 3, execute: if_icmpne }, // 0xA0 if_icmpne
-    { opcode: .if_icmplt, length: 3, execute: if_icmplt }, // 0xA1 if_icmplt
-    { opcode: .if_icmpge, length: 3, execute: if_icmpge }, // 0xA2 if_icmpge
-    { opcode: .if_icmpgt, length: 3, execute: if_icmpgt }, // 0xA3 if_icmpgt
-    { opcode: .if_icmple, length: 3, execute: if_icmple }, // 0xA4 if_icmple
-    { opcode: .if_acmpeq, length: 3, execute: if_acmpeq }, // 0xA5 if_acmpeq
-    { opcode: .if_acmpne, length: 3, execute: if_acmpne }, // 0xA6 if_acmpne
-    { opcode: .goto_, length: 3, execute: goto_ }, // 0xA7 goto
-    { opcode: .jsr, length: 3, execute: jsr }, // 0xA8 jsr
-    { opcode: .ret, length: 2, execute: ret }, // 0xA9 ret
-    { opcode: .tableswitch, length: 0, execute: tableswitch }, // 0xAA tableswitch
-    { opcode: .lookupswitch, length: 0, execute: lookupswitch }, // 0xAB lookupswitch
-    { opcode: .ireturn, length: 1, execute: ireturn }, // 0xAC ireturn
-    { opcode: .lreturn, length: 1, execute: lreturn }, // 0xAD lreturn
-    { opcode: .freturn, length: 1, execute: freturn }, // 0xAE freturn
-    { opcode: .dreturn, length: 1, execute: dreturn }, // 0xAF dreturn
-    { opcode: .areturn, length: 1, execute: areturn }, // 0xB0 areturn
-    { opcode: .return_, length: 1, execute: return_ }, // 0xB1 return
-    { opcode: .getstatic, length: 3, execute: getstatic }, // 0xB2 getstatic
-    { opcode: .putstatic, length: 3, execute: putstatic }, // 0xB3 putstatic
-    { opcode: .getfield, length: 3, execute: getfield }, // 0xB4 getfield
-    { opcode: .putfield, length: 3, execute: putfield }, // 0xB5 putfield
-    { opcode: .invoke_virtual, length: 3, execute: invoke_virtual }, // 0xB6 invokevirtual
-    { opcode: .invoke_special, length: 3, execute: invoke_special }, // 0xB7 invokespecial
-    { opcode: .invoke_static, length: 3, execute: invoke_static }, // 0xB8 invokestatic
-    { opcode: .invoke_interface, length: 5, execute: invoke_interface }, // 0xB9 invokeinterface
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xBA unsupported
-    { opcode: .new_, length: 3, execute: new_ }, // 0xBB new
-    { opcode: .newarray, length: 2, execute: newarray }, // 0xBC newarray
-    { opcode: .anewarray, length: 3, execute: anewarray }, // 0xBD anewarray
-    { opcode: .arraylength, length: 1, execute: arraylength }, // 0xBE arraylength
-    { opcode: .athrow, length: 1, execute: athrow }, // 0xBF athrow
-    { opcode: .checkcast, length: 3, execute: checkcast }, // 0xC0 checkcast
-    { opcode: .instanceof, length: 3, execute: instanceof }, // 0xC1 instanceof
-    { opcode: .monitorenter, length: 1, execute: monitorenter }, // 0xC2 monitorenter
-    { opcode: .monitorexit, length: 1, execute: monitorexit }, // 0xC3 monitorexit
-    { opcode: .wide, length: 0, execute: wide }, // 0xC4 wide
-    { opcode: .multianewarray, length: 4, execute: multianewarray }, // 0xC5 multianewarray
-    { opcode: .ifnull, length: 3, execute: ifnull }, // 0xC6 ifnull
-    { opcode: .ifnonnull, length: 3, execute: ifnonnull }, // 0xC7 ifnonnull
-    { opcode: .goto_w, length: 5, execute: goto_w }, // 0xC8 goto_w
-    { opcode: .jsr_w, length: 5, execute: jsr_w }, // 0xC9 jsr_w
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xCA unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xCB unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xCC unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xCD unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xCE unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xCF unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xD0 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xD1 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xD2 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xD3 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xD4 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xD5 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xD6 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xD7 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xD8 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xD9 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xDA unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xDB unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xDC unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xDD unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xDE unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xDF unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xE0 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xE1 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xE2 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xE3 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xE4 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xE5 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xE6 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xE7 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xE8 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xE9 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xEA unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xEB unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xEC unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xED unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xEE unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xEF unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xF0 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xF1 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xF2 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xF3 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xF4 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xF5 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xF6 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xF7 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xF8 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xF9 unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xFA unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xFB unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xFC unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xFD unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xFE unsupported
-    { opcode: .unsupported, length: 0, execute: unsupported }, // 0xFF unsupported
+const registry: [256]Instruction = [{
+        opcode: .nop,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: nop,
+        is_local: true
+    }, // 0x00 nop
+    {
+        opcode: .aconst_null,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: aconst_null,
+        is_local: true
+    }, // 0x01 aconst_null
+    {
+        opcode: .iconst_m1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iconst_m1,
+        is_local: true
+    }, // 0x02 iconst_m1
+    {
+        opcode: .iconst_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iconst_0,
+        is_local: true
+    }, // 0x03 iconst_0
+    {
+        opcode: .iconst_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iconst_1,
+        is_local: true
+    }, // 0x04 iconst_1
+    {
+        opcode: .iconst_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iconst_2,
+        is_local: true
+    }, // 0x05 iconst_2
+    {
+        opcode: .iconst_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iconst_3,
+        is_local: true
+    }, // 0x06 iconst_3
+    {
+        opcode: .iconst_4,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iconst_4,
+        is_local: true
+    }, // 0x07 iconst_4
+    {
+        opcode: .iconst_5,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iconst_5,
+        is_local: true
+    }, // 0x08 iconst_5
+    {
+        opcode: .lconst_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lconst_0,
+        is_local: true
+    }, // 0x09 lconst_0
+    {
+        opcode: .lconst_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lconst_1,
+        is_local: true
+    }, // 0x0A lconst_1
+    {
+        opcode: .fconst_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fconst_0,
+        is_local: true
+    }, // 0x0B fconst_0
+    {
+        opcode: .fconst_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fconst_1,
+        is_local: true
+    }, // 0x0C fconst_1
+    {
+        opcode: .fconst_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fconst_2,
+        is_local: true
+    }, // 0x0D fconst_2
+    {
+        opcode: .dconst_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dconst_0,
+        is_local: true
+    }, // 0x0E dconst_0
+    {
+        opcode: .dconst_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dconst_1,
+        is_local: true
+    }, // 0x0F dconst_1
+    {
+        opcode: .bipush,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: bipush,
+        is_local: true
+    }, // 0x10 bipush
+    {
+        opcode: .sipush,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: sipush,
+        is_local: true
+    }, // 0x11 sipush
+    {
+        opcode: .ldc,
+        length: 2,
+        execute: ldc,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x12 ldc
+    {
+        opcode: .ldc_w,
+        length: 3,
+        execute: ldc_w,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x13 ldc_w
+    {
+        opcode: .ldc2_w,
+        length: 3,
+        execute: ldc2_w,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x14 ldc2_w
+    {
+        opcode: .iload,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: iload,
+        is_local: true
+    }, // 0x15 iload
+    {
+        opcode: .lload,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: lload,
+        is_local: true
+    }, // 0x16 lload
+    {
+        opcode: .fload,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: fload,
+        is_local: true
+    }, // 0x17 fload
+    {
+        opcode: .dload,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: dload,
+        is_local: true
+    }, // 0x18 dload
+    {
+        opcode: .aload,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: aload,
+        is_local: true
+    }, // 0x19 aload
+    {
+        opcode: .iload_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iload_0,
+        is_local: true
+    }, // 0x1A iload_0
+    {
+        opcode: .iload_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iload_1,
+        is_local: true
+    }, // 0x1B iload_1
+    {
+        opcode: .iload_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iload_2,
+        is_local: true
+    }, // 0x1C iload_2
+    {
+        opcode: .iload_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iload_3,
+        is_local: true
+    }, // 0x1D iload_3
+    {
+        opcode: .lload_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lload_0,
+        is_local: true
+    }, // 0x1E lload_0
+    {
+        opcode: .lload_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lload_1,
+        is_local: true
+    }, // 0x1F lload_1
+    {
+        opcode: .lload_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lload_2,
+        is_local: true
+    }, // 0x20 lload_2
+    {
+        opcode: .lload_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lload_3,
+        is_local: true
+    }, // 0x21 lload_3
+    {
+        opcode: .fload_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fload_0,
+        is_local: true
+    }, // 0x22 fload_0
+    {
+        opcode: .fload_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fload_1,
+        is_local: true
+    }, // 0x23 fload_1
+    {
+        opcode: .fload_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fload_2,
+        is_local: true
+    }, // 0x24 fload_2
+    {
+        opcode: .fload_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fload_3,
+        is_local: true
+    }, // 0x25 fload_3
+    {
+        opcode: .dload_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dload_0,
+        is_local: true
+    }, // 0x26 dload_0
+    {
+        opcode: .dload_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dload_1,
+        is_local: true
+    }, // 0x27 dload_1
+    {
+        opcode: .dload_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dload_2,
+        is_local: true
+    }, // 0x28 dload_2
+    {
+        opcode: .dload_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dload_3,
+        is_local: true
+    }, // 0x29 dload_3
+    {
+        opcode: .aload_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: aload_0,
+        is_local: true
+    }, // 0x2A aload_0
+    {
+        opcode: .aload_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: aload_1,
+        is_local: true
+    }, // 0x2B aload_1
+    {
+        opcode: .aload_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: aload_2,
+        is_local: true
+    }, // 0x2C aload_2
+    {
+        opcode: .aload_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: aload_3,
+        is_local: true
+    }, // 0x2D aload_3
+    {
+        opcode: .iaload,
+        length: 1,
+        execute: iaload,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x2E iaload
+    {
+        opcode: .laload,
+        length: 1,
+        execute: laload,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x2F laload
+    {
+        opcode: .faload,
+        length: 1,
+        execute: faload,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x30 faload
+    {
+        opcode: .daload,
+        length: 1,
+        execute: daload,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x31 daload
+    {
+        opcode: .aaload,
+        length: 1,
+        execute: aaload,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x32 aaload
+    {
+        opcode: .baload,
+        length: 1,
+        execute: baload,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x33 baload
+    {
+        opcode: .caload,
+        length: 1,
+        execute: caload,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x34 caload
+    {
+        opcode: .saload,
+        length: 1,
+        execute: saload,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x35 saload
+    {
+        opcode: .istore,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: istore,
+        is_local: true
+    }, // 0x36 istore
+    {
+        opcode: .lstore,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: lstore,
+        is_local: true
+    }, // 0x37 lstore
+    {
+        opcode: .fstore,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: fstore,
+        is_local: true
+    }, // 0x38 fstore
+    {
+        opcode: .dstore,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: dstore,
+        is_local: true
+    }, // 0x39 dstore
+    {
+        opcode: .astore,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: astore,
+        is_local: true
+    }, // 0x3A astore
+    {
+        opcode: .istore_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: istore_0,
+        is_local: true
+    }, // 0x3B istore_0
+    {
+        opcode: .istore_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: istore_1,
+        is_local: true
+    }, // 0x3C istore_1
+    {
+        opcode: .istore_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: istore_2,
+        is_local: true
+    }, // 0x3D istore_2
+    {
+        opcode: .istore_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: istore_3,
+        is_local: true
+    }, // 0x3E istore_3
+    {
+        opcode: .lstore_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lstore_0,
+        is_local: true
+    }, // 0x3F lstore_0
+    {
+        opcode: .lstore_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lstore_1,
+        is_local: true
+    }, // 0x40 lstore_1
+    {
+        opcode: .lstore_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lstore_2,
+        is_local: true
+    }, // 0x41 lstore_2
+    {
+        opcode: .lstore_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lstore_3,
+        is_local: true
+    }, // 0x42 lstore_3
+    {
+        opcode: .fstore_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fstore_0,
+        is_local: true
+    }, // 0x43 fstore_0
+    {
+        opcode: .fstore_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fstore_1,
+        is_local: true
+    }, // 0x44 fstore_1
+    {
+        opcode: .fstore_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fstore_2,
+        is_local: true
+    }, // 0x45 fstore_2
+    {
+        opcode: .fstore_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fstore_3,
+        is_local: true
+    }, // 0x46 fstore_3
+    {
+        opcode: .dstore_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dstore_0,
+        is_local: true
+    }, // 0x47 dstore_0
+    {
+        opcode: .dstore_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dstore_1,
+        is_local: true
+    }, // 0x48 dstore_1
+    {
+        opcode: .dstore_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dstore_2,
+        is_local: true
+    }, // 0x49 dstore_2
+    {
+        opcode: .dstore_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dstore_3,
+        is_local: true
+    }, // 0x4A dstore_3
+    {
+        opcode: .astore_0,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: astore_0,
+        is_local: true
+    }, // 0x4B astore_0
+    {
+        opcode: .astore_1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: astore_1,
+        is_local: true
+    }, // 0x4C astore_1
+    {
+        opcode: .astore_2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: astore_2,
+        is_local: true
+    }, // 0x4D astore_2
+    {
+        opcode: .astore_3,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: astore_3,
+        is_local: true
+    }, // 0x4E astore_3
+    {
+        opcode: .iastore,
+        length: 1,
+        execute: iastore,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x4F iastore
+    {
+        opcode: .lastore,
+        length: 1,
+        execute: lastore,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x50 lastore
+    {
+        opcode: .fastore,
+        length: 1,
+        execute: fastore,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x51 fastore
+    {
+        opcode: .dastore,
+        length: 1,
+        execute: dastore,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x52 dastore
+    {
+        opcode: .aastore,
+        length: 1,
+        execute: aastore,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x53 aastore
+    {
+        opcode: .bastore,
+        length: 1,
+        execute: bastore,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x54 bastore
+    {
+        opcode: .castore,
+        length: 1,
+        execute: castore,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x55 castore
+    {
+        opcode: .sastore,
+        length: 1,
+        execute: sastore,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x56 sastore
+    {
+        opcode: .pop,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: pop,
+        is_local: true
+    }, // 0x57 pop
+    {
+        opcode: .pop2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: pop2,
+        is_local: true
+    }, // 0x58 pop2
+    {
+        opcode: .dup,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dup,
+        is_local: true
+    }, // 0x59 dup
+    {
+        opcode: .dup_x1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dup_x1,
+        is_local: true
+    }, // 0x5A dup_x1
+    {
+        opcode: .dup_x2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dup_x2,
+        is_local: true
+    }, // 0x5B dup_x2
+    {
+        opcode: .dup2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dup2,
+        is_local: true
+    }, // 0x5C dup2
+    {
+        opcode: .dup2_x1,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dup2_x1,
+        is_local: true
+    }, // 0x5D dup2_x1
+    {
+        opcode: .dup2_x2,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dup2_x2,
+        is_local: true
+    }, // 0x5E dup2_x2
+    {
+        opcode: .swap,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: swap,
+        is_local: true
+    }, // 0x5F swap
+    {
+        opcode: .iadd,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iadd,
+        is_local: true
+    }, // 0x60 iadd
+    {
+        opcode: .ladd,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: ladd,
+        is_local: true
+    }, // 0x61 ladd
+    {
+        opcode: .fadd,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fadd,
+        is_local: true
+    }, // 0x62 fadd
+    {
+        opcode: .dadd,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dadd,
+        is_local: true
+    }, // 0x63 dadd
+    {
+        opcode: .isub,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: isub,
+        is_local: true
+    }, // 0x64 isub
+    {
+        opcode: .lsub,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lsub,
+        is_local: true
+    }, // 0x65 lsub
+    {
+        opcode: .fsub,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fsub,
+        is_local: true
+    }, // 0x66 fsub
+    {
+        opcode: .dsub,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dsub,
+        is_local: true
+    }, // 0x67 dsub
+    {
+        opcode: .imul,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: imul,
+        is_local: true
+    }, // 0x68 imul
+    {
+        opcode: .lmul,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lmul,
+        is_local: true
+    }, // 0x69 lmul
+    {
+        opcode: .fmul,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fmul,
+        is_local: true
+    }, // 0x6A fmul
+    {
+        opcode: .dmul,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dmul,
+        is_local: true
+    }, // 0x6B dmul
+    {
+        opcode: .idiv,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: idiv,
+        is_local: true
+    }, // 0x6C idiv
+    {
+        opcode: .ldiv,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: ldiv,
+        is_local: true
+    }, // 0x6D ldiv
+    {
+        opcode: .fdiv,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fdiv,
+        is_local: true
+    }, // 0x6E fdiv
+    {
+        opcode: .ddiv,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: ddiv,
+        is_local: true
+    }, // 0x6F ddiv
+    {
+        opcode: .irem,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: irem,
+        is_local: true
+    }, // 0x70 irem
+    {
+        opcode: .lrem,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lrem,
+        is_local: true
+    }, // 0x71 lrem
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x72 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0x73 unsupported
+    {
+        opcode: .ineg,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: ineg,
+        is_local: true
+    }, // 0x74 ineg
+    {
+        opcode: .lneg,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lneg,
+        is_local: true
+    }, // 0x75 lneg
+    {
+        opcode: .fneg,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fneg,
+        is_local: true
+    }, // 0x76 fneg
+    {
+        opcode: .dneg,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dneg,
+        is_local: true
+    }, // 0x77 dneg
+    {
+        opcode: .ishl,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: ishl,
+        is_local: true
+    }, // 0x78 ishl
+    {
+        opcode: .lshl,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lshl,
+        is_local: true
+    }, // 0x79 lshl
+    {
+        opcode: .ishr,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: ishr,
+        is_local: true
+    }, // 0x7A ishr
+    {
+        opcode: .lshr,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lshr,
+        is_local: true
+    }, // 0x7B lshr
+    {
+        opcode: .iushr,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iushr,
+        is_local: true
+    }, // 0x7C iushr
+    {
+        opcode: .lushr,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lushr,
+        is_local: true
+    }, // 0x7D lushr
+    {
+        opcode: .iand,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: iand,
+        is_local: true
+    }, // 0x7E iand
+    {
+        opcode: .land,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: land,
+        is_local: true
+    }, // 0x7F land
+    {
+        opcode: .ior,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: ior,
+        is_local: true
+    }, // 0x80 ior
+    {
+        opcode: .lor,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lor,
+        is_local: true
+    }, // 0x81 lor
+    {
+        opcode: .ixor,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: ixor,
+        is_local: true
+    }, // 0x82 ixor
+    {
+        opcode: .lxor,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lxor,
+        is_local: true
+    }, // 0x83 lxor
+    {
+        opcode: .iinc,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: iinc,
+        is_local: true
+    }, // 0x84 iinc
+    {
+        opcode: .i2l,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: i2l,
+        is_local: true
+    }, // 0x85 i2l
+    {
+        opcode: .i2f,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: i2f,
+        is_local: true
+    }, // 0x86 i2f
+    {
+        opcode: .i2d,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: i2d,
+        is_local: true
+    }, // 0x87 i2d
+    {
+        opcode: .l2i,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: l2i,
+        is_local: true
+    }, // 0x88 l2i
+    {
+        opcode: .l2f,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: l2f,
+        is_local: true
+    }, // 0x89 l2f
+    {
+        opcode: .l2d,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: l2d,
+        is_local: true
+    }, // 0x8A l2d
+    {
+        opcode: .f2i,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: f2i,
+        is_local: true
+    }, // 0x8B f2i
+    {
+        opcode: .f2l,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: f2l,
+        is_local: true
+    }, // 0x8C f2l
+    {
+        opcode: .f2d,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: f2d,
+        is_local: true
+    }, // 0x8D f2d
+    {
+        opcode: .d2i,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: d2i,
+        is_local: true
+    }, // 0x8E d2i
+    {
+        opcode: .d2l,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: d2l,
+        is_local: true
+    }, // 0x8F d2l
+    {
+        opcode: .d2f,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: d2f,
+        is_local: true
+    }, // 0x90 d2f
+    {
+        opcode: .i2b,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: i2b,
+        is_local: true
+    }, // 0x91 i2b
+    {
+        opcode: .i2c,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: i2c,
+        is_local: true
+    }, // 0x92 i2c
+    {
+        opcode: .i2s,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: i2s,
+        is_local: true
+    }, // 0x93 i2s
+    {
+        opcode: .lcmp,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lcmp,
+        is_local: true
+    }, // 0x94 lcmp
+    {
+        opcode: .fcmpl,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fcmpl,
+        is_local: true
+    }, // 0x95 fcmpl
+    {
+        opcode: .fcmpg,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: fcmpg,
+        is_local: true
+    }, // 0x96 fcmpg
+    {
+        opcode: .dcmpl,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dcmpl,
+        is_local: true
+    }, // 0x97 dcmpl
+    {
+        opcode: .dcmpg,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dcmpg,
+        is_local: true
+    }, // 0x98 dcmpg
+    {
+        opcode: .ifeq,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: ifeq,
+        is_local: true
+    }, // 0x99 ifeq
+    {
+        opcode: .ifne,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: ifne,
+        is_local: true
+    }, // 0x9A ifne
+    {
+        opcode: .iflt,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: iflt,
+        is_local: true
+    }, // 0x9B iflt
+    {
+        opcode: .ifge,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: ifge,
+        is_local: true
+    }, // 0x9C ifge
+    {
+        opcode: .ifgt,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: ifgt,
+        is_local: true
+    }, // 0x9D ifgt
+    {
+        opcode: .ifle,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: ifle,
+        is_local: true
+    }, // 0x9E ifle
+    {
+        opcode: .if_icmpeq,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: if_icmpeq,
+        is_local: true
+    }, // 0x9F if_icmpeq
+    {
+        opcode: .if_icmpne,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: if_icmpne,
+        is_local: true
+    }, // 0xA0 if_icmpne
+    {
+        opcode: .if_icmplt,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: if_icmplt,
+        is_local: true
+    }, // 0xA1 if_icmplt
+    {
+        opcode: .if_icmpge,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: if_icmpge,
+        is_local: true
+    }, // 0xA2 if_icmpge
+    {
+        opcode: .if_icmpgt,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: if_icmpgt,
+        is_local: true
+    }, // 0xA3 if_icmpgt
+    {
+        opcode: .if_icmple,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: if_icmple,
+        is_local: true
+    }, // 0xA4 if_icmple
+    {
+        opcode: .if_acmpeq,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: if_acmpeq,
+        is_local: true
+    }, // 0xA5 if_acmpeq
+    {
+        opcode: .if_acmpne,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: if_acmpne,
+        is_local: true
+    }, // 0xA6 if_acmpne
+    {
+        opcode: .goto_,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: goto_,
+        is_local: true
+    }, // 0xA7 goto
+    {
+        opcode: .jsr,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: jsr,
+        is_local: true
+    }, // 0xA8 jsr
+    {
+        opcode: .ret,
+        length: 2,
+        execute: execute_frame_registered,
+        local_execute: ret,
+        is_local: true
+    }, // 0xA9 ret
+    {
+        opcode: .tableswitch,
+        length: 0,
+        execute: execute_frame_registered,
+        local_execute: tableswitch,
+        is_local: true
+    }, // 0xAA tableswitch
+    {
+        opcode: .lookupswitch,
+        length: 0,
+        execute: execute_frame_registered,
+        local_execute: lookupswitch,
+        is_local: true
+    }, // 0xAB lookupswitch
+    {
+        opcode: .ireturn,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: ireturn,
+        is_local: true
+    }, // 0xAC ireturn
+    {
+        opcode: .lreturn,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: lreturn,
+        is_local: true
+    }, // 0xAD lreturn
+    {
+        opcode: .freturn,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: freturn,
+        is_local: true
+    }, // 0xAE freturn
+    {
+        opcode: .dreturn,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: dreturn,
+        is_local: true
+    }, // 0xAF dreturn
+    {
+        opcode: .areturn,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: areturn,
+        is_local: true
+    }, // 0xB0 areturn
+    {
+        opcode: .return_,
+        length: 1,
+        execute: execute_frame_registered,
+        local_execute: return_,
+        is_local: true
+    }, // 0xB1 return
+    {
+        opcode: .getstatic,
+        length: 3,
+        execute: getstatic,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xB2 getstatic
+    {
+        opcode: .putstatic,
+        length: 3,
+        execute: putstatic,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xB3 putstatic
+    {
+        opcode: .getfield,
+        length: 3,
+        execute: getfield,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xB4 getfield
+    {
+        opcode: .putfield,
+        length: 3,
+        execute: putfield,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xB5 putfield
+    {
+        opcode: .invoke_virtual,
+        length: 3,
+        execute: invoke_virtual,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xB6 invokevirtual
+    {
+        opcode: .invoke_special,
+        length: 3,
+        execute: invoke_special,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xB7 invokespecial
+    {
+        opcode: .invoke_static,
+        length: 3,
+        execute: invoke_static,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xB8 invokestatic
+    {
+        opcode: .invoke_interface,
+        length: 5,
+        execute: invoke_interface,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xB9 invokeinterface
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xBA unsupported
+    {
+        opcode: .new_,
+        length: 3,
+        execute: new_,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xBB new
+    {
+        opcode: .newarray,
+        length: 2,
+        execute: newarray,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xBC newarray
+    {
+        opcode: .anewarray,
+        length: 3,
+        execute: anewarray,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xBD anewarray
+    {
+        opcode: .arraylength,
+        length: 1,
+        execute: arraylength,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xBE arraylength
+    {
+        opcode: .athrow,
+        length: 1,
+        execute: athrow,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xBF athrow
+    {
+        opcode: .checkcast,
+        length: 3,
+        execute: checkcast,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xC0 checkcast
+    {
+        opcode: .instanceof,
+        length: 3,
+        execute: instanceof,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xC1 instanceof
+    {
+        opcode: .monitorenter,
+        length: 1,
+        execute: monitorenter,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xC2 monitorenter
+    {
+        opcode: .monitorexit,
+        length: 1,
+        execute: monitorexit,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xC3 monitorexit
+    {
+        opcode: .wide,
+        length: 0,
+        execute: execute_frame_registered,
+        local_execute: wide,
+        is_local: true
+    }, // 0xC4 wide
+    {
+        opcode: .multianewarray,
+        length: 4,
+        execute: multianewarray,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xC5 multianewarray
+    {
+        opcode: .ifnull,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: ifnull,
+        is_local: true
+    }, // 0xC6 ifnull
+    {
+        opcode: .ifnonnull,
+        length: 3,
+        execute: execute_frame_registered,
+        local_execute: ifnonnull,
+        is_local: true
+    }, // 0xC7 ifnonnull
+    {
+        opcode: .goto_w,
+        length: 5,
+        execute: execute_frame_registered,
+        local_execute: goto_w,
+        is_local: true
+    }, // 0xC8 goto_w
+    {
+        opcode: .jsr_w,
+        length: 5,
+        execute: execute_frame_registered,
+        local_execute: jsr_w,
+        is_local: true
+    }, // 0xC9 jsr_w
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xCA unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xCB unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xCC unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xCD unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xCE unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xCF unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xD0 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xD1 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xD2 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xD3 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xD4 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xD5 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xD6 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xD7 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xD8 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xD9 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xDA unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xDB unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xDC unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xDD unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xDE unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xDF unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xE0 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xE1 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xE2 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xE3 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xE4 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xE5 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xE6 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xE7 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xE8 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xE9 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xEA unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xEB unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xEC unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xED unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xEE unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xEF unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xF0 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xF1 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xF2 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xF3 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xF4 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xF5 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xF6 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xF7 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xF8 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xF9 unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xFA unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xFB unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xFC unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xFD unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xFE unsupported
+    {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    }, // 0xFF unsupported
 ];
 
 pub fn fetch(raw: u8): result<Instruction, InstructionError> {
@@ -3583,21 +5209,198 @@ pub fn fetch(raw: u8): result<Instruction, InstructionError> {
     return .ok(instruction);
 }
 
+fn execute_frame_unavailable(context: &Context): result<void, InstructionError> {
+    return .err(InstructionError.unsupported_opcode);
+}
+
+fn execute_frame_registered(context: &Context, vm: &VM): result<void, InstructionError> {
+    const instruction = try fetch(context.code[context.frame.pc as usize]);
+    if instruction.is_local {
+        const execute = instruction.local_execute;
+        return execute(context);
+    }
+    return .err(InstructionError.unsupported_opcode);
+}
+
+pub fn execute_frame_next(context: &Context, class_name: string, method_name: string): result<bool, InstructionError> {
+    const pc = context.frame.pc;
+    switch fetch(context.code[pc as usize]) {
+        case .ok(instruction) {
+            if instruction.is_local {
+                const execute = instruction.local_execute;
+                trace_frame_instruction(context, class_name, method_name, instruction);
+                try execute(context);
+                finish_instruction(context, pc, instruction.length);
+                return .ok(true);
+            }
+        }
+        case .err {}
+    }
+    return .ok(false);
+}
+
+pub fn trace_frame_instruction(context: &Context, class_name: string, method_name: string, instruction: Instruction): void {
+    if instruction_trace_enabled() {
+        print("trace ");
+        print(class_name);
+        print(".");
+        print(method_name);
+        print(" pc=");
+        print(context.frame.pc as i64);
+        print(" ");
+        println(opcode_name(instruction.opcode));
+    }
+}
+
+pub fn finish_instruction(context: &Context, pc: u32, length: u32): void {
+    if context.frame.result == none and context.frame.pc == pc {
+        context.frame.pc = context.frame.pc + length;
+    }
+    context.frame.offset = 1;
+}
+
+pub fn execute_array_next(context: &Context, class_name: string, method_name: string): result<bool, InstructionError> {
+    const pc = context.frame.pc;
+    const opcode = context.code[pc as usize];
+    if !((opcode >= 46 and opcode <= 53) or (opcode >= 79 and opcode <= 86) or opcode == 190) {
+        return .ok(false);
+    }
+    if context.runtime is runtime {
+        trace_frame_instruction(context, class_name, method_name, try fetch(opcode));
+        if opcode == 190 {
+            const reference = expect_ref(context.frame.pop());
+            if runtime.arrays.length(reference) is length {
+                push_int(context, length as i32);
+            } else {
+                assert(false);
+            }
+        } else {
+            var value: Value = .int_value(0);
+            if opcode >= 79 {
+                value = context.frame.pop();
+            }
+            const index = expect_int(context.frame.pop());
+            const reference = expect_ref(context.frame.pop());
+            assert(index >= 0 and reference.non_null());
+            if opcode <= 53 {
+                if runtime.arrays.get(reference, index as usize) is loaded {
+                    if opcode == 46 {
+                        push_int(context, expect_int(loaded));
+                    }
+                    if opcode == 47 {
+                        context.frame.push(.long_value(expect_long(loaded)));
+                    }
+                    if opcode == 48 {
+                        context.frame.push(.float_value(expect_float(loaded)));
+                    }
+                    if opcode == 49 {
+                        context.frame.push(.double_value(expect_double(loaded)));
+                    }
+                    if opcode == 50 {
+                        context.frame.push(.ref_value(expect_ref(loaded)));
+                    }
+                    if opcode == 51 {
+                        switch loaded {
+                            case .byte_value(value) {
+                                push_int(context, value as i32);
+                            }
+                            case .boolean_value(value) {
+                                push_int(context, value as i32);
+                            } else {
+                                assert(false);
+                            }
+                        }
+                    }
+                    if opcode == 52 {
+                        switch loaded {
+                            case .char_value(value) {
+                                push_int(context, value as i32);
+                            } else {
+                                assert(false);
+                            }
+                        }
+                    }
+                    if opcode == 53 {
+                        switch loaded {
+                            case .short_value(value) {
+                                push_int(context, value as i32);
+                            } else {
+                                assert(false);
+                            }
+                        }
+                    }
+                } else {
+                    assert(false);
+                }
+            } else {
+                if opcode == 79 {
+                    value = .int_value(expect_int(value));
+                }
+                if opcode == 80 {
+                    value = .long_value(expect_long(value));
+                }
+                if opcode == 81 {
+                    value = .float_value(expect_float(value));
+                }
+                if opcode == 82 {
+                    value = .double_value(expect_double(value));
+                }
+                if opcode == 83 {
+                    value = .ref_value(expect_ref(value));
+                }
+                if opcode == 84 {
+                    const raw = expect_int(value);
+                    if runtime.arrays.get(reference, index as usize) is current {
+                        switch current {
+                            case .boolean_value {
+                                value = .boolean_value((raw & 1) as u8);
+                            }
+                            case .byte_value {
+                                value = .byte_value(((raw & 255) as u8) as! i8);
+                            } else {
+                                assert(false);
+                            }
+                        }
+                    } else {
+                        assert(false);
+                    }
+                }
+                if opcode == 85 {
+                    value = .char_value((expect_int(value) & 65535) as u16);
+                }
+                if opcode == 86 {
+                    value = .short_value(((expect_int(value) & 65535) as u16) as! i16);
+                }
+                assert(runtime.arrays.set(reference, index as usize, value));
+            }
+        }
+        finish_instruction(context, pc, 1);
+        return .ok(true);
+    }
+    return .ok(false);
+}
+
 pub fn execute_next(context: &Context, vm: &VM): result<void, InstructionError> {
     const pc = context.frame.pc;
     const raw_opcode = context.code[pc as usize];
-    var instruction: Instruction = Instruction { opcode: .unsupported, length: 0, execute: unsupported };
+    var instruction: Instruction = {
+        opcode: .unsupported,
+        length: 0,
+        execute: unsupported,
+        local_execute: execute_frame_unavailable,
+        is_local: false
+    };
     switch fetch(raw_opcode) {
-    case .ok(actual_instruction) {
-        instruction = actual_instruction;
-    }
-    case .err(error_value) {
-        if error_value == InstructionError.unsupported_opcode {
-        print_instruction_gap(context, vm, pc, raw_opcode);
-            panic("unsupported JVM instruction");
+        case .ok(actual_instruction) {
+            instruction = actual_instruction;
         }
-        return .err(error_value);
-    }
+        case .err(error_value) {
+            if error_value == InstructionError.unsupported_opcode {
+                print_instruction_gap(context, vm, pc, raw_opcode);
+                panic("unsupported JVM instruction");
+            }
+            return .err(error_value);
+        }
     }
 
     if instruction_trace_enabled() {
@@ -3607,10 +5410,7 @@ pub fn execute_next(context: &Context, vm: &VM): result<void, InstructionError> 
     const execute = instruction.execute;
     try execute(context, vm);
 
-    if context.frame.result == none and context.frame.pc == pc {
-        context.frame.pc = context.frame.pc + instruction.length;
-    }
-    context.frame.offset = 1;
+    finish_instruction(context, pc, instruction.length);
     return .ok();
 }
 
@@ -3632,10 +5432,18 @@ fn print_instruction_gap(context: &Context, vm: &VM, pc: u32, raw_opcode: u8): v
 }
 
 fn instruction_error_name(error_value: InstructionError): string {
-    if error_value == InstructionError.unsupported_opcode { return "unsupported opcode"; }
-    if error_value == InstructionError.unsupported_native { return "unsupported native"; }
-    if error_value == InstructionError.invalid_constant { return "invalid or missing constant/class/member"; }
-    if error_value == InstructionError.missing_return { return "missing return"; }
+    if error_value == InstructionError.unsupported_opcode {
+        return "unsupported opcode";
+    }
+    if error_value == InstructionError.unsupported_native {
+        return "unsupported native";
+    }
+    if error_value == InstructionError.invalid_constant {
+        return "invalid or missing constant/class/member";
+    }
+    if error_value == InstructionError.missing_return {
+        return "missing return";
+    }
     return "instruction error";
 }
 
@@ -3669,12 +5477,12 @@ pub fn print_instruction_error_context(context: &Context, vm: &VM, error_value: 
         print(raw_opcode as i64);
         print(" ");
         switch fetch(raw_opcode) {
-        case .ok(instruction) {
-            println(opcode_name(instruction.opcode));
-        }
-        case .err {
-            println("unsupported");
-        }
+            case .ok(instruction) {
+                println(opcode_name(instruction.opcode));
+            }
+            case .err {
+                println("unsupported");
+            }
         }
     }
 }
@@ -3689,206 +5497,606 @@ fn instruction_trace_enabled(): bool {
 }
 
 fn opcode_name(opcode: Opcode): string {
-    if opcode == Opcode.nop { return "nop"; }
-    if opcode == Opcode.aconst_null { return "aconst_null"; }
-    if opcode == Opcode.iconst_m1 { return "iconst_m1"; }
-    if opcode == Opcode.iconst_0 { return "iconst_0"; }
-    if opcode == Opcode.iconst_1 { return "iconst_1"; }
-    if opcode == Opcode.iconst_2 { return "iconst_2"; }
-    if opcode == Opcode.iconst_3 { return "iconst_3"; }
-    if opcode == Opcode.iconst_4 { return "iconst_4"; }
-    if opcode == Opcode.iconst_5 { return "iconst_5"; }
-    if opcode == Opcode.lconst_0 { return "lconst_0"; }
-    if opcode == Opcode.lconst_1 { return "lconst_1"; }
-    if opcode == Opcode.fconst_0 { return "fconst_0"; }
-    if opcode == Opcode.fconst_1 { return "fconst_1"; }
-    if opcode == Opcode.fconst_2 { return "fconst_2"; }
-    if opcode == Opcode.dconst_0 { return "dconst_0"; }
-    if opcode == Opcode.dconst_1 { return "dconst_1"; }
-    if opcode == Opcode.bipush { return "bipush"; }
-    if opcode == Opcode.sipush { return "sipush"; }
-    if opcode == Opcode.ldc { return "ldc"; }
-    if opcode == Opcode.ldc_w { return "ldc_w"; }
-    if opcode == Opcode.ldc2_w { return "ldc2_w"; }
-    if opcode == Opcode.iload { return "iload"; }
-    if opcode == Opcode.lload { return "lload"; }
-    if opcode == Opcode.fload { return "fload"; }
-    if opcode == Opcode.dload { return "dload"; }
-    if opcode == Opcode.aload { return "aload"; }
-    if opcode == Opcode.iload_0 { return "iload_0"; }
-    if opcode == Opcode.iload_1 { return "iload_1"; }
-    if opcode == Opcode.iload_2 { return "iload_2"; }
-    if opcode == Opcode.iload_3 { return "iload_3"; }
-    if opcode == Opcode.lload_0 { return "lload_0"; }
-    if opcode == Opcode.lload_1 { return "lload_1"; }
-    if opcode == Opcode.lload_2 { return "lload_2"; }
-    if opcode == Opcode.lload_3 { return "lload_3"; }
-    if opcode == Opcode.fload_0 { return "fload_0"; }
-    if opcode == Opcode.fload_1 { return "fload_1"; }
-    if opcode == Opcode.fload_2 { return "fload_2"; }
-    if opcode == Opcode.fload_3 { return "fload_3"; }
-    if opcode == Opcode.dload_0 { return "dload_0"; }
-    if opcode == Opcode.dload_1 { return "dload_1"; }
-    if opcode == Opcode.dload_2 { return "dload_2"; }
-    if opcode == Opcode.dload_3 { return "dload_3"; }
-    if opcode == Opcode.aload_0 { return "aload_0"; }
-    if opcode == Opcode.aload_1 { return "aload_1"; }
-    if opcode == Opcode.aload_2 { return "aload_2"; }
-    if opcode == Opcode.aload_3 { return "aload_3"; }
-    if opcode == Opcode.iaload { return "iaload"; }
-    if opcode == Opcode.laload { return "laload"; }
-    if opcode == Opcode.faload { return "faload"; }
-    if opcode == Opcode.daload { return "daload"; }
-    if opcode == Opcode.aaload { return "aaload"; }
-    if opcode == Opcode.baload { return "baload"; }
-    if opcode == Opcode.caload { return "caload"; }
-    if opcode == Opcode.saload { return "saload"; }
-    if opcode == Opcode.istore { return "istore"; }
-    if opcode == Opcode.lstore { return "lstore"; }
-    if opcode == Opcode.fstore { return "fstore"; }
-    if opcode == Opcode.dstore { return "dstore"; }
-    if opcode == Opcode.astore { return "astore"; }
-    if opcode == Opcode.istore_0 { return "istore_0"; }
-    if opcode == Opcode.istore_1 { return "istore_1"; }
-    if opcode == Opcode.istore_2 { return "istore_2"; }
-    if opcode == Opcode.istore_3 { return "istore_3"; }
-    if opcode == Opcode.lstore_0 { return "lstore_0"; }
-    if opcode == Opcode.lstore_1 { return "lstore_1"; }
-    if opcode == Opcode.lstore_2 { return "lstore_2"; }
-    if opcode == Opcode.lstore_3 { return "lstore_3"; }
-    if opcode == Opcode.fstore_0 { return "fstore_0"; }
-    if opcode == Opcode.fstore_1 { return "fstore_1"; }
-    if opcode == Opcode.fstore_2 { return "fstore_2"; }
-    if opcode == Opcode.fstore_3 { return "fstore_3"; }
-    if opcode == Opcode.dstore_0 { return "dstore_0"; }
-    if opcode == Opcode.dstore_1 { return "dstore_1"; }
-    if opcode == Opcode.dstore_2 { return "dstore_2"; }
-    if opcode == Opcode.dstore_3 { return "dstore_3"; }
-    if opcode == Opcode.astore_0 { return "astore_0"; }
-    if opcode == Opcode.astore_1 { return "astore_1"; }
-    if opcode == Opcode.astore_2 { return "astore_2"; }
-    if opcode == Opcode.astore_3 { return "astore_3"; }
-    if opcode == Opcode.iastore { return "iastore"; }
-    if opcode == Opcode.lastore { return "lastore"; }
-    if opcode == Opcode.fastore { return "fastore"; }
-    if opcode == Opcode.dastore { return "dastore"; }
-    if opcode == Opcode.aastore { return "aastore"; }
-    if opcode == Opcode.bastore { return "bastore"; }
-    if opcode == Opcode.castore { return "castore"; }
-    if opcode == Opcode.sastore { return "sastore"; }
-    if opcode == Opcode.pop { return "pop"; }
-    if opcode == Opcode.pop2 { return "pop2"; }
-    if opcode == Opcode.dup { return "dup"; }
-    if opcode == Opcode.dup_x1 { return "dup_x1"; }
-    if opcode == Opcode.dup_x2 { return "dup_x2"; }
-    if opcode == Opcode.dup2 { return "dup2"; }
-    if opcode == Opcode.dup2_x1 { return "dup2_x1"; }
-    if opcode == Opcode.dup2_x2 { return "dup2_x2"; }
-    if opcode == Opcode.swap { return "swap"; }
-    if opcode == Opcode.iadd { return "iadd"; }
-    if opcode == Opcode.ladd { return "ladd"; }
-    if opcode == Opcode.fadd { return "fadd"; }
-    if opcode == Opcode.dadd { return "dadd"; }
-    if opcode == Opcode.isub { return "isub"; }
-    if opcode == Opcode.lsub { return "lsub"; }
-    if opcode == Opcode.fsub { return "fsub"; }
-    if opcode == Opcode.dsub { return "dsub"; }
-    if opcode == Opcode.imul { return "imul"; }
-    if opcode == Opcode.lmul { return "lmul"; }
-    if opcode == Opcode.fmul { return "fmul"; }
-    if opcode == Opcode.dmul { return "dmul"; }
-    if opcode == Opcode.idiv { return "idiv"; }
-    if opcode == Opcode.ldiv { return "ldiv"; }
-    if opcode == Opcode.fdiv { return "fdiv"; }
-    if opcode == Opcode.ddiv { return "ddiv"; }
-    if opcode == Opcode.irem { return "irem"; }
-    if opcode == Opcode.lrem { return "lrem"; }
-    if opcode == Opcode.unsupported { return "unsupported"; }
-    if opcode == Opcode.ineg { return "ineg"; }
-    if opcode == Opcode.lneg { return "lneg"; }
-    if opcode == Opcode.fneg { return "fneg"; }
-    if opcode == Opcode.dneg { return "dneg"; }
-    if opcode == Opcode.ishl { return "ishl"; }
-    if opcode == Opcode.lshl { return "lshl"; }
-    if opcode == Opcode.ishr { return "ishr"; }
-    if opcode == Opcode.lshr { return "lshr"; }
-    if opcode == Opcode.iushr { return "iushr"; }
-    if opcode == Opcode.lushr { return "lushr"; }
-    if opcode == Opcode.iand { return "iand"; }
-    if opcode == Opcode.land { return "land"; }
-    if opcode == Opcode.ior { return "ior"; }
-    if opcode == Opcode.lor { return "lor"; }
-    if opcode == Opcode.ixor { return "ixor"; }
-    if opcode == Opcode.lxor { return "lxor"; }
-    if opcode == Opcode.iinc { return "iinc"; }
-    if opcode == Opcode.i2l { return "i2l"; }
-    if opcode == Opcode.i2f { return "i2f"; }
-    if opcode == Opcode.i2d { return "i2d"; }
-    if opcode == Opcode.l2i { return "l2i"; }
-    if opcode == Opcode.l2f { return "l2f"; }
-    if opcode == Opcode.l2d { return "l2d"; }
-    if opcode == Opcode.f2i { return "f2i"; }
-    if opcode == Opcode.f2l { return "f2l"; }
-    if opcode == Opcode.f2d { return "f2d"; }
-    if opcode == Opcode.d2i { return "d2i"; }
-    if opcode == Opcode.d2l { return "d2l"; }
-    if opcode == Opcode.d2f { return "d2f"; }
-    if opcode == Opcode.i2b { return "i2b"; }
-    if opcode == Opcode.i2c { return "i2c"; }
-    if opcode == Opcode.i2s { return "i2s"; }
-    if opcode == Opcode.lcmp { return "lcmp"; }
-    if opcode == Opcode.fcmpl { return "fcmpl"; }
-    if opcode == Opcode.fcmpg { return "fcmpg"; }
-    if opcode == Opcode.dcmpl { return "dcmpl"; }
-    if opcode == Opcode.dcmpg { return "dcmpg"; }
-    if opcode == Opcode.ifeq { return "ifeq"; }
-    if opcode == Opcode.ifne { return "ifne"; }
-    if opcode == Opcode.iflt { return "iflt"; }
-    if opcode == Opcode.ifge { return "ifge"; }
-    if opcode == Opcode.ifgt { return "ifgt"; }
-    if opcode == Opcode.ifle { return "ifle"; }
-    if opcode == Opcode.if_icmpeq { return "if_icmpeq"; }
-    if opcode == Opcode.if_icmpne { return "if_icmpne"; }
-    if opcode == Opcode.if_icmplt { return "if_icmplt"; }
-    if opcode == Opcode.if_icmpge { return "if_icmpge"; }
-    if opcode == Opcode.if_icmpgt { return "if_icmpgt"; }
-    if opcode == Opcode.if_icmple { return "if_icmple"; }
-    if opcode == Opcode.if_acmpeq { return "if_acmpeq"; }
-    if opcode == Opcode.if_acmpne { return "if_acmpne"; }
-    if opcode == Opcode.goto_ { return "goto"; }
-    if opcode == Opcode.jsr { return "jsr"; }
-    if opcode == Opcode.ret { return "ret"; }
-    if opcode == Opcode.tableswitch { return "tableswitch"; }
-    if opcode == Opcode.lookupswitch { return "lookupswitch"; }
-    if opcode == Opcode.ireturn { return "ireturn"; }
-    if opcode == Opcode.lreturn { return "lreturn"; }
-    if opcode == Opcode.freturn { return "freturn"; }
-    if opcode == Opcode.dreturn { return "dreturn"; }
-    if opcode == Opcode.areturn { return "areturn"; }
-    if opcode == Opcode.return_ { return "return"; }
-    if opcode == Opcode.getstatic { return "getstatic"; }
-    if opcode == Opcode.putstatic { return "putstatic"; }
-    if opcode == Opcode.getfield { return "getfield"; }
-    if opcode == Opcode.putfield { return "putfield"; }
-    if opcode == Opcode.invoke_virtual { return "invokevirtual"; }
-    if opcode == Opcode.invoke_special { return "invokespecial"; }
-    if opcode == Opcode.invoke_static { return "invokestatic"; }
-    if opcode == Opcode.invoke_interface { return "invokeinterface"; }
-    if opcode == Opcode.new_ { return "new"; }
-    if opcode == Opcode.newarray { return "newarray"; }
-    if opcode == Opcode.anewarray { return "anewarray"; }
-    if opcode == Opcode.arraylength { return "arraylength"; }
-    if opcode == Opcode.athrow { return "athrow"; }
-    if opcode == Opcode.checkcast { return "checkcast"; }
-    if opcode == Opcode.instanceof { return "instanceof"; }
-    if opcode == Opcode.monitorenter { return "monitorenter"; }
-    if opcode == Opcode.monitorexit { return "monitorexit"; }
-    if opcode == Opcode.wide { return "wide"; }
-    if opcode == Opcode.multianewarray { return "multianewarray"; }
-    if opcode == Opcode.ifnull { return "ifnull"; }
-    if opcode == Opcode.ifnonnull { return "ifnonnull"; }
-    if opcode == Opcode.goto_w { return "goto_w"; }
-    if opcode == Opcode.jsr_w { return "jsr_w"; }
+    if opcode == Opcode.nop {
+        return "nop";
+    }
+    if opcode == Opcode.aconst_null {
+        return "aconst_null";
+    }
+    if opcode == Opcode.iconst_m1 {
+        return "iconst_m1";
+    }
+    if opcode == Opcode.iconst_0 {
+        return "iconst_0";
+    }
+    if opcode == Opcode.iconst_1 {
+        return "iconst_1";
+    }
+    if opcode == Opcode.iconst_2 {
+        return "iconst_2";
+    }
+    if opcode == Opcode.iconst_3 {
+        return "iconst_3";
+    }
+    if opcode == Opcode.iconst_4 {
+        return "iconst_4";
+    }
+    if opcode == Opcode.iconst_5 {
+        return "iconst_5";
+    }
+    if opcode == Opcode.lconst_0 {
+        return "lconst_0";
+    }
+    if opcode == Opcode.lconst_1 {
+        return "lconst_1";
+    }
+    if opcode == Opcode.fconst_0 {
+        return "fconst_0";
+    }
+    if opcode == Opcode.fconst_1 {
+        return "fconst_1";
+    }
+    if opcode == Opcode.fconst_2 {
+        return "fconst_2";
+    }
+    if opcode == Opcode.dconst_0 {
+        return "dconst_0";
+    }
+    if opcode == Opcode.dconst_1 {
+        return "dconst_1";
+    }
+    if opcode == Opcode.bipush {
+        return "bipush";
+    }
+    if opcode == Opcode.sipush {
+        return "sipush";
+    }
+    if opcode == Opcode.ldc {
+        return "ldc";
+    }
+    if opcode == Opcode.ldc_w {
+        return "ldc_w";
+    }
+    if opcode == Opcode.ldc2_w {
+        return "ldc2_w";
+    }
+    if opcode == Opcode.iload {
+        return "iload";
+    }
+    if opcode == Opcode.lload {
+        return "lload";
+    }
+    if opcode == Opcode.fload {
+        return "fload";
+    }
+    if opcode == Opcode.dload {
+        return "dload";
+    }
+    if opcode == Opcode.aload {
+        return "aload";
+    }
+    if opcode == Opcode.iload_0 {
+        return "iload_0";
+    }
+    if opcode == Opcode.iload_1 {
+        return "iload_1";
+    }
+    if opcode == Opcode.iload_2 {
+        return "iload_2";
+    }
+    if opcode == Opcode.iload_3 {
+        return "iload_3";
+    }
+    if opcode == Opcode.lload_0 {
+        return "lload_0";
+    }
+    if opcode == Opcode.lload_1 {
+        return "lload_1";
+    }
+    if opcode == Opcode.lload_2 {
+        return "lload_2";
+    }
+    if opcode == Opcode.lload_3 {
+        return "lload_3";
+    }
+    if opcode == Opcode.fload_0 {
+        return "fload_0";
+    }
+    if opcode == Opcode.fload_1 {
+        return "fload_1";
+    }
+    if opcode == Opcode.fload_2 {
+        return "fload_2";
+    }
+    if opcode == Opcode.fload_3 {
+        return "fload_3";
+    }
+    if opcode == Opcode.dload_0 {
+        return "dload_0";
+    }
+    if opcode == Opcode.dload_1 {
+        return "dload_1";
+    }
+    if opcode == Opcode.dload_2 {
+        return "dload_2";
+    }
+    if opcode == Opcode.dload_3 {
+        return "dload_3";
+    }
+    if opcode == Opcode.aload_0 {
+        return "aload_0";
+    }
+    if opcode == Opcode.aload_1 {
+        return "aload_1";
+    }
+    if opcode == Opcode.aload_2 {
+        return "aload_2";
+    }
+    if opcode == Opcode.aload_3 {
+        return "aload_3";
+    }
+    if opcode == Opcode.iaload {
+        return "iaload";
+    }
+    if opcode == Opcode.laload {
+        return "laload";
+    }
+    if opcode == Opcode.faload {
+        return "faload";
+    }
+    if opcode == Opcode.daload {
+        return "daload";
+    }
+    if opcode == Opcode.aaload {
+        return "aaload";
+    }
+    if opcode == Opcode.baload {
+        return "baload";
+    }
+    if opcode == Opcode.caload {
+        return "caload";
+    }
+    if opcode == Opcode.saload {
+        return "saload";
+    }
+    if opcode == Opcode.istore {
+        return "istore";
+    }
+    if opcode == Opcode.lstore {
+        return "lstore";
+    }
+    if opcode == Opcode.fstore {
+        return "fstore";
+    }
+    if opcode == Opcode.dstore {
+        return "dstore";
+    }
+    if opcode == Opcode.astore {
+        return "astore";
+    }
+    if opcode == Opcode.istore_0 {
+        return "istore_0";
+    }
+    if opcode == Opcode.istore_1 {
+        return "istore_1";
+    }
+    if opcode == Opcode.istore_2 {
+        return "istore_2";
+    }
+    if opcode == Opcode.istore_3 {
+        return "istore_3";
+    }
+    if opcode == Opcode.lstore_0 {
+        return "lstore_0";
+    }
+    if opcode == Opcode.lstore_1 {
+        return "lstore_1";
+    }
+    if opcode == Opcode.lstore_2 {
+        return "lstore_2";
+    }
+    if opcode == Opcode.lstore_3 {
+        return "lstore_3";
+    }
+    if opcode == Opcode.fstore_0 {
+        return "fstore_0";
+    }
+    if opcode == Opcode.fstore_1 {
+        return "fstore_1";
+    }
+    if opcode == Opcode.fstore_2 {
+        return "fstore_2";
+    }
+    if opcode == Opcode.fstore_3 {
+        return "fstore_3";
+    }
+    if opcode == Opcode.dstore_0 {
+        return "dstore_0";
+    }
+    if opcode == Opcode.dstore_1 {
+        return "dstore_1";
+    }
+    if opcode == Opcode.dstore_2 {
+        return "dstore_2";
+    }
+    if opcode == Opcode.dstore_3 {
+        return "dstore_3";
+    }
+    if opcode == Opcode.astore_0 {
+        return "astore_0";
+    }
+    if opcode == Opcode.astore_1 {
+        return "astore_1";
+    }
+    if opcode == Opcode.astore_2 {
+        return "astore_2";
+    }
+    if opcode == Opcode.astore_3 {
+        return "astore_3";
+    }
+    if opcode == Opcode.iastore {
+        return "iastore";
+    }
+    if opcode == Opcode.lastore {
+        return "lastore";
+    }
+    if opcode == Opcode.fastore {
+        return "fastore";
+    }
+    if opcode == Opcode.dastore {
+        return "dastore";
+    }
+    if opcode == Opcode.aastore {
+        return "aastore";
+    }
+    if opcode == Opcode.bastore {
+        return "bastore";
+    }
+    if opcode == Opcode.castore {
+        return "castore";
+    }
+    if opcode == Opcode.sastore {
+        return "sastore";
+    }
+    if opcode == Opcode.pop {
+        return "pop";
+    }
+    if opcode == Opcode.pop2 {
+        return "pop2";
+    }
+    if opcode == Opcode.dup {
+        return "dup";
+    }
+    if opcode == Opcode.dup_x1 {
+        return "dup_x1";
+    }
+    if opcode == Opcode.dup_x2 {
+        return "dup_x2";
+    }
+    if opcode == Opcode.dup2 {
+        return "dup2";
+    }
+    if opcode == Opcode.dup2_x1 {
+        return "dup2_x1";
+    }
+    if opcode == Opcode.dup2_x2 {
+        return "dup2_x2";
+    }
+    if opcode == Opcode.swap {
+        return "swap";
+    }
+    if opcode == Opcode.iadd {
+        return "iadd";
+    }
+    if opcode == Opcode.ladd {
+        return "ladd";
+    }
+    if opcode == Opcode.fadd {
+        return "fadd";
+    }
+    if opcode == Opcode.dadd {
+        return "dadd";
+    }
+    if opcode == Opcode.isub {
+        return "isub";
+    }
+    if opcode == Opcode.lsub {
+        return "lsub";
+    }
+    if opcode == Opcode.fsub {
+        return "fsub";
+    }
+    if opcode == Opcode.dsub {
+        return "dsub";
+    }
+    if opcode == Opcode.imul {
+        return "imul";
+    }
+    if opcode == Opcode.lmul {
+        return "lmul";
+    }
+    if opcode == Opcode.fmul {
+        return "fmul";
+    }
+    if opcode == Opcode.dmul {
+        return "dmul";
+    }
+    if opcode == Opcode.idiv {
+        return "idiv";
+    }
+    if opcode == Opcode.ldiv {
+        return "ldiv";
+    }
+    if opcode == Opcode.fdiv {
+        return "fdiv";
+    }
+    if opcode == Opcode.ddiv {
+        return "ddiv";
+    }
+    if opcode == Opcode.irem {
+        return "irem";
+    }
+    if opcode == Opcode.lrem {
+        return "lrem";
+    }
+    if opcode == Opcode.unsupported {
+        return "unsupported";
+    }
+    if opcode == Opcode.ineg {
+        return "ineg";
+    }
+    if opcode == Opcode.lneg {
+        return "lneg";
+    }
+    if opcode == Opcode.fneg {
+        return "fneg";
+    }
+    if opcode == Opcode.dneg {
+        return "dneg";
+    }
+    if opcode == Opcode.ishl {
+        return "ishl";
+    }
+    if opcode == Opcode.lshl {
+        return "lshl";
+    }
+    if opcode == Opcode.ishr {
+        return "ishr";
+    }
+    if opcode == Opcode.lshr {
+        return "lshr";
+    }
+    if opcode == Opcode.iushr {
+        return "iushr";
+    }
+    if opcode == Opcode.lushr {
+        return "lushr";
+    }
+    if opcode == Opcode.iand {
+        return "iand";
+    }
+    if opcode == Opcode.land {
+        return "land";
+    }
+    if opcode == Opcode.ior {
+        return "ior";
+    }
+    if opcode == Opcode.lor {
+        return "lor";
+    }
+    if opcode == Opcode.ixor {
+        return "ixor";
+    }
+    if opcode == Opcode.lxor {
+        return "lxor";
+    }
+    if opcode == Opcode.iinc {
+        return "iinc";
+    }
+    if opcode == Opcode.i2l {
+        return "i2l";
+    }
+    if opcode == Opcode.i2f {
+        return "i2f";
+    }
+    if opcode == Opcode.i2d {
+        return "i2d";
+    }
+    if opcode == Opcode.l2i {
+        return "l2i";
+    }
+    if opcode == Opcode.l2f {
+        return "l2f";
+    }
+    if opcode == Opcode.l2d {
+        return "l2d";
+    }
+    if opcode == Opcode.f2i {
+        return "f2i";
+    }
+    if opcode == Opcode.f2l {
+        return "f2l";
+    }
+    if opcode == Opcode.f2d {
+        return "f2d";
+    }
+    if opcode == Opcode.d2i {
+        return "d2i";
+    }
+    if opcode == Opcode.d2l {
+        return "d2l";
+    }
+    if opcode == Opcode.d2f {
+        return "d2f";
+    }
+    if opcode == Opcode.i2b {
+        return "i2b";
+    }
+    if opcode == Opcode.i2c {
+        return "i2c";
+    }
+    if opcode == Opcode.i2s {
+        return "i2s";
+    }
+    if opcode == Opcode.lcmp {
+        return "lcmp";
+    }
+    if opcode == Opcode.fcmpl {
+        return "fcmpl";
+    }
+    if opcode == Opcode.fcmpg {
+        return "fcmpg";
+    }
+    if opcode == Opcode.dcmpl {
+        return "dcmpl";
+    }
+    if opcode == Opcode.dcmpg {
+        return "dcmpg";
+    }
+    if opcode == Opcode.ifeq {
+        return "ifeq";
+    }
+    if opcode == Opcode.ifne {
+        return "ifne";
+    }
+    if opcode == Opcode.iflt {
+        return "iflt";
+    }
+    if opcode == Opcode.ifge {
+        return "ifge";
+    }
+    if opcode == Opcode.ifgt {
+        return "ifgt";
+    }
+    if opcode == Opcode.ifle {
+        return "ifle";
+    }
+    if opcode == Opcode.if_icmpeq {
+        return "if_icmpeq";
+    }
+    if opcode == Opcode.if_icmpne {
+        return "if_icmpne";
+    }
+    if opcode == Opcode.if_icmplt {
+        return "if_icmplt";
+    }
+    if opcode == Opcode.if_icmpge {
+        return "if_icmpge";
+    }
+    if opcode == Opcode.if_icmpgt {
+        return "if_icmpgt";
+    }
+    if opcode == Opcode.if_icmple {
+        return "if_icmple";
+    }
+    if opcode == Opcode.if_acmpeq {
+        return "if_acmpeq";
+    }
+    if opcode == Opcode.if_acmpne {
+        return "if_acmpne";
+    }
+    if opcode == Opcode.goto_ {
+        return "goto";
+    }
+    if opcode == Opcode.jsr {
+        return "jsr";
+    }
+    if opcode == Opcode.ret {
+        return "ret";
+    }
+    if opcode == Opcode.tableswitch {
+        return "tableswitch";
+    }
+    if opcode == Opcode.lookupswitch {
+        return "lookupswitch";
+    }
+    if opcode == Opcode.ireturn {
+        return "ireturn";
+    }
+    if opcode == Opcode.lreturn {
+        return "lreturn";
+    }
+    if opcode == Opcode.freturn {
+        return "freturn";
+    }
+    if opcode == Opcode.dreturn {
+        return "dreturn";
+    }
+    if opcode == Opcode.areturn {
+        return "areturn";
+    }
+    if opcode == Opcode.return_ {
+        return "return";
+    }
+    if opcode == Opcode.getstatic {
+        return "getstatic";
+    }
+    if opcode == Opcode.putstatic {
+        return "putstatic";
+    }
+    if opcode == Opcode.getfield {
+        return "getfield";
+    }
+    if opcode == Opcode.putfield {
+        return "putfield";
+    }
+    if opcode == Opcode.invoke_virtual {
+        return "invokevirtual";
+    }
+    if opcode == Opcode.invoke_special {
+        return "invokespecial";
+    }
+    if opcode == Opcode.invoke_static {
+        return "invokestatic";
+    }
+    if opcode == Opcode.invoke_interface {
+        return "invokeinterface";
+    }
+    if opcode == Opcode.new_ {
+        return "new";
+    }
+    if opcode == Opcode.newarray {
+        return "newarray";
+    }
+    if opcode == Opcode.anewarray {
+        return "anewarray";
+    }
+    if opcode == Opcode.arraylength {
+        return "arraylength";
+    }
+    if opcode == Opcode.athrow {
+        return "athrow";
+    }
+    if opcode == Opcode.checkcast {
+        return "checkcast";
+    }
+    if opcode == Opcode.instanceof {
+        return "instanceof";
+    }
+    if opcode == Opcode.monitorenter {
+        return "monitorenter";
+    }
+    if opcode == Opcode.monitorexit {
+        return "monitorexit";
+    }
+    if opcode == Opcode.wide {
+        return "wide";
+    }
+    if opcode == Opcode.multianewarray {
+        return "multianewarray";
+    }
+    if opcode == Opcode.ifnull {
+        return "ifnull";
+    }
+    if opcode == Opcode.ifnonnull {
+        return "ifnonnull";
+    }
+    if opcode == Opcode.goto_w {
+        return "goto_w";
+    }
+    if opcode == Opcode.jsr_w {
+        return "jsr_w";
+    }
     return "unsupported";
 }
 
@@ -3908,11 +6116,18 @@ fn trace_instruction(context: &Context, vm: &VM, pc: u32, instruction: Instructi
 }
 
 pub fn execute_method(method: &Method): result<FrameResult, InstructionError> {
-    var constant_pool: [:]Constant = [: 0] [];
+    var constant_pool: [:]Constant = [: 0][];
     var vm = new_vm();
     var code = copy method.code;
     var frame = new_frame(0, 0, method.max_locals, method.max_stack);
-    var context = Context { class_index: 0, method_index: 0, frame: frame, code: code[..], constant_pool: constant_pool[..]};
+    var context = Context {
+        runtime: none,
+        class_index: 0,
+        method_index: 0,
+        frame: frame,
+        code: code[..],
+        constant_pool: constant_pool[..]
+    };
 
     while context.frame.pc < method.code_len {
         try execute_next(&context, &vm);
@@ -3936,109 +6151,123 @@ pub fn execute_method(method: &Method): result<FrameResult, InstructionError> {
 
 fn assert_int_result(result: FrameResult, expected: i32): void {
     switch result {
-    case .return_value(value) {
-        if value is actual {
-            switch actual {
-            case .int_value(int_value) { assert(int_value == expected); }
-            else { assert(false); }
+        case .return_value(value) {
+            if value is actual {
+                switch actual {
+                    case .int_value(int_value) {
+                        assert(int_value == expected);
+                    } else {
+                        assert(false);
+                    }
+                }
+            } else {
+                assert(false);
             }
-        } else {
+        }
+        case .exception {
             assert(false);
         }
-    }
-    case .exception {
-        assert(false);
-    }
     }
 }
 
 fn assert_long_result(result: FrameResult, expected: i64): void {
     switch result {
-    case .return_value(value) {
-        if value is actual {
-            switch actual {
-            case .long_value(long_value) { assert(long_value == expected); }
-            else { assert(false); }
+        case .return_value(value) {
+            if value is actual {
+                switch actual {
+                    case .long_value(long_value) {
+                        assert(long_value == expected);
+                    } else {
+                        assert(false);
+                    }
+                }
+            } else {
+                assert(false);
             }
-        } else {
+        }
+        case .exception {
             assert(false);
         }
-    }
-    case .exception {
-        assert(false);
-    }
     }
 }
 
 fn assert_float_result(result: FrameResult, expected: f32): void {
     switch result {
-    case .return_value(value) {
-        if value is actual {
-            switch actual {
-            case .float_value(float_value) { assert(float_value == expected); }
-            else { assert(false); }
+        case .return_value(value) {
+            if value is actual {
+                switch actual {
+                    case .float_value(float_value) {
+                        assert(float_value == expected);
+                    } else {
+                        assert(false);
+                    }
+                }
+            } else {
+                assert(false);
             }
-        } else {
+        }
+        case .exception {
             assert(false);
         }
-    }
-    case .exception {
-        assert(false);
-    }
     }
 }
 
 fn assert_double_result(result: FrameResult, expected: f64): void {
     switch result {
-    case .return_value(value) {
-        if value is actual {
-            switch actual {
-            case .double_value(double_value) { assert(double_value == expected); }
-            else { assert(false); }
+        case .return_value(value) {
+            if value is actual {
+                switch actual {
+                    case .double_value(double_value) {
+                        assert(double_value == expected);
+                    } else {
+                        assert(false);
+                    }
+                }
+            } else {
+                assert(false);
             }
-        } else {
+        }
+        case .exception {
             assert(false);
         }
-    }
-    case .exception {
-        assert(false);
-    }
     }
 }
 
 fn assert_null_ref_result(result: FrameResult): void {
     switch result {
-    case .return_value(value) {
-        if value is actual {
-            const reference = expect_ref(actual);
-            assert(reference.is_null());
-        } else {
+        case .return_value(value) {
+            if value is actual {
+                const reference = expect_ref(actual);
+                assert(reference.is_null());
+            } else {
+                assert(false);
+            }
+        }
+        case .exception {
             assert(false);
         }
-    }
-    case .exception {
-        assert(false);
-    }
     }
 }
 
 fn assert_void_result(result: FrameResult): void {
     switch result {
-    case .return_value(value) { assert(value == none); }
-    case .exception {
-        assert(false);
-    }
+        case .return_value(value) {
+            assert(value == none);
+        }
+        case .exception {
+            assert(false);
+        }
     }
 }
 
 fn assert_exception_result(result: FrameResult, expected: Reference): void {
     switch result {
-    case .return_value {
-        assert(false);
-    }
-    case .exception(reference) {
-        assert(reference.equals(expected));
-    }
+        case .return_value {
+            assert(false);
+        }
+        case .exception(reference) {
+            assert(reference.equals(expected));
+        }
     }
 }
 

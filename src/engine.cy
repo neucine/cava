@@ -1,8 +1,11 @@
 import { ClassFile, Constant } from .classfile;
-import { execute_next, find_class_index_by_constant, print_instruction_error_context } from .instruction;
+import { execute_next, execute_frame_next, execute_array_next, find_class_index_by_constant, print_instruction_error_context } from .instruction;
+import { SyncStatus } from std.sync;
 import { class_matches } from .method_area;
 import { VM, new_vm } from .vm;
 import { Class, ExceptionHandler, InstructionError, Reference, Value } from .types;
+import { Runtime } from .runtime;
+import { enter_method_monitor, exit_method_monitor } from .method_monitor;
 
 const max_call_stack: usize = 512;
 
@@ -147,6 +150,7 @@ pub fn new_thread(id: u64, name: string): Thread {
 }
 
 pub struct Context {
+    pub runtime: ?Runtime;
     pub class_index: usize;
     pub method_index: usize;
     pub frame: Frame;
@@ -263,21 +267,68 @@ pub fn dispatch_exception(context: &Context, vm: &VM, exception: Reference): res
 
 pub fn apply_method_result(context: &Context, vm: &VM, result: FrameResult): result<void, InstructionError> {
     switch result {
-    case .return_value(value) {
-        if value is actual {
-            context.frame.push(actual);
+        case .return_value(value) {
+            if value is actual {
+                context.frame.push(actual);
+            }
         }
-    }
-    case .exception(reference) {
-        if !(try dispatch_exception(context, vm, reference)) {
-            context.frame.throw_exception(reference);
+        case .exception(reference) {
+            if !(try dispatch_exception(context, vm, reference)) {
+                context.frame.throw_exception(reference);
+            }
         }
-    }
     }
     return .ok();
 }
 
-pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
+fn execute_shared_step(vm: &VM, context: &Context): result<void, InstructionError> {
+    const result = execute_next(context, vm);
+    switch result {
+        case .ok {}
+        case .err(problem) {
+            print_instruction_error_context(context, vm, problem);
+        }
+    }
+    return result;
+}
+
+fn execute_parallel_context(context: &Context, runtime: &const Runtime, class_name: string, method_name: string): result<FrameResult, InstructionError> {
+    while context.frame.pc < context.code.len() as u32 {
+        var handled = try execute_frame_next(context, class_name, method_name);
+        if !handled {
+            handled = try execute_array_next(context, class_name, method_name);
+        }
+        if !handled {
+            switch runtime.state.with_result<&Context, result<void, InstructionError>>(context, execute_shared_step) {
+                case .ok(step) {
+                    try step;
+                }
+                case .err {
+                    return .err(InstructionError.invalid_constant);
+                }
+            }
+        }
+        if context.frame.result is result {
+            return .ok(result);
+        }
+    }
+    return .err(InstructionError.missing_return);
+}
+
+fn execute_method_frame_with_context(runtime: ?Runtime, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
+    var active_frame = frame;
+    const method = &vm.method_area.classes[class_index].methods[method_index];
+    var receiver: ?Reference = none;
+    if method.is_synchronized() and !method.is_static() and active_frame.local_vars.len() > 0 {
+        receiver = expect_ref_for_engine(active_frame.load(0));
+    }
+    const monitor = try enter_method_monitor(runtime, vm, class_index, method_index, receiver);
+    const result = execute_method_frame_body(runtime, vm, class_index, method_index, active_frame, constant_pool);
+    try exit_method_monitor(vm, monitor);
+    return result;
+}
+
+fn execute_method_frame_body(runtime: ?Runtime, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
     var runtime_pool = constant_pool;
     var vm_classes = vm.method_area.classes[..];
     var class_view = vm_classes;
@@ -326,16 +377,38 @@ pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: u
         }
     }
 
-    var context = Context { class_index: class_index, method_index: method_index, frame: frame, code: method.code[..], constant_pool: runtime_pool};
+    const code_snapshot = copy method.code;
+    var pool_snapshot: List<Constant> = [];
+    var pool_index: usize = 0;
+    while pool_index < runtime_pool.len() {
+        pool_snapshot.push(runtime_pool[pool_index]);
+        pool_index = pool_index + 1;
+    }
+    var context = Context {
+        runtime: runtime,
+        class_index: class_index,
+        method_index: method_index,
+        frame: frame,
+        code: code_snapshot[..],
+        constant_pool: pool_snapshot[..]
+    };
 
+    if context.runtime is active_runtime {
+        const class_name = copy class.name;
+        const method_name = copy method.name;
+        assert(active_runtime.state.unlock() == SyncStatus.ok);
+        const result = execute_parallel_context(&context, &active_runtime, class_name, method_name);
+        assert(active_runtime.state.lock() == SyncStatus.ok);
+        return result;
+    }
     while context.frame.pc < context.code.len() as u32 {
         const step_result = execute_next(&context, vm);
         switch step_result {
-        case .ok {}
-        case .err(error_value) {
-            print_instruction_error_context(&context, vm, error_value);
-            return .err(error_value);
-        }
+            case .ok {}
+            case .err(error_value) {
+                print_instruction_error_context(&context, vm, error_value);
+                return .err(error_value);
+            }
         }
         if context.frame.result is result {
             const out = result;
@@ -343,6 +416,14 @@ pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: u
         }
     }
     return .err(InstructionError.missing_return);
+}
+
+pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
+    return execute_method_frame_with_context(none, vm, class_index, method_index, frame, constant_pool);
+}
+
+pub fn execute_method_frame_with_runtime(runtime: Runtime, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
+    return execute_method_frame_with_context(copy runtime, vm, class_index, method_index, frame, constant_pool);
 }
 
 pub fn execute_method_area_with_vm(vm: &VM, class_index: usize, method_index: usize, constant_pool: []const Constant, java_args: []const string): result<FrameResult, InstructionError> {
@@ -363,28 +444,69 @@ pub fn execute_method_area_with_vm(vm: &VM, class_index: usize, method_index: us
     return execute_method_frame_with_vm(vm, class_index, method_index, frame, constant_pool);
 }
 
+pub fn execute_method_area_with_runtime(runtime: Runtime, vm: &VM, class_index: usize, method_index: usize, constant_pool: []const Constant, java_args: []const string): result<FrameResult, InstructionError> {
+    const max_locals = vm.method_area.method_max_locals(class_index, method_index);
+    const max_stack = vm.method_area.method_max_stack(class_index, method_index);
+    var frame = new_frame(class_index, method_index, max_locals, max_stack);
+    if vm.method_area.classes[class_index].methods[method_index].is_static() and vm.method_area.classes[class_index].methods[method_index].descriptor == "([Ljava/lang/String;)V" {
+        const args_class_index = vm.method_area.define_array_class("[Ljava/lang/String;");
+        const args_reference = vm.heap.allocate_array(args_class_index, "Ljava/lang/String;".bytes(), java_args.len());
+        var arg_index: usize = 0;
+        while arg_index < java_args.len() {
+            const arg_reference = try vm.allocate_java_string(java_args[arg_index].bytes());
+            const ignored_set = vm.heap.set_element(args_reference, arg_index, .ref_value(arg_reference));
+            arg_index = arg_index + 1;
+        }
+        frame.store(0, .ref_value(args_reference));
+    }
+    return execute_method_frame_with_runtime(runtime, vm, class_index, method_index, frame, constant_pool);
+}
+
 pub fn execute_classfile_method_area_with_vm(vm: &VM, class_index: usize, method_index: usize, classfile: &ClassFile, java_args: []const string): result<FrameResult, InstructionError> {
     return execute_method_area_with_vm(vm, class_index, method_index, classfile.constant_pool[..], java_args);
 }
 
 fn expect_ref_for_engine(value: Value): Reference {
     switch value {
-    case .ref_value(actual) { return actual; }
-    else { return Reference.init_null(); }
+        case .ref_value(actual) {
+            return actual;
+        } else {
+            return Reference.init_null();
+        }
     }
 }
 
 fn assert_int_value(value: Value, expected: i32): void {
     switch value {
-    case .int_value(actual) { assert(actual == expected); }
-    case .byte_value { assert(false); }
-    case .short_value { assert(false); }
-    case .char_value { assert(false); }
-    case .long_value { assert(false); }
-    case .float_value { assert(false); }
-    case .double_value { assert(false); }
-    case .boolean_value { assert(false); }
-    case .return_address_value { assert(false); }
-    case .ref_value { assert(false); }
+        case .int_value(actual) {
+            assert(actual == expected);
+        }
+        case .byte_value {
+            assert(false);
+        }
+        case .short_value {
+            assert(false);
+        }
+        case .char_value {
+            assert(false);
+        }
+        case .long_value {
+            assert(false);
+        }
+        case .float_value {
+            assert(false);
+        }
+        case .double_value {
+            assert(false);
+        }
+        case .boolean_value {
+            assert(false);
+        }
+        case .return_address_value {
+            assert(false);
+        }
+        case .ref_value {
+            assert(false);
+        }
     }
 }

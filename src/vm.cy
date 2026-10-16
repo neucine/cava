@@ -1,6 +1,7 @@
 import { Heap, new_heap } from .heap;
 import { MethodArea, new_method_area } from .method_area;
 import { InstructionError, Reference, java_utf16_units_from_utf8 } from .types;
+import { SyncStatus } from std.sync;
 
 pub struct VM {
     pub method_area: MethodArea;
@@ -9,6 +10,12 @@ pub struct VM {
     pub fn clear(self: &VM): void {
         self.heap.clear();
         self.method_area.clear();
+    }
+
+    pub fn destroy(self: &VM): void {
+        self.clear();
+        assert(self.heap.objects.destroy() == SyncStatus.ok);
+        assert(self.heap.arrays.destroy() == SyncStatus.ok);
     }
 
     pub fn resolve_class_index(self: &VM, name: string): result<usize, InstructionError> {
@@ -22,8 +29,10 @@ pub struct VM {
             index = index + 1;
         }
         switch self.method_area.resolve_class(copy name) {
-        case .ok(class_index) { return .ok(class_index); }
-        case .err {}
+            case .ok(class_index) {
+                return .ok(class_index);
+            }
+            case .err {}
         }
         return .err(InstructionError.invalid_constant);
     }
@@ -72,40 +81,45 @@ pub struct VM {
             const slot = classes[string_class_index].fields[value_field_index as usize].slot;
             if self.heap.get_field(reference, slot) is value {
                 switch value {
-                case .ref_value(chars_reference) {
-                    if self.heap.array_length(chars_reference) is length {
-                        var bytes: List<u8> = [];
-                        var index: usize = 0;
-                        while index < length {
-                            if self.heap.get_element(chars_reference, index) is element {
-                                switch element {
-                                case .char_value(ch) { bytes.push(ch as u8); }
-                                case .byte_value(ch) { bytes.push(ch as u8); }
-                                else { bytes.push(0); }
+                    case .ref_value(chars_reference) {
+                        if self.heap.array_length(chars_reference) is length {
+                            var bytes: List<u8> = [];
+                            var index: usize = 0;
+                            while index < length {
+                                if self.heap.get_element(chars_reference, index) is element {
+                                    switch element {
+                                        case .char_value(ch) {
+                                            bytes.push(ch as u8);
+                                        }
+                                        case .byte_value(ch) {
+                                            bytes.push(ch as u8);
+                                        } else {
+                                            bytes.push(0);
+                                        }
+                                    }
                                 }
+                                index = index + 1;
                             }
-                            index = index + 1;
+                            const text = string.from(bytes[..]);
+                            if newline {
+                                println(text);
+                            } else {
+                                print(text);
+                            }
+                            drop text;
+                            drop bytes;
+                            return .ok();
                         }
-                        const text = string.from(bytes[..]);
-                        if newline {
-                            println(text);
-                        } else {
-                            print(text);
-                        }
-                        drop text;
-                        drop bytes;
-                        return .ok();
                     }
-                }
-                case .byte_value {}
-                case .short_value {}
-                case .char_value {}
-                case .int_value {}
-                case .long_value {}
-                case .float_value {}
-                case .double_value {}
-                case .boolean_value {}
-                case .return_address_value {}
+                    case .byte_value {}
+                    case .short_value {}
+                    case .char_value {}
+                    case .int_value {}
+                    case .long_value {}
+                    case .float_value {}
+                    case .double_value {}
+                    case .boolean_value {}
+                    case .return_address_value {}
                 }
             }
         }

@@ -1,32 +1,113 @@
 import { Constant } from .classfile;
 import { Context } from .engine;
+import { execute_method_frame_with_runtime } from .engine;
 import { new_frame } from .engine;
 import { VM } from .vm;
 import { new_vm } from .vm;
 import {
-    Class, Field, InstructionError, Method, MethodAccessFlags,
-    Reference, ReferenceKind, Value, byte_buffer, class_access_flags,
-    field_access_flags, java_utf16_units_from_utf8, null_ref, raw_class_access, raw_field_access,
+    Class,
+    Field,
+    InstructionError,
+    Method,
+    MethodAccessFlags,
+    Reference,
+    ReferenceKind,
+    Value,
+    byte_buffer,
+    class_access_flags,
+    field_access_flags,
+    java_utf16_units_from_utf8,
+    null_ref,
+    raw_class_access,
+    raw_field_access,
     raw_method_access
 } from .types;
-import { monotonic_ns, now_ns, ns_to_ms } from std.time;
+import { monotonic_ns, now_ns, ns_to_ms, sleep_ms } from std.time;
+import std.thread;
+import { Runtime } from .runtime;
 import {
-    ref_arg, value_ref_or_null, int_arg, long_arg, float_arg,
-    double_arg, receiver_ref, return_value, identity_hash_code, set_system_static_ref,
-    find_native_class_index, load_native_class_index, find_or_load_native_class_index, find_loaded_class_index, find_class_object_index_in,
-    native_class_index_by_name, native_hierarchy_instance_var_count, native_field_runtime_slot, native_class_named, native_reference_assignable_to,
-    set_instance_field, set_instance_field_in, get_instance_field, get_instance_field_in, java_string,
-    java_string_bytes, is_primitive_class_object, ensure_class_object, descriptor_class_object, new_java_reflect_field,
-    descriptor_end, new_class_array_for_method_parameters, new_java_reflect_constructor, array_descriptor_for_component, class_name_from_java_name,
-    java_string_buffer, concat_java_string, print_java_string, new_thread_group, new_java_lang_thread,
-    arraycopy, clone_array, clone_object, JavaLangSystem, JavaLangObject,
-    JavaLangClass, JavaLangClassLoader, JavaLangClassLoaderNativeLibrary, JavaLangReflectArray, JavaLangPackage,
-    JavaLangString, java_lang_string_builder_append, java_lang_string_builder_init, java_lang_string_builder_to_string, java_io_print_stream_println,
-    JavaLangFloat, JavaLangDouble, JavaLangThread, JavaLangThrowable, JavaLangRuntime,
-    JavaLangShutdown, JavaLangRefFinalizer, JavaLangRefReference, SunReflectReflection, JdkInternalReflectReflection,
-    JavaSecurityAccessController, SunMiscVM, SunMiscUnsafe, JavaIoFileDescriptor, JavaIoFileInputStream,
-    JavaIoFileOutputStream, JavaIoUnixFileSystem, JavaUtilConcurrentAtomicAtomicLong, JavaUtilZipZipFile, method_is,
-    execute_native_method, seed_test_vm
+    ref_arg,
+    value_ref_or_null,
+    int_arg,
+    long_arg,
+    float_arg,
+    double_arg,
+    receiver_ref,
+    return_value,
+    identity_hash_code,
+    set_system_static_ref,
+    find_native_class_index,
+    load_native_class_index,
+    find_or_load_native_class_index,
+    find_loaded_class_index,
+    find_class_object_index_in,
+    native_class_index_by_name,
+    native_hierarchy_instance_var_count,
+    native_field_runtime_slot,
+    native_class_named,
+    native_reference_assignable_to,
+    set_instance_field,
+    set_instance_field_in,
+    get_instance_field,
+    get_instance_field_in,
+    NativeResolvedMethod,
+    JavaThreadStartPayload,
+    find_native_instance_method,
+    java_thread_start_worker_with_vm,
+    java_thread_start_worker,
+    java_string,
+    java_string_bytes,
+    is_primitive_class_object,
+    ensure_class_object,
+    descriptor_class_object,
+    new_java_reflect_field,
+    descriptor_end,
+    new_class_array_for_method_parameters,
+    new_java_reflect_constructor,
+    array_descriptor_for_component,
+    class_name_from_java_name,
+    java_string_buffer,
+    concat_java_string,
+    print_java_string,
+    new_thread_group,
+    new_java_lang_thread,
+    arraycopy,
+    clone_array,
+    clone_object,
+    JavaLangSystem,
+    JavaLangObject,
+    JavaLangClass,
+    JavaLangClassLoader,
+    JavaLangClassLoaderNativeLibrary,
+    JavaLangReflectArray,
+    JavaLangPackage,
+    JavaLangString,
+    java_lang_string_builder_append,
+    java_lang_string_builder_init,
+    java_lang_string_builder_to_string,
+    java_io_print_stream_println,
+    JavaLangFloat,
+    JavaLangDouble,
+    JavaLangThread,
+    JavaLangThrowable,
+    JavaLangRuntime,
+    JavaLangShutdown,
+    JavaLangRefFinalizer,
+    JavaLangRefReference,
+    SunReflectReflection,
+    JdkInternalReflectReflection,
+    JavaSecurityAccessController,
+    SunMiscVM,
+    SunMiscUnsafe,
+    JavaIoFileDescriptor,
+    JavaIoFileInputStream,
+    JavaIoFileOutputStream,
+    JavaIoUnixFileSystem,
+    JavaUtilConcurrentAtomicAtomicLong,
+    JavaUtilZipZipFile,
+    method_is,
+    execute_native_method,
+    seed_test_vm
 } from .native;
 
 test "native Object.clone copies instance fields" {
@@ -66,8 +147,9 @@ test "native Object.clone copies instance fields" {
     var vm_classes = vm.method_area.classes[..];
     const original = vm.heap.allocate_object(0, &vm_classes[0]);
     assert(vm.heap.set_field(original, 0, .int_value(42)));
-    var constant_pool: [:]Constant = [: 0] [];
+    var constant_pool: [:]Constant = [: 0][];
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 0),
@@ -78,27 +160,34 @@ test "native Object.clone copies instance fields" {
     const result = try JavaLangObject.clone(&context, &vm, original);
     if result is value {
         switch value {
-        case .ref_value(clone) {
-            assert(!clone.equals(original));
-            if vm.heap.get_field(clone, 0) is cloned_value {
-                switch cloned_value {
-                case .int_value(actual) { assert(actual == 42); }
-                else { assert(false); }
+            case .ref_value(clone) {
+                assert(!clone.equals(original));
+                if vm.heap.get_field(clone, 0) is cloned_value {
+                    switch cloned_value {
+                        case .int_value(actual) {
+                            assert(actual == 42);
+                        } else {
+                            assert(false);
+                        }
+                    }
+                } else {
+                    assert(false);
+                }
+                assert(vm.heap.set_field(original, 0, .int_value(7)));
+                if vm.heap.get_field(clone, 0) is cloned_after_original_update {
+                    switch cloned_after_original_update {
+                        case .int_value(actual) {
+                            assert(actual == 42);
+                        } else {
+                            assert(false);
+                        }
+                    }
+                } else {
+                    assert(false);
                 }
             } else {
                 assert(false);
             }
-            assert(vm.heap.set_field(original, 0, .int_value(7)));
-            if vm.heap.get_field(clone, 0) is cloned_after_original_update {
-                switch cloned_after_original_update {
-                case .int_value(actual) { assert(actual == 42); }
-                else { assert(false); }
-                }
-            } else {
-                assert(false);
-            }
-        }
-        else { assert(false); }
         }
     } else {
         assert(false);
@@ -184,8 +273,9 @@ test "native Class metadata reads represented class" {
     ];
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    var constant_pool: [:]Constant = [: 0] [];
+    var constant_pool: [:]Constant = [: 0][];
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 0),
@@ -196,8 +286,11 @@ test "native Class metadata reads represented class" {
     const modifiers = try JavaLangClass.getModifiers(&context, &vm, classes[0].class_object);
     if modifiers is modifiers_value {
         switch modifiers_value {
-        case .int_value(actual) { assert(actual == 0x0021); }
-        else { assert(false); }
+            case .int_value(actual) {
+                assert(actual == 0x0021);
+            } else {
+                assert(false);
+            }
         }
     } else {
         assert(false);
@@ -206,8 +299,11 @@ test "native Class metadata reads represented class" {
     const super_class = try JavaLangClass.getSuperclass(&context, &vm, classes[0].class_object);
     if super_class is super_value {
         switch super_value {
-        case .ref_value(actual) { assert(actual.equals(classes[1].class_object)); }
-        else { assert(false); }
+            case .ref_value(actual) {
+                assert(actual.equals(classes[1].class_object));
+            } else {
+                assert(false);
+            }
         }
     } else {
         assert(false);
@@ -216,8 +312,11 @@ test "native Class metadata reads represented class" {
     const object_super_class = try JavaLangClass.getSuperclass(&context, &vm, classes[1].class_object);
     if object_super_class is object_super_value {
         switch object_super_value {
-        case .ref_value(actual) { assert(actual.is_null()); }
-        else { assert(false); }
+            case .ref_value(actual) {
+                assert(actual.is_null());
+            } else {
+                assert(false);
+            }
         }
     } else {
         assert(false);
@@ -258,8 +357,9 @@ test "native bootstrap helpers return conservative values" {
     ];
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    var constant_pool: [:]Constant = [: 0] [];
+    var constant_pool: [:]Constant = [: 0][];
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 0),
@@ -275,8 +375,11 @@ test "native bootstrap helpers return conservative values" {
     const free_memory = try JavaLangRuntime.freeMemory(&context, runtime);
     if free_memory is free_value {
         switch free_value {
-        case .long_value(actual) { assert(actual > 0); }
-        else { assert(false); }
+            case .long_value(actual) {
+                assert(actual > 0);
+            } else {
+                assert(false);
+            }
         }
     } else {
         assert(false);
@@ -285,8 +388,11 @@ test "native bootstrap helpers return conservative values" {
     const access_flags_value = try SunReflectReflection.getClassAccessFlags(&context, &vm, class_object);
     if access_flags_value is flags_value {
         switch flags_value {
-        case .int_value(actual) { assert(actual == 0x0421); }
-        else { assert(false); }
+            case .int_value(actual) {
+                assert(actual == 0x0421);
+            } else {
+                assert(false);
+            }
         }
     } else {
         assert(false);
@@ -300,8 +406,11 @@ test "native bootstrap helpers return conservative values" {
     const canonicalized = try JavaIoUnixFileSystem.canonicalize0(&context, runtime, path);
     if canonicalized is canonicalized_value {
         switch canonicalized_value {
-        case .ref_value(actual) { assert(actual.equals(path)); }
-        else { assert(false); }
+            case .ref_value(actual) {
+                assert(actual.equals(path));
+            } else {
+                assert(false);
+            }
         }
     } else {
         assert(false);
@@ -310,8 +419,11 @@ test "native bootstrap helpers return conservative values" {
     const pending = try JavaLangRefReference.hasReferencePendingList(&context);
     if pending is pending_value {
         switch pending_value {
-        case .boolean_value(actual) { assert(actual == 0); }
-        else { assert(false); }
+            case .boolean_value(actual) {
+                assert(actual == 0);
+            } else {
+                assert(false);
+            }
         }
     } else {
         assert(false);
@@ -427,8 +539,9 @@ test "native Thread.currentThread creates stable java thread object" {
     ];
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    var constant_pool: [:]Constant = [: 0] [];
+    var constant_pool: [:]Constant = [: 0][];
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 0),
@@ -440,59 +553,76 @@ test "native Thread.currentThread creates stable java thread object" {
     const second = try JavaLangThread.currentThread(&context, &vm);
     if first is first_value {
         switch first_value {
-        case .ref_value(first_ref) {
-            if second is second_value {
-                switch second_value {
-                case .ref_value(second_ref) { assert(first_ref.equals(second_ref)); }
-                else { assert(false); }
-                }
-            } else {
-                assert(false);
-            }
-            if vm.heap.get_field(first_ref, 1) is tid {
-                switch tid {
-                case .long_value(actual) { assert(actual == 1); }
-                else { assert(false); }
-                }
-            } else {
-                assert(false);
-            }
-            if vm.heap.get_field(first_ref, 3) is priority {
-                switch priority {
-                case .int_value(actual) { assert(actual == 1); }
-                else { assert(false); }
-                }
-            } else {
-                assert(false);
-            }
-            if vm.heap.get_field(first_ref, 0) is name {
-                switch name {
-                case .ref_value(name_ref) { assert(name_ref.equals(vm.heap.strings[0].reference)); }
-                else { assert(false); }
-                }
-            } else {
-                assert(false);
-            }
-            if vm.heap.get_field(first_ref, 2) is group {
-                switch group {
-                case .ref_value(group_ref) {
-                    assert(group_ref.non_null());
-                    if vm.heap.get_field(group_ref, 0) is group_name {
-                        switch group_name {
-                        case .ref_value(group_name_ref) { assert(group_name_ref.equals(vm.heap.strings[0].reference)); }
-                        else { assert(false); }
+            case .ref_value(first_ref) {
+                if second is second_value {
+                    switch second_value {
+                        case .ref_value(second_ref) {
+                            assert(first_ref.equals(second_ref));
+                        } else {
+                            assert(false);
                         }
-                    } else {
-                        assert(false);
                     }
+                } else {
+                    assert(false);
                 }
-                else { assert(false); }
+                if vm.heap.get_field(first_ref, 1) is tid {
+                    switch tid {
+                        case .long_value(actual) {
+                            assert(actual == 1);
+                        } else {
+                            assert(false);
+                        }
+                    }
+                } else {
+                    assert(false);
+                }
+                if vm.heap.get_field(first_ref, 3) is priority {
+                    switch priority {
+                        case .int_value(actual) {
+                            assert(actual == 1);
+                        } else {
+                            assert(false);
+                        }
+                    }
+                } else {
+                    assert(false);
+                }
+                if vm.heap.get_field(first_ref, 0) is name {
+                    switch name {
+                        case .ref_value(name_ref) {
+                            assert(name_ref.equals(vm.heap.strings[0].reference));
+                        } else {
+                            assert(false);
+                        }
+                    }
+                } else {
+                    assert(false);
+                }
+                if vm.heap.get_field(first_ref, 2) is group {
+                    switch group {
+                        case .ref_value(group_ref) {
+                            assert(group_ref.non_null());
+                            if vm.heap.get_field(group_ref, 0) is group_name {
+                                switch group_name {
+                                    case .ref_value(group_name_ref) {
+                                        assert(group_name_ref.equals(vm.heap.strings[0].reference));
+                                    } else {
+                                        assert(false);
+                                    }
+                                }
+                            } else {
+                                assert(false);
+                            }
+                        } else {
+                            assert(false);
+                        }
+                    }
+                } else {
+                    assert(false);
                 }
             } else {
                 assert(false);
             }
-        }
-        else { assert(false); }
         }
     } else {
         assert(false);

@@ -17,11 +17,11 @@ pub struct ByteReader {
         };
     }
 
-    pub fn remaining(self: &ByteReader): usize {
+    pub fn remaining(self: &const ByteReader): usize {
         return self.data.len() - self.offset;
     }
 
-    pub fn can_read(self: &ByteReader, count: usize): bool {
+    pub fn can_read(self: &const ByteReader, count: usize): bool {
         return count <= self.remaining();
     }
 
@@ -46,10 +46,10 @@ pub struct ByteReader {
         const third = try self.read_u1();
         const fourth = try self.read_u1();
         const value =
-            (first as u32) * 16777216 +
-            (second as u32) * 65536 +
-            (third as u32) * 256 +
-            (fourth as u32);
+        (first as u32) * 16777216 +
+        (second as u32) * 65536 +
+        (third as u32) * 256 +
+        (fourth as u32);
         return .ok(value);
     }
 
@@ -92,23 +92,57 @@ pub enum ConstantTag: i32 {
 }
 
 pub fn parse_constant_tag(raw: u8): result<ConstantTag, ClassfileError> {
-    if raw == 1 { return .ok(ConstantTag.utf8); }
-    if raw == 3 { return .ok(ConstantTag.integer); }
-    if raw == 4 { return .ok(ConstantTag.float); }
-    if raw == 5 { return .ok(ConstantTag.long); }
-    if raw == 6 { return .ok(ConstantTag.double); }
-    if raw == 7 { return .ok(ConstantTag.class_ref); }
-    if raw == 8 { return .ok(ConstantTag.string_ref); }
-    if raw == 9 { return .ok(ConstantTag.field_ref); }
-    if raw == 10 { return .ok(ConstantTag.method_ref); }
-    if raw == 11 { return .ok(ConstantTag.interface_method_ref); }
-    if raw == 12 { return .ok(ConstantTag.name_and_type); }
-    if raw == 15 { return .ok(ConstantTag.method_handle); }
-    if raw == 16 { return .ok(ConstantTag.method_type); }
-    if raw == 17 { return .ok(ConstantTag.dynamic); }
-    if raw == 18 { return .ok(ConstantTag.invoke_dynamic); }
-    if raw == 19 { return .ok(ConstantTag.module_ref); }
-    if raw == 20 { return .ok(ConstantTag.package_ref); }
+    if raw == 1 {
+        return .ok(ConstantTag.utf8);
+    }
+    if raw == 3 {
+        return .ok(ConstantTag.integer);
+    }
+    if raw == 4 {
+        return .ok(ConstantTag.float);
+    }
+    if raw == 5 {
+        return .ok(ConstantTag.long);
+    }
+    if raw == 6 {
+        return .ok(ConstantTag.double);
+    }
+    if raw == 7 {
+        return .ok(ConstantTag.class_ref);
+    }
+    if raw == 8 {
+        return .ok(ConstantTag.string_ref);
+    }
+    if raw == 9 {
+        return .ok(ConstantTag.field_ref);
+    }
+    if raw == 10 {
+        return .ok(ConstantTag.method_ref);
+    }
+    if raw == 11 {
+        return .ok(ConstantTag.interface_method_ref);
+    }
+    if raw == 12 {
+        return .ok(ConstantTag.name_and_type);
+    }
+    if raw == 15 {
+        return .ok(ConstantTag.method_handle);
+    }
+    if raw == 16 {
+        return .ok(ConstantTag.method_type);
+    }
+    if raw == 17 {
+        return .ok(ConstantTag.dynamic);
+    }
+    if raw == 18 {
+        return .ok(ConstantTag.invoke_dynamic);
+    }
+    if raw == 19 {
+        return .ok(ConstantTag.module_ref);
+    }
+    if raw == 20 {
+        return .ok(ConstantTag.package_ref);
+    }
     return .err(ClassfileError.invalid_constant_tag);
 }
 
@@ -420,7 +454,8 @@ pub struct AttributeInfo {
     pub length: u32;
     pub raw: [:]u8;
 
-    pub fn __copy(self: &AttributeInfo): AttributeInfo {
+    @syntax.copy
+    pub fn clone(self: &const AttributeInfo): AttributeInfo {
         return AttributeInfo {
             name_index: self.name_index,
             length: self.length,
@@ -450,12 +485,19 @@ pub struct MemberInfo {
         return .ok();
     }
 
-    pub fn __copy(self: &MemberInfo): MemberInfo {
+    @syntax.copy
+    pub fn clone(self: &const MemberInfo): MemberInfo {
+        var attributes: List<AttributeInfo> = [];
+        var index: usize = 0;
+        while index < self.attributes.len() {
+            attributes.push(copy self.attributes[index]);
+            index = index + 1;
+        }
         return MemberInfo {
             access_flags: self.access_flags,
             name_index: self.name_index,
             descriptor_index: self.descriptor_index,
-            attributes: copy self.attributes,
+            attributes: attributes,
         };
     }
 }
@@ -518,52 +560,57 @@ pub struct ClassFile {
         return .ok();
     }
 
-    fn valid_constant_index(self: &ClassFile, index: u16): bool {
+    fn valid_constant_index(self: &const ClassFile, index: u16): bool {
         const actual = index as usize;
         return actual != 0 and actual < self.constant_pool.len();
     }
 
-    pub fn utf8(self: &ClassFile, index: u16): result<string, ClassfileError> {
+    pub fn utf8(self: &const ClassFile, index: u16): result<string, ClassfileError> {
         if !self.valid_constant_index(index) {
             return .err(ClassfileError.invalid_constant_index);
         }
 
         switch self.constant_pool[index as usize] {
-        case .utf8(value) { return .ok(string.from(value.bytes())); }
-        else { return .err(ClassfileError.invalid_constant_kind); }
+            case .utf8(value) {
+                return .ok(string.from(value.bytes()));
+            } else {
+                return .err(ClassfileError.invalid_constant_kind);
+            }
         }
     }
 
-    pub fn class_name(self: &ClassFile, index: u16): result<string, ClassfileError> {
+    pub fn class_name(self: &const ClassFile, index: u16): result<string, ClassfileError> {
         if !self.valid_constant_index(index) {
             return .err(ClassfileError.invalid_constant_index);
         }
 
         switch self.constant_pool[index as usize] {
-        case .class_ref(name_index) {
-            return self.utf8(name_index);
-        }
-        else { return .err(ClassfileError.invalid_constant_kind); }
+            case .class_ref(name_index) {
+                return self.utf8(name_index);
+            } else {
+                return .err(ClassfileError.invalid_constant_kind);
+            }
         }
     }
 
-    pub fn name_and_type(self: &ClassFile, index: u16): result<ResolvedNameAndType, ClassfileError> {
+    pub fn name_and_type(self: &const ClassFile, index: u16): result<ResolvedNameAndType, ClassfileError> {
         if !self.valid_constant_index(index) {
             return .err(ClassfileError.invalid_constant_index);
         }
 
         switch self.constant_pool[index as usize] {
-        case .name_and_type(pair) {
-            return .ok(ResolvedNameAndType {
-                name: try self.utf8(pair.name_index),
-                descriptor: try self.utf8(pair.descriptor_index),
-            });
-        }
-        else { return .err(ClassfileError.invalid_constant_kind); }
+            case .name_and_type(pair) {
+                return .ok(ResolvedNameAndType {
+                    name: try self.utf8(pair.name_index),
+                    descriptor: try self.utf8(pair.descriptor_index),
+                });
+            } else {
+                return .err(ClassfileError.invalid_constant_kind);
+            }
         }
     }
 
-    pub fn member_ref(self: &ClassFile, index: u16): result<ResolvedMemberRef, ClassfileError> {
+    pub fn member_ref(self: &const ClassFile, index: u16): result<ResolvedMemberRef, ClassfileError> {
         if !self.valid_constant_index(index) {
             return .err(ClassfileError.invalid_constant_index);
         }
@@ -574,10 +621,17 @@ pub struct ClassFile {
         };
 
         switch self.constant_pool[index as usize] {
-        case .field_ref(member) { raw = member; }
-        case .method_ref(member) { raw = member; }
-        case .interface_method_ref(member) { raw = member; }
-        else { return .err(ClassfileError.invalid_constant_kind); }
+            case .field_ref(member) {
+                raw = member;
+            }
+            case .method_ref(member) {
+                raw = member;
+            }
+            case .interface_method_ref(member) {
+                raw = member;
+            } else {
+                return .err(ClassfileError.invalid_constant_kind);
+            }
         }
 
         if !self.valid_constant_index(raw.name_and_type_index) {
@@ -589,8 +643,11 @@ pub struct ClassFile {
             descriptor_index: 0,
         };
         switch self.constant_pool[raw.name_and_type_index as usize] {
-        case .name_and_type(actual) { pair = actual; }
-        else { return .err(ClassfileError.invalid_constant_kind); }
+            case .name_and_type(actual) {
+                pair = actual;
+            } else {
+                return .err(ClassfileError.invalid_constant_kind);
+            }
         }
 
         const class_name = try self.class_name(raw.class_index);
@@ -607,29 +664,65 @@ pub struct ClassFile {
         return .ok(out);
     }
 
-    pub fn clone_constant_pool(self: &ClassFile): List<Constant> {
+    pub fn clone_constant_pool(self: &const ClassFile): List<Constant> {
         var out: List<Constant> = [];
         var index: usize = 0;
         while index < self.constant_pool.len() {
             switch self.constant_pool[index] {
-            case .unusable(value) { out.push(.unusable(value)); }
-            case .utf8(value) { out.push(.utf8(value)); }
-            case .integer(value) { out.push(.integer(value)); }
-            case .float(value) { out.push(.float(value)); }
-            case .long(value) { out.push(.long(value)); }
-            case .double(value) { out.push(.double(value)); }
-            case .class_ref(value) { out.push(.class_ref(value)); }
-            case .string_ref(value) { out.push(.string_ref(value)); }
-            case .field_ref(value) { out.push(.field_ref(value)); }
-            case .method_ref(value) { out.push(.method_ref(value)); }
-            case .interface_method_ref(value) { out.push(.interface_method_ref(value)); }
-            case .name_and_type(value) { out.push(.name_and_type(value)); }
-            case .method_handle(value) { out.push(.method_handle(value)); }
-            case .method_type(value) { out.push(.method_type(value)); }
-            case .dynamic(value) { out.push(.dynamic(value)); }
-            case .invoke_dynamic(value) { out.push(.invoke_dynamic(value)); }
-            case .module_ref(value) { out.push(.module_ref(value)); }
-            case .package_ref(value) { out.push(.package_ref(value)); }
+                case .unusable(value) {
+                    out.push(.unusable(value));
+                }
+                case .utf8(value) {
+                    out.push(.utf8(value));
+                }
+                case .integer(value) {
+                    out.push(.integer(value));
+                }
+                case .float(value) {
+                    out.push(.float(value));
+                }
+                case .long(value) {
+                    out.push(.long(value));
+                }
+                case .double(value) {
+                    out.push(.double(value));
+                }
+                case .class_ref(value) {
+                    out.push(.class_ref(value));
+                }
+                case .string_ref(value) {
+                    out.push(.string_ref(value));
+                }
+                case .field_ref(value) {
+                    out.push(.field_ref(value));
+                }
+                case .method_ref(value) {
+                    out.push(.method_ref(value));
+                }
+                case .interface_method_ref(value) {
+                    out.push(.interface_method_ref(value));
+                }
+                case .name_and_type(value) {
+                    out.push(.name_and_type(value));
+                }
+                case .method_handle(value) {
+                    out.push(.method_handle(value));
+                }
+                case .method_type(value) {
+                    out.push(.method_type(value));
+                }
+                case .dynamic(value) {
+                    out.push(.dynamic(value));
+                }
+                case .invoke_dynamic(value) {
+                    out.push(.invoke_dynamic(value));
+                }
+                case .module_ref(value) {
+                    out.push(.module_ref(value));
+                }
+                case .package_ref(value) {
+                    out.push(.package_ref(value));
+                }
             }
             index = index + 1;
         }
@@ -736,5 +829,5 @@ pub fn parse_classfile(data: string, out: &ClassFile): result<void, ClassfileErr
 }
 
 fn sample_header_bytes(): [:]u8 {
-    return [:]u8 [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52, 0, 3];
+    return [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52, 0, 3];
 }

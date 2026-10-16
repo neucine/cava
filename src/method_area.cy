@@ -304,8 +304,10 @@ pub struct MethodArea {
         }
 
         switch self.load_class_from_path(copy self.application_class_root, copy class_name) {
-        case .ok(index) { return .ok(index); }
-        case .err {}
+            case .ok(index) {
+                return .ok(index);
+            }
+            case .err {}
         }
         return self.load_class_from_path(copy self.jdk_class_root, copy class_name);
     }
@@ -480,23 +482,23 @@ pub struct MethodArea {
         drop path;
 
         switch read_result {
-        case .ok(source) {
-            const loaded = self.load_class_from_source(source);
-            switch loaded {
-            case .ok(index) {
-                self.load_super_classes(root, index);
-                self.define_array_references_for_class(index);
-                self.define_descriptor_array_references_for_class(index);
-                return .ok(index);
+            case .ok(source) {
+                const loaded = self.load_class_from_source(source);
+                switch loaded {
+                    case .ok(index) {
+                        self.load_super_classes(root, index);
+                        self.define_array_references_for_class(index);
+                        self.define_descriptor_array_references_for_class(index);
+                        return .ok(index);
+                    }
+                    case .err {
+                        return .err(MethodAreaError.classfile);
+                    }
+                }
             }
-            case .err {
-                return .err(MethodAreaError.classfile);
+            case .err(err) {
+                return .err(method_area_error_from_fs(err));
             }
-            }
-        }
-        case .err(err) {
-            return .err(method_area_error_from_fs(err));
-        }
         }
     }
 
@@ -504,23 +506,23 @@ pub struct MethodArea {
         self.update_roots_from_class_path(path);
         const read_result = read_file(path);
         switch read_result {
-        case .ok(source) {
-            const loaded = self.load_class_from_source(source);
-            switch loaded {
-            case .ok(index) {
-                self.load_super_classes(copy self.jdk_class_root, index);
-                self.define_array_references_for_class(index);
-                self.define_descriptor_array_references_for_class(index);
-                return .ok(index);
+            case .ok(source) {
+                const loaded = self.load_class_from_source(source);
+                switch loaded {
+                    case .ok(index) {
+                        self.load_super_classes(copy self.jdk_class_root, index);
+                        self.define_array_references_for_class(index);
+                        self.define_descriptor_array_references_for_class(index);
+                        return .ok(index);
+                    }
+                    case .err {
+                        return .err(MethodAreaError.classfile);
+                    }
+                }
             }
-            case .err {
-                return .err(MethodAreaError.classfile);
+            case .err(err) {
+                return .err(method_area_error_from_fs(err));
             }
-            }
-        }
-        case .err(err) {
-            return .err(method_area_error_from_fs(err));
-        }
         }
     }
 
@@ -545,8 +547,8 @@ pub struct MethodArea {
         const loaded = self.load_class_from_path(root, copy super_class);
         drop super_class;
         switch loaded {
-        case .ok {}
-        case .err {}
+            case .ok {}
+            case .err {}
         }
     }
 
@@ -594,34 +596,32 @@ pub struct MethodArea {
         var constant_index: usize = 0;
         while constant_index < self.classes[class_index].constant_pool.len() {
             switch self.classes[class_index].constant_pool[constant_index] {
-            case .class_ref(name_index) {
-                if (name_index as usize) < self.classes[class_index].constant_pool.len() {
-                    switch self.classes[class_index].constant_pool[name_index as usize] {
-                    case .utf8(name) {
-                        const name_bytes = name.bytes();
-                        if name_bytes.len() > 0 {
-                            if name_bytes[0] == '[' {
-                                const ignored_array = self.define_array_class(string.from(name_bytes));
-                            } else {
-                                const array_name = array_descriptor_from_class_name(copy name);
-                                const ignored_array = self.define_array_class(array_name);
-                                const class_name = string.from(name_bytes);
-                                const loaded = self.load_class_from_path(root, class_name);
-                                drop class_name;
-                                switch loaded {
-                                case .ok(loaded_index) {
-                                    self.load_constant_references_for_class_visited(root, loaded_index, visited);
+                case .class_ref(name_index) {
+                    if (name_index as usize) < self.classes[class_index].constant_pool.len() {
+                        switch self.classes[class_index].constant_pool[name_index as usize] {
+                            case .utf8(name) {
+                                const name_bytes = name.bytes();
+                                if name_bytes.len() > 0 {
+                                    if name_bytes[0] == '[' {
+                                        const ignored_array = self.define_array_class(string.from(name_bytes));
+                                    } else {
+                                        const array_name = array_descriptor_from_class_name(copy name);
+                                        const ignored_array = self.define_array_class(array_name);
+                                        const class_name = string.from(name_bytes);
+                                        const loaded = self.load_class_from_path(root, class_name);
+                                        drop class_name;
+                                        switch loaded {
+                                            case .ok(loaded_index) {
+                                                self.load_constant_references_for_class_visited(root, loaded_index, visited);
+                                            }
+                                            case .err {}
+                                        }
+                                    }
                                 }
-                                case .err {}
-                                }
-                            }
+                            } else {}
                         }
                     }
-                    else {}
-                    }
-                }
-            }
-            else {}
+                } else {}
             }
             constant_index = constant_index + 1;
         }
@@ -629,10 +629,10 @@ pub struct MethodArea {
 
     fn load_required_class(self: &MethodArea, root: string, class_name: string): void {
         switch self.load_class_from_path(root, class_name) {
-        case .ok(index) {
-            self.define_array_references_for_class(index);
-        }
-        case .err {}
+            case .ok(index) {
+                self.define_array_references_for_class(index);
+            }
+            case .err {}
         }
     }
 
@@ -643,25 +643,23 @@ pub struct MethodArea {
         var constant_index: usize = 0;
         while constant_index < self.classes[class_index].constant_pool.len() {
             switch self.classes[class_index].constant_pool[constant_index] {
-            case .class_ref(name_index) {
-                if (name_index as usize) < self.classes[class_index].constant_pool.len() {
-                    switch self.classes[class_index].constant_pool[name_index as usize] {
-                    case .utf8(name) {
-                        const name_bytes = name.bytes();
-                        if name_bytes.len() > 0 {
-                            if name_bytes[0] == '[' {
-                                const ignored_array = self.define_array_class(string.from(name_bytes));
-                            } else {
-                                const array_name = array_descriptor_from_class_name(copy name);
-                                const ignored_array = self.define_array_class(array_name);
-                            }
+                case .class_ref(name_index) {
+                    if (name_index as usize) < self.classes[class_index].constant_pool.len() {
+                        switch self.classes[class_index].constant_pool[name_index as usize] {
+                            case .utf8(name) {
+                                const name_bytes = name.bytes();
+                                if name_bytes.len() > 0 {
+                                    if name_bytes[0] == '[' {
+                                        const ignored_array = self.define_array_class(string.from(name_bytes));
+                                    } else {
+                                        const array_name = array_descriptor_from_class_name(copy name);
+                                        const ignored_array = self.define_array_class(array_name);
+                                    }
+                                }
+                            } else {}
                         }
                     }
-                    else {}
-                    }
-                }
-            }
-            else {}
+                } else {}
             }
             constant_index = constant_index + 1;
         }
@@ -1186,20 +1184,22 @@ fn derive_interfaces_into(classfile: &ClassFile, interfaces: &List<string>): res
             return .err(ClassfileError.invalid_constant_index);
         }
         switch classfile.constant_pool[class_ref_index] {
-        case .class_ref(name_index) {
-            if name_index as usize >= classfile.constant_pool.len() {
-                return .err(ClassfileError.invalid_constant_index);
+            case .class_ref(name_index) {
+                if name_index as usize >= classfile.constant_pool.len() {
+                    return .err(ClassfileError.invalid_constant_index);
+                }
+                switch classfile.constant_pool[name_index as usize] {
+                    case .utf8(name) {
+                        var interface_name = string.from(name.bytes());
+                        interfaces.push(interface_name);
+                        interface_name = "";
+                    } else {
+                        return .err(ClassfileError.invalid_constant_kind);
+                    }
+                }
+            } else {
+                return .err(ClassfileError.invalid_constant_kind);
             }
-            switch classfile.constant_pool[name_index as usize] {
-            case .utf8(name) {
-                var interface_name = string.from(name.bytes());
-                interfaces.push(interface_name);
-                interface_name = "";
-            }
-            else { return .err(ClassfileError.invalid_constant_kind); }
-            }
-        }
-        else { return .err(ClassfileError.invalid_constant_kind); }
         }
         index = index + 1;
     }

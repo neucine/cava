@@ -81,7 +81,7 @@ pub type JavaLangClassLoader = ObjectRef;
 pub type JavaLangReflectField = ObjectRef;
 pub type JavaLangReflectConstructor = ObjectRef;
 
-pub const null_ref: Reference = Reference {
+pub const null_ref: Reference = {
     kind: ReferenceKind.null_ref,
     slot: none,
     generation: 0,
@@ -264,11 +264,11 @@ pub struct Field {
     pub index: u16;
     pub slot: u16;
 
-    pub fn is_static(self: &Field): bool {
+    pub fn is_static(self: &const Field): bool {
         return FieldAccessFlags.static_flag in self.access_flags;
     }
 
-    pub fn is_public(self: &Field): bool {
+    pub fn is_public(self: &const Field): bool {
         return FieldAccessFlags.public in self.access_flags;
     }
 
@@ -278,7 +278,8 @@ pub struct Field {
         self.descriptor = "";
     }
 
-    pub fn __copy(self: &Field): Field {
+    @syntax.copy
+    pub fn clone(self: &const Field): Field {
         return Field {
             class_name: copy self.class_name,
             access_flags: self.access_flags,
@@ -306,15 +307,19 @@ pub struct Method {
     pub parameter_count: u32;
     pub return_descriptor: string;
 
-    pub fn is_static(self: &Method): bool {
+    pub fn is_static(self: &const Method): bool {
         return MethodAccessFlags.static_flag in self.access_flags;
     }
 
-    pub fn is_native(self: &Method): bool {
+    pub fn is_native(self: &const Method): bool {
         return MethodAccessFlags.native in self.access_flags;
     }
 
-    pub fn is_abstract(self: &Method): bool {
+    pub fn is_synchronized(self: &const Method): bool {
+        return MethodAccessFlags.synchronized in self.access_flags;
+    }
+
+    pub fn is_abstract(self: &const Method): bool {
         return MethodAccessFlags.abstract in self.access_flags;
     }
 
@@ -327,7 +332,8 @@ pub struct Method {
         self.return_descriptor = "";
     }
 
-    pub fn __copy(self: &Method): Method {
+    @syntax.copy
+    pub fn clone(self: &const Method): Method {
         return Method {
             class_name: copy self.class_name,
             access_flags: self.access_flags,
@@ -426,11 +432,11 @@ pub struct Class {
     pub linked: bool;
     pub class_object: Reference;
 
-    pub fn is_interface(self: &Class): bool {
+    pub fn is_interface(self: &const Class): bool {
         return ClassAccessFlags.interface_flag in self.access_flags;
     }
 
-    pub fn field_index(self: &Class, name: string, descriptor: string, is_static: bool): ?i32 {
+    pub fn field_index(self: &const Class, name: string, descriptor: string, is_static: bool): ?i32 {
         var i: usize = 0;
         while i < self.fields.len() {
             const field = &self.fields[i];
@@ -442,7 +448,7 @@ pub struct Class {
         return none;
     }
 
-    pub fn method_index(self: &Class, name: string, descriptor: string, is_static: bool): ?i32 {
+    pub fn method_index(self: &const Class, name: string, descriptor: string, is_static: bool): ?i32 {
         var i: usize = 0;
         while i < self.methods.len() {
             const method = &self.methods[i];
@@ -454,11 +460,11 @@ pub struct Class {
         return none;
     }
 
-    pub fn has_field(self: &Class, name: string, descriptor: string, is_static: bool): bool {
+    pub fn has_field(self: &const Class, name: string, descriptor: string, is_static: bool): bool {
         return self.field_index(name, descriptor, is_static) != none;
     }
 
-    pub fn has_method(self: &Class, name: string, descriptor: string, is_static: bool): bool {
+    pub fn has_method(self: &const Class, name: string, descriptor: string, is_static: bool): bool {
         return self.method_index(name, descriptor, is_static) != none;
     }
 
@@ -497,7 +503,14 @@ pub struct Class {
         self.element_type = "";
     }
 
-    pub fn __copy(self: &Class): Class {
+    @syntax.copy
+    pub fn clone(self: &const Class): Class {
+        var methods: List<Method> = [];
+        var index: usize = 0;
+        while index < self.methods.len() {
+            methods.push(copy self.methods[index]);
+            index = index + 1;
+        }
         return Class {
             name: copy self.name,
             descriptor: copy self.descriptor,
@@ -505,7 +518,7 @@ pub struct Class {
             super_class: copy self.super_class,
             interfaces: copy self.interfaces,
             fields: copy self.fields,
-            methods: copy self.methods,
+            methods: methods,
             constant_pool: copy self.constant_pool,
             instance_vars: self.instance_vars,
             static_vars: copy self.static_vars,
@@ -523,35 +536,35 @@ pub struct Class {
 
 fn fail_unexpected_value(value: Value): void {
     switch value {
-    case .byte_value {
-        assert(false);
-    }
-    case .short_value {
-        assert(false);
-    }
-    case .char_value {
-        assert(false);
-    }
-    case .int_value {
-        assert(false);
-    }
-    case .long_value {
-        assert(false);
-    }
-    case .float_value {
-        assert(false);
-    }
-    case .double_value {
-        assert(false);
-    }
-    case .boolean_value {
-        assert(false);
-    }
-    case .return_address_value {
-        assert(false);
-    }
-    case .ref_value {
-        assert(false);
-    }
+        case .byte_value {
+            assert(false);
+        }
+        case .short_value {
+            assert(false);
+        }
+        case .char_value {
+            assert(false);
+        }
+        case .int_value {
+            assert(false);
+        }
+        case .long_value {
+            assert(false);
+        }
+        case .float_value {
+            assert(false);
+        }
+        case .double_value {
+            assert(false);
+        }
+        case .boolean_value {
+            assert(false);
+        }
+        case .return_address_value {
+            assert(false);
+        }
+        case .ref_value {
+            assert(false);
+        }
     }
 }

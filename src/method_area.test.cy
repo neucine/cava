@@ -1,26 +1,85 @@
 import {
-    AttributeInfo, ByteReader, ClassFile, ClassfileError, Constant,
-    ConstantMemberRef, ConstantNameAndType, MemberInfo, new_classfile, parse_classfile
+    AttributeInfo,
+    ByteReader,
+    ClassFile,
+    ClassfileError,
+    Constant,
+    ConstantMemberRef,
+    ConstantNameAndType,
+    MemberInfo,
+    new_classfile,
+    parse_classfile
 } from .classfile;
 import {
-    Class, ExceptionHandler, Field, Method, Reference,
-    Value, byte_buffer, class_access_flags, default_value, field_access_flags,
-    method_access_flags, null_ref
+    Class,
+    ExceptionHandler,
+    Field,
+    Method,
+    Reference,
+    Value,
+    byte_buffer,
+    class_access_flags,
+    default_value,
+    field_access_flags,
+    method_access_flags,
+    null_ref
 } from .types;
 import { FsError, read_file } from std.fs;
 import { index_of } from std.mem;
 import {
-    MethodAreaError, method_area_error_from_fs, SymbolPool, new_symbol_pool, ResolvedMethod,
-    find_loaded_class_index, class_matches, class_named, reference_assignable_to, class_index_by_name,
-    class_instance_var_count, hierarchy_instance_var_count, field_slot_offset, runtime_field_slot, contains_class_index,
-    project_root_from_example_class_path, MethodArea, duplicate_loaded_class, new_method_area, empty_code,
-    owned_text, builtin_field, builtin_method, builtin_object_class, builtin_print_stream_class,
-    builtin_system_class, builtin_string_builder_class, builtin_class, array_descriptor_from_class_name, descriptor_array_end,
-    class_file_path, ResolvedFieldRef, ResolvedMethodRef, first_type_bytes, method_parameter_count,
-    method_return_descriptor, array_component_type, array_element_type, array_dimensions, class_descriptor_from_name,
-    derive_array_class, CodeInfo, empty_code_info, apply_code_attribute_info, code_info_from_attribute,
-    member_code_info, derive_interfaces_into, derive_fields, derive_static_vars, instance_var_count,
-    derive_source_file, derive_methods, derive_class
+    MethodAreaError,
+    method_area_error_from_fs,
+    SymbolPool,
+    new_symbol_pool,
+    ResolvedMethod,
+    find_loaded_class_index,
+    class_matches,
+    class_named,
+    reference_assignable_to,
+    class_index_by_name,
+    class_instance_var_count,
+    hierarchy_instance_var_count,
+    field_slot_offset,
+    runtime_field_slot,
+    contains_class_index,
+    project_root_from_example_class_path,
+    MethodArea,
+    duplicate_loaded_class,
+    new_method_area,
+    empty_code,
+    owned_text,
+    builtin_field,
+    builtin_method,
+    builtin_object_class,
+    builtin_print_stream_class,
+    builtin_system_class,
+    builtin_string_builder_class,
+    builtin_class,
+    array_descriptor_from_class_name,
+    descriptor_array_end,
+    class_file_path,
+    ResolvedFieldRef,
+    ResolvedMethodRef,
+    first_type_bytes,
+    method_parameter_count,
+    method_return_descriptor,
+    array_component_type,
+    array_element_type,
+    array_dimensions,
+    class_descriptor_from_name,
+    derive_array_class,
+    CodeInfo,
+    empty_code_info,
+    apply_code_attribute_info,
+    code_info_from_attribute,
+    member_code_info,
+    derive_interfaces_into,
+    derive_fields,
+    derive_static_vars,
+    instance_var_count,
+    derive_source_file,
+    derive_methods,
+    derive_class
 } from .method_area;
 
 test "method descriptor parser extracts parameter count and return type" {
@@ -144,19 +203,41 @@ test "method area resolves class field and method refs" {
             .class_ref(1),
             .utf8("answer"),
             .utf8("I"),
-            .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
-            .field_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+            .name_and_type(ConstantNameAndType {
+                name_index: 3,
+                descriptor_index: 4
+            }),
+            .field_ref(ConstantMemberRef {
+                class_index: 2,
+                name_and_type_index: 5
+            }),
             .utf8("run"),
             .utf8("()I"),
-            .name_and_type(ConstantNameAndType { name_index: 7, descriptor_index: 8 }),
-            .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 9 })
+            .name_and_type(ConstantNameAndType {
+                name_index: 7,
+                descriptor_index: 8
+            }),
+            .method_ref(ConstantMemberRef {
+                class_index: 2,
+                name_and_type_index: 9
+            })
         ],
         access_flags: 33,
         this_class: 2,
         super_class: 0,
         interfaces: [],
-        fields: [MemberInfo { access_flags: 8, name_index: 3, descriptor_index: 4, attributes: [] }],
-        methods: [MemberInfo { access_flags: 9, name_index: 7, descriptor_index: 8, attributes: [] }],
+        fields: [MemberInfo {
+            access_flags: 8,
+            name_index: 3,
+            descriptor_index: 4,
+            attributes: []
+        }],
+        methods: [MemberInfo {
+            access_flags: 9,
+            name_index: 7,
+            descriptor_index: 8,
+            attributes: []
+        }],
         attributes: [],
     };
 
@@ -240,9 +321,32 @@ test "method area derives class metadata from classfile" {
         this_class: 2,
         super_class: 4,
         interfaces: [6],
-        fields: [MemberInfo { access_flags: 8, name_index: 7, descriptor_index: 8, attributes: [] }, MemberInfo { access_flags: 1, name_index: 9, descriptor_index: 8, attributes: [] }],
-        methods: [MemberInfo { access_flags: 9, name_index: 10, descriptor_index: 11, attributes: [AttributeInfo { name_index: 12, length: 44, raw: byte_buffer(code_raw[..]) }] }],
-        attributes: [AttributeInfo { name_index: 13, length: 2, raw: byte_buffer(source_raw[..]) }],
+        fields: [MemberInfo {
+            access_flags: 8,
+            name_index: 7,
+            descriptor_index: 8,
+            attributes: []
+        }, MemberInfo {
+            access_flags: 1,
+            name_index: 9,
+            descriptor_index: 8,
+            attributes: []
+        }],
+        methods: [MemberInfo {
+            access_flags: 9,
+            name_index: 10,
+            descriptor_index: 11,
+            attributes: [AttributeInfo {
+                name_index: 12,
+                length: 44,
+                raw: byte_buffer(code_raw[..])
+            }]
+        }],
+        attributes: [AttributeInfo {
+            name_index: 13,
+            length: 2,
+            raw: byte_buffer(source_raw[..])
+        }],
     };
 
     var class = try derive_class(&classfile);
@@ -262,16 +366,36 @@ test "method area derives class metadata from classfile" {
     assert(class.instance_vars == 1);
     assert(class.static_vars.len() == 1);
     switch class.static_vars[0] {
-    case .int_value(value) { assert(value == 0); }
-    case .byte_value { assert(false); }
-    case .short_value { assert(false); }
-    case .char_value { assert(false); }
-    case .long_value { assert(false); }
-    case .float_value { assert(false); }
-    case .double_value { assert(false); }
-    case .boolean_value { assert(false); }
-    case .return_address_value { assert(false); }
-    case .ref_value { assert(false); }
+        case .int_value(value) {
+            assert(value == 0);
+        }
+        case .byte_value {
+            assert(false);
+        }
+        case .short_value {
+            assert(false);
+        }
+        case .char_value {
+            assert(false);
+        }
+        case .long_value {
+            assert(false);
+        }
+        case .float_value {
+            assert(false);
+        }
+        case .double_value {
+            assert(false);
+        }
+        case .boolean_value {
+            assert(false);
+        }
+        case .return_address_value {
+            assert(false);
+        }
+        case .ref_value {
+            assert(false);
+        }
     }
     assert(class.methods.len() == 1);
     assert(class.methods[0].max_stack == 2);

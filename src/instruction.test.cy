@@ -1,82 +1,395 @@
 import { Constant, ConstantMemberRef, ConstantMethodHandle, ConstantNameAndType, ConstantWide } from .classfile;
 import {
-    Context, Frame, FrameResult, apply_method_result, dispatch_exception,
-    execute_method_frame_with_vm, new_frame
+    Context,
+    Frame,
+    FrameResult,
+    apply_method_result,
+    dispatch_exception,
+    execute_method_frame_with_runtime,
+    execute_method_frame_with_vm,
+    new_frame
 } from .engine;
 import {
-    MethodArea, ResolvedMethod, class_matches, find_loaded_class_index, new_method_area,
-    reference_assignable_to, runtime_field_slot
+    MethodArea,
+    ResolvedMethod,
+    class_matches,
+    find_loaded_class_index,
+    new_method_area,
+    reference_assignable_to,
+    runtime_field_slot
 } from .method_area;
 import { VM } from .vm;
+import { Runtime, new_runtime } from .runtime;
+import { execute_array_next } from .instruction;
 import { new_vm } from .vm;
 import { execute_native_method } from .native;
 import {
-    Class, Field, InstructionError, Method, Reference,
-    ReferenceKind, Value, array_component_descriptor, byte_buffer, class_access_flags,
-    field_access_flags, method_access_flags, method_argument_count, null_ref, reference_array_component_descriptor,
+    Class,
+    Field,
+    InstructionError,
+    Method,
+    Reference,
+    ReferenceKind,
+    Value,
+    array_component_descriptor,
+    byte_buffer,
+    class_access_flags,
+    field_access_flags,
+    method_access_flags,
+    method_argument_count,
+    null_ref,
+    reference_array_component_descriptor,
     reference_array_descriptor
 } from .types;
 import { env_get } from std.process;
 import {
-    Opcode, Instruction, ExecuteFn, constant_utf8, constant_class_name,
-    constant_utf8_equals, find_class_index_by_constant, find_class_index, field_runtime_slot, find_field_index_by_constants,
-    find_field_in_hierarchy, find_field_by_name_in_hierarchy, find_field_index, find_static_method_index_by_constants, find_instance_method_index_by_constants,
-    find_static_method_index_in_hierarchy, find_instance_method_index_in_hierarchy, find_interface_method_index_in_hierarchy, find_instance_method_by_name_in_hierarchy, resolve_field,
-    resolve_static_method, resolve_instance_method, resolve_interface_method, push_int, expect_int,
-    expect_ref, expect_long, expect_float, expect_double, expect_return_address,
-    expect_array_load, store_array_value, load_int, load_long, load_float,
-    load_double, store_int, store_long, store_float, store_double,
-    load_ref, store_ref_like, is_category2, sign_extend_u1, wide_bits,
-    load_constant, load_class_constant, load_string_constant, load_method_type_constant, load_method_handle_constant,
-    unsupported, nop, aconst_null, iconst_m1, iconst_0,
-    iconst_1, iconst_2, iconst_3, iconst_4, iconst_5,
-    lconst_0, lconst_1, fconst_0, fconst_1, fconst_2,
-    dconst_0, dconst_1, ldc, ldc_w, ldc2_w,
-    bipush, sipush, iload, lload, fload,
-    dload, aload, iload_0, iload_1, iload_2,
-    iload_3, lload_0, lload_1, lload_2, lload_3,
-    fload_0, fload_1, fload_2, fload_3, dload_0,
-    dload_1, dload_2, dload_3, aload_0, aload_1,
-    aload_2, aload_3, istore, lstore, fstore,
-    dstore, astore, istore_0, istore_1, istore_2,
-    istore_3, lstore_0, lstore_1, lstore_2, lstore_3,
-    fstore_0, fstore_1, fstore_2, fstore_3, dstore_0,
-    dstore_1, dstore_2, dstore_3, astore_0, astore_1,
-    astore_2, astore_3, iaload, laload, faload,
-    daload, aaload, baload, caload, saload,
-    pop, pop2, dup, dup_x1, dup_x2,
-    dup2, dup2_x1, dup2_x2, swap, iastore,
-    lastore, fastore, dastore, aastore, bastore,
-    castore, sastore, iadd, ladd, fadd,
-    dadd, isub, lsub, fsub, dsub,
-    imul, lmul, fmul, dmul, fdiv,
-    ddiv, idiv, ldiv, irem, lrem,
-    ineg, lneg, fneg, dneg, ishl,
-    lshl, ishr, lshr, iushr, lushr,
-    iand, land, ior, lor, ixor,
-    lxor, iinc, i2l, i2f, i2d,
-    l2i, l2f, l2d, f2d, jvm_f2i_value,
-    jvm_f2l_value, jvm_d2i_value, jvm_d2l_value, f2i, f2l,
-    d2i, d2l, d2f, i2b, i2c,
-    i2s, lcmp, fcmpl, fcmpg, dcmpl,
-    dcmpg, branch, ifeq, ifne, iflt,
-    ifge, ifgt, ifle, if_icmpeq, if_icmpne,
-    if_icmplt, if_icmpge, if_icmpgt, if_icmple, if_acmpeq,
-    if_acmpne, goto_, goto_w, jsr, ret,
-    tableswitch, lookupswitch, jsr_w, ireturn, lreturn,
-    freturn, dreturn, areturn, return_, value_local_width,
-    instruction_length_for_scan, read_scan_i4, native_arguments, is_access_controller_do_privileged, invoke_privileged_action,
-    invoke_instance_method_direct, find_class_object_index_instruction, get_instance_field_by_name, java_string_bytes_instruction, invoke_reflect_constructor,
-    set_java_system_property, initialize_java_system_properties, invoke_static, invoke_special, invoke_virtual,
-    invoke_interface, new_, getstatic, initialize_static_class, initialize_system_static_fields,
-    initialize_vm_static_fields, putstatic, getfield, putfield, athrow,
-    newarray, anewarray, checkcast, instanceof, monitorenter,
-    monitorexit, allocate_multi_array, multianewarray, arraylength, wide,
-    ifnull, ifnonnull, registry, fetch, execute_next,
-    print_instruction_gap, instruction_error_name, print_instruction_error_context, instruction_trace_enabled, opcode_name,
-    trace_instruction, execute_method, assert_int_result, assert_long_result, assert_float_result,
-    assert_double_result, assert_null_ref_result, assert_void_result, assert_exception_result, seed_test_vm
+    Opcode,
+    Instruction,
+    ExecuteFn,
+    constant_utf8,
+    constant_class_name,
+    constant_utf8_equals,
+    find_class_index_by_constant,
+    find_class_index,
+    field_runtime_slot,
+    find_field_index_by_constants,
+    find_field_in_hierarchy,
+    find_field_by_name_in_hierarchy,
+    find_field_index,
+    find_static_method_index_by_constants,
+    find_instance_method_index_by_constants,
+    find_static_method_index_in_hierarchy,
+    find_instance_method_index_in_hierarchy,
+    find_interface_method_index_in_hierarchy,
+    find_instance_method_by_name_in_hierarchy,
+    resolve_field,
+    resolve_static_method,
+    resolve_instance_method,
+    resolve_interface_method,
+    push_int,
+    expect_int,
+    expect_ref,
+    expect_long,
+    expect_float,
+    expect_double,
+    expect_return_address,
+    expect_array_load,
+    store_array_value,
+    load_int,
+    load_long,
+    load_float,
+    load_double,
+    store_int,
+    store_long,
+    store_float,
+    store_double,
+    load_ref,
+    store_ref_like,
+    is_category2,
+    sign_extend_u1,
+    wide_bits,
+    load_constant,
+    load_class_constant,
+    load_string_constant,
+    load_method_type_constant,
+    load_method_handle_constant,
+    unsupported,
+    nop,
+    aconst_null,
+    iconst_m1,
+    iconst_0,
+    iconst_1,
+    iconst_2,
+    iconst_3,
+    iconst_4,
+    iconst_5,
+    lconst_0,
+    lconst_1,
+    fconst_0,
+    fconst_1,
+    fconst_2,
+    dconst_0,
+    dconst_1,
+    ldc,
+    ldc_w,
+    ldc2_w,
+    bipush,
+    sipush,
+    iload,
+    lload,
+    fload,
+    dload,
+    aload,
+    iload_0,
+    iload_1,
+    iload_2,
+    iload_3,
+    lload_0,
+    lload_1,
+    lload_2,
+    lload_3,
+    fload_0,
+    fload_1,
+    fload_2,
+    fload_3,
+    dload_0,
+    dload_1,
+    dload_2,
+    dload_3,
+    aload_0,
+    aload_1,
+    aload_2,
+    aload_3,
+    istore,
+    lstore,
+    fstore,
+    dstore,
+    astore,
+    istore_0,
+    istore_1,
+    istore_2,
+    istore_3,
+    lstore_0,
+    lstore_1,
+    lstore_2,
+    lstore_3,
+    fstore_0,
+    fstore_1,
+    fstore_2,
+    fstore_3,
+    dstore_0,
+    dstore_1,
+    dstore_2,
+    dstore_3,
+    astore_0,
+    astore_1,
+    astore_2,
+    astore_3,
+    iaload,
+    laload,
+    faload,
+    daload,
+    aaload,
+    baload,
+    caload,
+    saload,
+    pop,
+    pop2,
+    dup,
+    dup_x1,
+    dup_x2,
+    dup2,
+    dup2_x1,
+    dup2_x2,
+    swap,
+    iastore,
+    lastore,
+    fastore,
+    dastore,
+    aastore,
+    bastore,
+    castore,
+    sastore,
+    iadd,
+    ladd,
+    fadd,
+    dadd,
+    isub,
+    lsub,
+    fsub,
+    dsub,
+    imul,
+    lmul,
+    fmul,
+    dmul,
+    fdiv,
+    ddiv,
+    idiv,
+    ldiv,
+    irem,
+    lrem,
+    ineg,
+    lneg,
+    fneg,
+    dneg,
+    ishl,
+    lshl,
+    ishr,
+    lshr,
+    iushr,
+    lushr,
+    iand,
+    land,
+    ior,
+    lor,
+    ixor,
+    lxor,
+    iinc,
+    i2l,
+    i2f,
+    i2d,
+    l2i,
+    l2f,
+    l2d,
+    f2d,
+    jvm_f2i_value,
+    jvm_f2l_value,
+    jvm_d2i_value,
+    jvm_d2l_value,
+    f2i,
+    f2l,
+    d2i,
+    d2l,
+    d2f,
+    i2b,
+    i2c,
+    i2s,
+    lcmp,
+    fcmpl,
+    fcmpg,
+    dcmpl,
+    dcmpg,
+    branch,
+    ifeq,
+    ifne,
+    iflt,
+    ifge,
+    ifgt,
+    ifle,
+    if_icmpeq,
+    if_icmpne,
+    if_icmplt,
+    if_icmpge,
+    if_icmpgt,
+    if_icmple,
+    if_acmpeq,
+    if_acmpne,
+    goto_,
+    goto_w,
+    jsr,
+    ret,
+    tableswitch,
+    lookupswitch,
+    jsr_w,
+    ireturn,
+    lreturn,
+    freturn,
+    dreturn,
+    areturn,
+    return_,
+    value_local_width,
+    instruction_length_for_scan,
+    read_scan_i4,
+    native_arguments,
+    is_access_controller_do_privileged,
+    execute_child_method_frame,
+    invoke_privileged_action,
+    invoke_instance_method_direct,
+    find_class_object_index_instruction,
+    get_instance_field_by_name,
+    java_string_bytes_instruction,
+    invoke_reflect_constructor,
+    set_java_system_property,
+    initialize_java_system_properties,
+    invoke_static,
+    invoke_special,
+    invoke_virtual,
+    invoke_interface,
+    new_,
+    getstatic,
+    initialize_static_class,
+    initialize_system_static_fields,
+    initialize_vm_static_fields,
+    putstatic,
+    getfield,
+    putfield,
+    athrow,
+    newarray,
+    anewarray,
+    checkcast,
+    instanceof,
+    monitorenter,
+    monitorexit,
+    allocate_multi_array,
+    multianewarray,
+    arraylength,
+    wide,
+    ifnull,
+    ifnonnull,
+    registry,
+    fetch,
+    execute_next,
+    print_instruction_gap,
+    instruction_error_name,
+    print_instruction_error_context,
+    instruction_trace_enabled,
+    opcode_name,
+    trace_instruction,
+    execute_method,
+    assert_int_result,
+    assert_long_result,
+    assert_float_result,
+    assert_double_result,
+    assert_null_ref_result,
+    assert_void_result,
+    assert_exception_result,
+    seed_test_vm
 } from .instruction;
+
+fn check_parallel_narrow_array(runtime: Runtime, descriptor: string, store_opcode: u8, load_opcode: u8, input: i32, expected: i32): void {
+    var reference = null_ref;
+    switch runtime.state.with_result<string, Reference>(descriptor, fn (vm: &VM, actual: string): Reference {
+        return vm.heap.allocate_array(0, actual.bytes(), 1);
+    }) {
+        case .ok(actual) {
+            reference = actual;
+        }
+        case .err {
+            assert(false);
+        }
+    }
+    const code: [2]u8 = [store_opcode, load_opcode];
+    const pool: List<Constant> = [];
+    var context = Context {
+        runtime: copy runtime,
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 0, 3),
+        code: code[..],
+        constant_pool: pool[..],
+    };
+    context.frame.push(.ref_value(reference));
+    push_int(&context, 0);
+    push_int(&context, input);
+    switch execute_array_next(&context, "Array", "store") {
+        case .ok(handled) {
+            assert(handled);
+        }
+        case .err {
+            assert(false);
+        }
+    }
+    context.frame.push(.ref_value(reference));
+    push_int(&context, 0);
+    switch execute_array_next(&context, "Array", "load") {
+        case .ok(handled) {
+            assert(handled);
+        }
+        case .err {
+            assert(false);
+        }
+    }
+    assert(expect_int(context.frame.pop()) == expected);
+}
+
+test "parallel array bytecodes preserve narrow primitive conversions" {
+    const runtime = new_runtime();
+    check_parallel_narrow_array(copy runtime, "Z", 84, 51, 3, 1);
+    check_parallel_narrow_array(copy runtime, "B", 84, 51, 255, 0 - 1);
+    check_parallel_narrow_array(copy runtime, "C", 85, 52, 65537, 1);
+    check_parallel_narrow_array(copy runtime, "S", 86, 53, 65535, 0 - 1);
+    runtime.finish();
+}
 
 test "instruction executes iconst and ireturn" {
     const code: [2]u8 = [4, 172];
@@ -158,14 +471,21 @@ test "instruction executes ldc numeric constants" {
         .unusable(0),
         .integer(42),
         .integer(67),
-        .long(ConstantWide { high_bytes: 0, low_bytes: 42 }),
+        .long(ConstantWide {
+            high_bytes: 0,
+            low_bytes: 42
+        }),
         .unusable(0),
         .float(0x40000000),
-        .double(ConstantWide { high_bytes: 0x40080000, low_bytes: 0 }),
+        .double(ConstantWide {
+            high_bytes: 0x40080000,
+            low_bytes: 0
+        }),
         .unusable(0),
     ];
     var vm = new_vm();
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 5),
@@ -177,10 +497,10 @@ test "instruction executes ldc numeric constants" {
     while step < 5 {
         const step_result = execute_next(&context, &vm);
         switch step_result {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
+            case .ok {}
+            case .err {
+                assert(false);
+            }
         }
         step = step + 1;
     }
@@ -247,6 +567,7 @@ test "instruction caches ldc class constants" {
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 2),
@@ -258,10 +579,10 @@ test "instruction caches ldc class constants" {
     while step < 2 {
         const step_result = execute_next(&context, &vm);
         switch step_result {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
+            case .ok {}
+            case .err {
+                assert(false);
+            }
         }
         step = step + 1;
     }
@@ -271,7 +592,7 @@ test "instruction caches ldc class constants" {
     const first = expect_ref(context.frame.pop());
     assert(first.equals(second));
     assert(context_classes[0].class_object.equals(first));
-    assert(vm.heap.objects.len() == 1);
+    assert(vm.heap.object_count() == 1);
     if vm.heap.object_class_index(first) is class_index {
         assert(class_index == 1);
     } else {
@@ -334,6 +655,7 @@ test "instruction interns ldc string constants" {
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 2),
@@ -345,10 +667,10 @@ test "instruction interns ldc string constants" {
     while step < 2 {
         const step_result = execute_next(&context, &vm);
         switch step_result {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
+            case .ok {}
+            case .err {
+                assert(false);
+            }
         }
         step = step + 1;
     }
@@ -356,7 +678,7 @@ test "instruction interns ldc string constants" {
     const second = expect_ref(context.frame.pop());
     const first = expect_ref(context.frame.pop());
     assert(first.equals(second));
-    assert(vm.heap.objects.len() == 1);
+    assert(vm.heap.object_count() == 1);
     if vm.heap.object_class_index(first) is class_index {
         assert(class_index == 1);
     } else {
@@ -422,6 +744,7 @@ test "instruction interns ldc method type constants" {
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 2),
@@ -433,10 +756,10 @@ test "instruction interns ldc method type constants" {
     while step < 2 {
         const step_result = execute_next(&context, &vm);
         switch step_result {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
+            case .ok {}
+            case .err {
+                assert(false);
+            }
         }
         step = step + 1;
     }
@@ -444,7 +767,7 @@ test "instruction interns ldc method type constants" {
     const second = expect_ref(context.frame.pop());
     const first = expect_ref(context.frame.pop());
     assert(first.equals(second));
-    assert(vm.heap.objects.len() == 1);
+    assert(vm.heap.object_count() == 1);
     if vm.heap.object_class_index(first) is class_index {
         assert(class_index == 1);
     } else {
@@ -467,9 +790,18 @@ test "instruction interns ldc method handle constants" {
         .class_ref(1),
         .utf8("run"),
         .utf8("()I"),
-        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
-        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
-        .method_handle(ConstantMethodHandle { reference_kind: 6, reference_index: 6 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 3,
+            descriptor_index: 4
+        }),
+        .method_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 5
+        }),
+        .method_handle(ConstantMethodHandle {
+            reference_kind: 6,
+            reference_index: 6
+        }),
     ];
     var main_class = Class {
         name: string.from("Main".bytes()),
@@ -515,6 +847,7 @@ test "instruction interns ldc method handle constants" {
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 2),
@@ -526,10 +859,10 @@ test "instruction interns ldc method handle constants" {
     while step < 2 {
         const step_result = execute_next(&context, &vm);
         switch step_result {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
+            case .ok {}
+            case .err {
+                assert(false);
+            }
         }
         step = step + 1;
     }
@@ -537,7 +870,7 @@ test "instruction interns ldc method handle constants" {
     const second = expect_ref(context.frame.pop());
     const first = expect_ref(context.frame.pop());
     assert(first.equals(second));
-    assert(vm.heap.objects.len() == 1);
+    assert(vm.heap.object_count() == 1);
     if vm.heap.object_class_index(first) is class_index {
         assert(class_index == 1);
     } else {
@@ -563,11 +896,23 @@ test "instruction executes field access ops" {
         .class_ref(1),
         .utf8("staticValue"),
         .utf8("I"),
-        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
-        .field_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 3,
+            descriptor_index: 4
+        }),
+        .field_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 5
+        }),
         .utf8("instanceValue"),
-        .name_and_type(ConstantNameAndType { name_index: 7, descriptor_index: 4 }),
-        .field_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 8 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 7,
+            descriptor_index: 4
+        }),
+        .field_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 8
+        }),
     ];
     const static_field = Field {
         class_name: "Example",
@@ -609,6 +954,7 @@ test "instruction executes field access ops" {
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 4),
@@ -621,37 +967,37 @@ test "instruction executes field access ops" {
     context.frame.push(.int_value(41));
     const put_static = execute_next(&context, &vm);
     switch put_static {
-    case .ok {}
-    case .err {
-        assert(false);
-    }
+        case .ok {}
+        case .err {
+            assert(false);
+        }
     }
 
     const get_static = execute_next(&context, &vm);
     switch get_static {
-    case .ok {}
-    case .err {
-        assert(false);
-    }
+        case .ok {}
+        case .err {
+            assert(false);
+        }
     }
 
     context.frame.push(.ref_value(reference));
     context.frame.push(.int_value(1));
     const put_instance = execute_next(&context, &vm);
     switch put_instance {
-    case .ok {}
-    case .err {
-        assert(false);
-    }
+        case .ok {}
+        case .err {
+            assert(false);
+        }
     }
 
     context.frame.push(.ref_value(reference));
     const get_instance = execute_next(&context, &vm);
     switch get_instance {
-    case .ok {}
-    case .err {
-        assert(false);
-    }
+        case .ok {}
+        case .err {
+            assert(false);
+        }
     }
 
     assert_int_result(.return_value(context.frame.pop()), 1);
@@ -666,8 +1012,14 @@ test "instruction executes invokestatic int method" {
         .class_ref(1),
         .utf8("add"),
         .utf8("(II)I"),
-        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
-        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 3,
+            descriptor_index: 4
+        }),
+        .method_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 5
+        }),
     ];
     const caller_code: [6]u8 = [
         5, // iconst_2
@@ -700,7 +1052,7 @@ test "instruction executes invokestatic int method" {
                     max_locals: 0,
                     code_len: 6,
                     exception_count: 0,
-        exception_handlers: [],
+                    exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -716,7 +1068,7 @@ test "instruction executes invokestatic int method" {
                     max_locals: 2,
                     code_len: 4,
                     exception_count: 0,
-        exception_handlers: [],
+                    exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 2,
@@ -751,8 +1103,14 @@ test "instruction executes registerNatives native no-op" {
         .class_ref(1),
         .utf8("registerNatives"),
         .utf8("()V"),
-        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
-        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 3,
+            descriptor_index: 4
+        }),
+        .method_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 5
+        }),
     ];
     const caller_code: [5]u8 = [
         184, 0, 6, // invokestatic java/lang/System.registerNatives:()V
@@ -830,8 +1188,14 @@ test "instruction executes System.initProperties native" {
         .class_ref(1),
         .utf8("initProperties"),
         .utf8("(Ljava/util/Properties;)Ljava/util/Properties;"),
-        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
-        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 3,
+            descriptor_index: 4
+        }),
+        .method_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 5
+        }),
     ];
     const caller_code: [5]u8 = [
         1, // aconst_null
@@ -909,14 +1273,26 @@ test "instruction executes native AccessController.doPrivileged callback" {
         .class_ref(1),
         .utf8("<init>"),
         .utf8("()V"),
-        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
-        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 3,
+            descriptor_index: 4
+        }),
+        .method_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 5
+        }),
         .utf8("java/security/AccessController"),
         .class_ref(7),
         .utf8("doPrivileged"),
         .utf8("(Ljava/security/PrivilegedAction;Ljava/security/AccessControlContext;)Ljava/lang/Object;"),
-        .name_and_type(ConstantNameAndType { name_index: 9, descriptor_index: 10 }),
-        .method_ref(ConstantMemberRef { class_index: 8, name_and_type_index: 11 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 9,
+            descriptor_index: 10
+        }),
+        .method_ref(ConstantMemberRef {
+            class_index: 8,
+            name_and_type_index: 11
+        }),
         .utf8("run"),
         .utf8("()Ljava/lang/Object;"),
     ];
@@ -1049,26 +1425,27 @@ test "instruction executes native AccessController.doPrivileged callback" {
     seed_test_vm(&vm, classes[..]);
     const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 3), constant_pool[..]);
     switch result {
-    case .return_value(value) {
-        if value is actual {
-            switch actual {
-            case .ref_value(reference) {
-                assert(reference.non_null());
-                if vm.heap.object_class_index(reference) is class_index {
-                    assert(class_index == 1);
-                } else {
-                    assert(false);
+        case .return_value(value) {
+            if value is actual {
+                switch actual {
+                    case .ref_value(reference) {
+                        assert(reference.non_null());
+                        if vm.heap.object_class_index(reference) is class_index {
+                            assert(class_index == 1);
+                        } else {
+                            assert(false);
+                        }
+                    } else {
+                        assert(false);
+                    }
                 }
+            } else {
+                assert(false);
             }
-            else { assert(false); }
-            }
-        } else {
+        }
+        case .exception {
             assert(false);
         }
-    }
-    case .exception {
-        assert(false);
-    }
     }
     drop classes;
 }
@@ -1121,8 +1498,9 @@ test "instruction executes System.arraycopy native" {
     assert(vm.heap.set_element(src, 0, .int_value(7)));
     assert(vm.heap.set_element(src, 1, .int_value(8)));
     assert(vm.heap.set_element(src, 2, .int_value(9)));
-    var constant_pool: [:]Constant = [: 0] [];
+    var constant_pool: [:]Constant = [: 0][];
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 0),
@@ -1249,8 +1627,9 @@ test "instruction executes float and double raw bit natives" {
     ];
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    var constant_pool: [:]Constant = [: 0] [];
+    var constant_pool: [:]Constant = [: 0][];
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 0),
@@ -1318,6 +1697,7 @@ test "instruction executes new object allocation" {
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 1),
@@ -1327,10 +1707,10 @@ test "instruction executes new object allocation" {
 
     const execute_result = execute_next(&context, &vm);
     switch execute_result {
-    case .ok {}
-    case .err {
-        assert(false);
-    }
+        case .ok {}
+        case .err {
+            assert(false);
+        }
     }
     const reference = expect_ref(context.frame.pop());
     assert(vm.heap.has_object(reference));
@@ -1349,12 +1729,24 @@ test "instruction executes invokespecial constructor initialization" {
         .class_ref(1),
         .utf8("value"),
         .utf8("I"),
-        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
-        .field_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 3,
+            descriptor_index: 4
+        }),
+        .field_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 5
+        }),
         .utf8("<init>"),
         .utf8("(I)V"),
-        .name_and_type(ConstantNameAndType { name_index: 7, descriptor_index: 8 }),
-        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 9 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 7,
+            descriptor_index: 8
+        }),
+        .method_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 9
+        }),
     ];
     const caller_code: [9]u8 = [
         187, 0, 2, // new Example
@@ -1396,7 +1788,7 @@ test "instruction executes invokespecial constructor initialization" {
                     max_locals: 0,
                     code_len: 9,
                     exception_count: 0,
-        exception_handlers: [],
+                    exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -1412,7 +1804,7 @@ test "instruction executes invokespecial constructor initialization" {
                     max_locals: 2,
                     code_len: 6,
                     exception_count: 0,
-        exception_handlers: [],
+                    exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 1,
@@ -1436,21 +1828,21 @@ test "instruction executes invokespecial constructor initialization" {
     seed_test_vm(&vm, classes[..]);
     const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 3), constant_pool[..]);
     switch result {
-    case .return_value(value) {
-        if value is actual {
-            const reference = expect_ref(actual);
-            if vm.heap.get_field(reference, 0) is field_value {
-                assert_int_result(.return_value(field_value), 5);
+        case .return_value(value) {
+            if value is actual {
+                const reference = expect_ref(actual);
+                if vm.heap.get_field(reference, 0) is field_value {
+                    assert_int_result(.return_value(field_value), 5);
+                } else {
+                    assert(false);
+                }
             } else {
                 assert(false);
             }
-        } else {
+        }
+        case .exception {
             assert(false);
         }
-    }
-    case .exception {
-        assert(false);
-    }
     }
     drop classes;
 }
@@ -1464,8 +1856,14 @@ test "instruction executes invokevirtual override dispatch" {
         .class_ref(3),
         .utf8("value"),
         .utf8("()I"),
-        .name_and_type(ConstantNameAndType { name_index: 5, descriptor_index: 6 }),
-        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 7 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 5,
+            descriptor_index: 6
+        }),
+        .method_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 7
+        }),
     ];
     const caller_code: [7]u8 = [
         187, 0, 4, // new Child
@@ -1499,7 +1897,7 @@ test "instruction executes invokevirtual override dispatch" {
                     max_locals: 0,
                     code_len: 7,
                     exception_count: 0,
-        exception_handlers: [],
+                    exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -1515,7 +1913,7 @@ test "instruction executes invokevirtual override dispatch" {
                     max_locals: 1,
                     code_len: 2,
                     exception_count: 0,
-        exception_handlers: [],
+                    exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -1552,7 +1950,7 @@ test "instruction executes invokevirtual override dispatch" {
                     max_locals: 1,
                     code_len: 2,
                     exception_count: 0,
-        exception_handlers: [],
+                    exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -1588,8 +1986,14 @@ test "instruction executes invokeinterface implementation dispatch" {
         .class_ref(3),
         .utf8("value"),
         .utf8("()I"),
-        .name_and_type(ConstantNameAndType { name_index: 5, descriptor_index: 6 }),
-        .interface_method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 7 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 5,
+            descriptor_index: 6
+        }),
+        .interface_method_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 7
+        }),
     ];
     const caller_code: [9]u8 = [
         187, 0, 4, // new Impl
@@ -1620,7 +2024,7 @@ test "instruction executes invokeinterface implementation dispatch" {
                     max_locals: 1,
                     code_len: 0,
                     exception_count: 0,
-        exception_handlers: [],
+                    exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -1657,7 +2061,7 @@ test "instruction executes invokeinterface implementation dispatch" {
                     max_locals: 0,
                     code_len: 9,
                     exception_count: 0,
-        exception_handlers: [],
+                    exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -1673,7 +2077,7 @@ test "instruction executes invokeinterface implementation dispatch" {
                     max_locals: 1,
                     code_len: 2,
                     exception_count: 0,
-        exception_handlers: [],
+                    exception_handlers: [],
                     local_var_count: 0,
                     line_number_count: 0,
                     parameter_count: 0,
@@ -3044,9 +3448,10 @@ test "instruction executes reference load store and returns" {
 
 test "instruction executes athrow with existing exception reference" {
     const code: [1]u8 = [191];
-    var constant_pool: [:]Constant = [: 0] [];
+    var constant_pool: [:]Constant = [: 0][];
     var vm = new_vm();
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 1),
@@ -3062,10 +3467,10 @@ test "instruction executes athrow with existing exception reference" {
 
     const execute_result = execute_next(&context, &vm);
     switch execute_result {
-    case .ok {}
-    case .err {
-        assert(false);
-    }
+        case .ok {}
+        case .err {
+            assert(false);
+        }
     }
 
     if context.frame.result is result {
@@ -3084,7 +3489,7 @@ test "instruction dispatches local exception handler" {
         8, // iconst_5
         172, // ireturn
     ];
-    var constant_pool: [:]Constant = [: 0] [];
+    var constant_pool: [:]Constant = [: 0][];
     const handler = ExceptionHandler {
         start_pc: 0,
         end_pc: 2,
@@ -3172,8 +3577,14 @@ test "instruction dispatches propagated call exception handler" {
         .class_ref(1),
         .utf8("throwIt"),
         .utf8("(Ljava/lang/Throwable;)I"),
-        .name_and_type(ConstantNameAndType { name_index: 3, descriptor_index: 4 }),
-        .method_ref(ConstantMemberRef { class_index: 2, name_and_type_index: 5 }),
+        .name_and_type(ConstantNameAndType {
+            name_index: 3,
+            descriptor_index: 4
+        }),
+        .method_ref(ConstantMemberRef {
+            class_index: 2,
+            name_and_type_index: 5
+        }),
     ];
     const caller_code: [7]u8 = [
         42, // aload_0
@@ -3402,10 +3813,17 @@ test "instruction executes anewarray reference array creation" {
 
     const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
     assert_int_result(result, 2);
-    if vm.heap.get_element(Reference { kind: ReferenceKind.array, slot: 0, generation: 0 }, 0) is value {
+    if vm.heap.get_element(Reference {
+        kind: ReferenceKind.array,
+        slot: 0,
+        generation: 0
+    }, 0) is value {
         switch value {
-        case .ref_value(reference) { assert(reference.is_null()); }
-        else { assert(false); }
+            case .ref_value(reference) {
+                assert(reference.is_null());
+            } else {
+                assert(false);
+            }
         }
     } else {
         assert(false);
@@ -3663,7 +4081,7 @@ test "instruction executes monitorenter and monitorexit normal paths" {
 
     const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
     assert_int_result(result, 1);
-    assert(vm.heap.objects.len() == 1);
+    assert(vm.heap.object_count() == 1);
     drop classes;
 }
 
@@ -3724,17 +4142,22 @@ test "instruction executes multianewarray normal path" {
 
     const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
     assert_int_result(result, 2);
-    assert(vm.heap.arrays.len() == 3);
-    if vm.heap.get_element(Reference { kind: ReferenceKind.array, slot: 0, generation: 0 }, 0) is value {
+    assert(vm.heap.array_count() == 3);
+    if vm.heap.get_element(Reference {
+        kind: ReferenceKind.array,
+        slot: 0,
+        generation: 0
+    }, 0) is value {
         switch value {
-        case .ref_value(reference) {
-            if vm.heap.array_length(reference) is length {
-                assert(length == 3);
+            case .ref_value(reference) {
+                if vm.heap.array_length(reference) is length {
+                    assert(length == 3);
+                } else {
+                    assert(false);
+                }
             } else {
                 assert(false);
             }
-        }
-        else { assert(false); }
         }
     } else {
         assert(false);
@@ -3987,9 +4410,10 @@ test "instruction executes narrow array load store ops" {
 
 test "instruction executes reference array load store ops" {
     const store_code: [1]u8 = [83];
-    var constant_pool: [:]Constant = [: 0] [];
+    var constant_pool: [:]Constant = [: 0][];
     var vm = new_vm();
     var context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 3),
@@ -4003,10 +4427,10 @@ test "instruction executes reference array load store ops" {
     context.frame.push(.ref_value(null_ref));
     const store_result = execute_next(&context, &vm);
     switch store_result {
-    case .ok {}
-    case .err {
-        assert(false);
-    }
+        case .ok {}
+        case .err {
+            assert(false);
+        }
     }
 
     const load_code: [1]u8 = [50];
@@ -4018,10 +4442,10 @@ test "instruction executes reference array load store ops" {
     push_int(&context, 0);
     const load_result = execute_next(&context, &vm);
     switch load_result {
-    case .ok {}
-    case .err {
-        assert(false);
-    }
+        case .ok {}
+        case .err {
+            assert(false);
+        }
     }
 
     const loaded = expect_ref(context.frame.pop());

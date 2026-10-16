@@ -3,11 +3,29 @@ import { execute_next, find_class_index_by_constant, print_instruction_error_con
 import { class_matches } from .method_area;
 import { VM, new_vm } from .vm;
 import { Class, ExceptionHandler, InstructionError, Reference, Value } from .types;
+import { Runtime } from .runtime;
 import {
-    max_call_stack, ThreadStatus, FrameResult, Frame, new_frame,
-    Thread, new_thread, Context, execution_exit_code, print_execution_error,
-    handler_matches, dispatch_exception, apply_method_result, execute_method_frame_with_vm, execute_method_area_with_vm,
-    execute_classfile_method_area_with_vm, expect_ref_for_engine, assert_int_value
+    max_call_stack,
+    ThreadStatus,
+    FrameResult,
+    Frame,
+    new_frame,
+    Thread,
+    new_thread,
+    Context,
+    execution_exit_code,
+    print_execution_error,
+    handler_matches,
+    dispatch_exception,
+    apply_method_result,
+    execute_method_frame_with_context,
+    execute_method_frame_with_vm,
+    execute_method_frame_with_runtime,
+    execute_method_area_with_vm,
+    execute_method_area_with_runtime,
+    execute_classfile_method_area_with_vm,
+    expect_ref_for_engine,
+    assert_int_value
 } from .engine;
 
 test "frame manages locals operand stack and pc" {
@@ -35,16 +53,16 @@ test "frame manages locals operand stack and pc" {
     frame.return_value(return_value);
     if frame.result is result {
         switch result {
-        case .return_value(value) {
-            if value is actual {
-                assert_int_value(actual, 42);
-            } else {
+            case .return_value(value) {
+                if value is actual {
+                    assert_int_value(actual, 42);
+                } else {
+                    assert(false);
+                }
+            }
+            case .exception {
                 assert(false);
             }
-        }
-        case .exception {
-            assert(false);
-        }
         }
     } else {
         assert(false);
@@ -83,8 +101,15 @@ test "thread pushes and pops frames" {
 
 test "context reads big endian operands and padding" {
     const code: [12]u8 = [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66];
-    var constant_pool: [:]Constant = [: 0] [];
-    var context = Context { class_index: 0, method_index: 0, frame: new_frame(0, 0, 1, 4), code: code[..], constant_pool: constant_pool[..]};
+    var constant_pool: [:]Constant = [: 0][];
+    var context = Context {
+        runtime: none,
+        class_index: 0,
+        method_index: 0,
+        frame: new_frame(0, 0, 1, 4),
+        code: code[..],
+        constant_pool: constant_pool[..]
+    };
 
     assert(context.read_u1() == 49);
     assert(context.frame.offset == 2);
@@ -99,6 +124,7 @@ test "context reads big endian operands and padding" {
 
     const negative_code: [3]u8 = [0, 255, 243];
     var negative_context = Context {
+        runtime: none,
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 0),

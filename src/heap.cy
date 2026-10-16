@@ -1,6 +1,8 @@
 import { Class, Field, Method, Reference, ReferenceKind, Value, byte_buffer, class_access_flags, default_value, field_access_flags, null_ref } from .types;
-import { Mutex, SyncStatus } from std.sync;
+import std.sync;
+import { ConcurrentSlotMap, Mutex, SyncStatus } from std.sync;
 import { ThreadId, current_id } from std.thread;
+import { sleep_ms } from std.time;
 
 pub struct Object {
     pub class_index: usize;
@@ -39,13 +41,35 @@ pub struct Monitor {
     pub depth: u32;
 }
 
+pub struct JavaThreadState {
+    pub reference: Reference;
+    pub native_id: ?ThreadId;
+    pub started: bool;
+    pub alive: bool;
+    pub interrupted: bool;
+}
+
+struct IndexedSlotMapKey {
+    key: SlotMapKey;
+    index: usize;
+}
+
+struct IndexedValueUpdate {
+    key: SlotMapKey;
+    index: usize;
+    value: Value;
+}
+
 pub struct Heap {
-    pub objects: SlotMap<Object>;
-    pub arrays: SlotMap<ArrayObject>;
+    pub objects: ConcurrentSlotMap<Object>;
+    pub arrays: ConcurrentSlotMap<ArrayObject>;
     pub strings: List<InternedString>;
     pub method_types: List<InternedMethodType>;
     pub method_handles: List<InternedMethodHandle>;
     pub current_thread: ?Reference;
+    pub java_threads: List<JavaThreadState>;
+    pub java_threads_mutex: Mutex;
+    pub java_threads_active: bool;
     pub monitors: List<Monitor>;
     pub monitor_table_mutex: Mutex;
     pub monitor_table_active: bool;
@@ -59,11 +83,22 @@ pub struct Heap {
             const monitor = self.monitors.pop();
             const ignored_destroy = monitor.mutex.destroy();
         }
-        self.objects.clear();
-        self.arrays.clear();
+        const ignored_objects_clear = self.objects.with<i32>(0, fn (objects: &SlotMap<Object>, ignored: i32): void {
+            const unused = ignored;
+            objects.clear();
+        });
+        const ignored_arrays_clear = self.arrays.with<i32>(0, fn (arrays: &SlotMap<ArrayObject>, ignored: i32): void {
+            const unused = ignored;
+            arrays.clear();
+        });
         self.method_types.clear();
         self.method_handles.clear();
         self.current_thread = none;
+        self.java_threads.clear();
+        if self.java_threads_active {
+            const ignored_destroy_threads = self.java_threads_mutex.destroy();
+            self.java_threads_active = false;
+        }
         if self.monitor_table_active {
             const ignored_destroy = self.monitor_table_mutex.destroy();
             self.monitor_table_active = false;
@@ -81,30 +116,42 @@ pub struct Heap {
             index = index + 1;
         }
 
-        const key = self.objects.insert(Object {
+        switch self.objects.insert(Object {
             class_index: class_index,
             fields: fields,
-        });
-        return Reference {
-            kind: ReferenceKind.object,
-            slot: key.index,
-            generation: key.generation,
-        };
+        }) {
+            case .ok(key) {
+                return Reference {
+                    kind: ReferenceKind.object,
+                    slot: key.index,
+                    generation: key.generation,
+                };
+            }
+            case .err {
+                return null_ref;
+            }
+        }
     }
 
     pub fn allocate_object_with_hierarchy(self: &Heap, class_index: usize, classes: []Class): Reference {
         var fields: List<Value> = [];
         append_hierarchy_fields(&fields, class_index, classes);
 
-        const key = self.objects.insert(Object {
+        switch self.objects.insert(Object {
             class_index: class_index,
             fields: fields,
-        });
-        return Reference {
-            kind: ReferenceKind.object,
-            slot: key.index,
-            generation: key.generation,
-        };
+        }) {
+            case .ok(key) {
+                return Reference {
+                    kind: ReferenceKind.object,
+                    slot: key.index,
+                    generation: key.generation,
+                };
+            }
+            case .err {
+                return null_ref;
+            }
+        }
     }
 
     pub fn allocate_array(self: &Heap, class_index: usize, component_descriptor: []const u8, length: usize): Reference {
@@ -115,15 +162,21 @@ pub struct Heap {
             index = index + 1;
         }
 
-        const key = self.arrays.insert(ArrayObject {
+        switch self.arrays.insert(ArrayObject {
             class_index: class_index,
             elements: elements,
-        });
-        return Reference {
-            kind: ReferenceKind.array,
-            slot: key.index,
-            generation: key.generation,
-        };
+        }) {
+            case .ok(key) {
+                return Reference {
+                    kind: ReferenceKind.array,
+                    slot: key.index,
+                    generation: key.generation,
+                };
+            }
+            case .err {
+                return null_ref;
+            }
+        }
     }
 
     pub fn intern_string(self: &Heap, class_index: usize, class: &Class, value: []const u8): Reference {
@@ -192,7 +245,9 @@ pub struct Heap {
         var index: usize = 0;
         while index < self.strings.len() {
             if self.strings[index].reference.equals(reference) {
-                return InternedStringBytes { value: byte_buffer(self.strings[index].value[..]) };
+                return InternedStringBytes {
+                    value: byte_buffer(self.strings[index].value[..])
+                };
             }
             index = index + 1;
         }
@@ -275,9 +330,17 @@ pub struct Heap {
             return none;
         }
         if reference.slot is slot {
-            const key = SlotMapKey { index: slot, generation: reference.generation };
-            if self.objects.contains(key) {
-                return slot;
+            const key = SlotMapKey {
+                index: slot,
+                generation: reference.generation
+            };
+            switch self.objects.contains(key) {
+                case .ok(found) {
+                    if found {
+                        return slot;
+                    }
+                }
+                case .err {}
             }
         }
         return none;
@@ -287,11 +350,33 @@ pub struct Heap {
         return self.object_index(reference) != none;
     }
 
+    pub fn object_count(self: &Heap): usize {
+        switch self.objects.len() {
+            case .ok(count) {
+                return count;
+            }
+            case .err {
+                return 0;
+            }
+        }
+    }
+
     pub fn object_class_index(self: &Heap, reference: Reference): ?usize {
         if self.object_index(reference) is object_index {
-            const key = SlotMapKey { index: object_index, generation: reference.generation };
-            if &self.objects.slots[key.index] is object {
-                return object.class_index;
+            const key = SlotMapKey {
+                index: object_index,
+                generation: reference.generation
+            };
+            switch self.objects.with_result<SlotMapKey, ?usize>(key, fn (objects: &SlotMap<Object>, actual_key: SlotMapKey): ?usize {
+                if &objects.slots[actual_key.index] is object {
+                    return object.class_index;
+                }
+                return none;
+            }) {
+                case .ok(value) {
+                    return value;
+                }
+                case .err {}
             }
         }
         return none;
@@ -302,9 +387,17 @@ pub struct Heap {
             return none;
         }
         if reference.slot is slot {
-            const key = SlotMapKey { index: slot, generation: reference.generation };
-            if self.arrays.contains(key) {
-                return slot;
+            const key = SlotMapKey {
+                index: slot,
+                generation: reference.generation
+            };
+            switch self.arrays.contains(key) {
+                case .ok(found) {
+                    if found {
+                        return slot;
+                    }
+                }
+                case .err {}
             }
         }
         return none;
@@ -314,11 +407,33 @@ pub struct Heap {
         return self.array_index(reference) != none;
     }
 
+    pub fn array_count(self: &Heap): usize {
+        switch self.arrays.len() {
+            case .ok(count) {
+                return count;
+            }
+            case .err {
+                return 0;
+            }
+        }
+    }
+
     pub fn array_length(self: &Heap, reference: Reference): ?usize {
         if self.array_index(reference) is array_index_value {
-            const key = SlotMapKey { index: array_index_value, generation: reference.generation };
-            if &self.arrays.slots[key.index] is array {
-                return array.elements.len();
+            const key = SlotMapKey {
+                index: array_index_value,
+                generation: reference.generation
+            };
+            switch self.arrays.with_result<SlotMapKey, ?usize>(key, fn (arrays: &SlotMap<ArrayObject>, actual_key: SlotMapKey): ?usize {
+                if &arrays.slots[actual_key.index] is array {
+                    return array.elements.len();
+                }
+                return none;
+            }) {
+                case .ok(value) {
+                    return value;
+                }
+                case .err {}
             }
         }
         return none;
@@ -326,9 +441,20 @@ pub struct Heap {
 
     pub fn array_class_index(self: &Heap, reference: Reference): ?usize {
         if self.array_index(reference) is array_index_value {
-            const key = SlotMapKey { index: array_index_value, generation: reference.generation };
-            if &self.arrays.slots[key.index] is array {
-                return array.class_index;
+            const key = SlotMapKey {
+                index: array_index_value,
+                generation: reference.generation
+            };
+            switch self.arrays.with_result<SlotMapKey, ?usize>(key, fn (arrays: &SlotMap<ArrayObject>, actual_key: SlotMapKey): ?usize {
+                if &arrays.slots[actual_key.index] is array {
+                    return array.class_index;
+                }
+                return none;
+            }) {
+                case .ok(value) {
+                    return value;
+                }
+                case .err {}
             }
         }
         return none;
@@ -336,11 +462,25 @@ pub struct Heap {
 
     pub fn get_element(self: &Heap, reference: Reference, index: usize): ?Value {
         if self.array_index(reference) is array_index_value {
-            const key = SlotMapKey { index: array_index_value, generation: reference.generation };
-            if &self.arrays.slots[key.index] is array {
-                if index < array.elements.len() {
-                    return array.elements[index];
+            const lookup = IndexedSlotMapKey {
+                key: SlotMapKey {
+                    index: array_index_value,
+                    generation: reference.generation
+                },
+                index: index
+            };
+            switch self.arrays.with_result<IndexedSlotMapKey, ?Value>(lookup, fn (arrays: &SlotMap<ArrayObject>, actual: IndexedSlotMapKey): ?Value {
+                if &arrays.slots[actual.key.index] is array {
+                    if actual.index < array.elements.len() {
+                        return array.elements[actual.index];
+                    }
                 }
+                return none;
+            }) {
+                case .ok(value) {
+                    return value;
+                }
+                case .err {}
             }
         }
         return none;
@@ -348,15 +488,32 @@ pub struct Heap {
 
     pub fn set_element(self: &Heap, reference: Reference, index: usize, value: Value): bool {
         if self.array_index(reference) is array_index_value {
-            const key = SlotMapKey { index: array_index_value, generation: reference.generation };
-            if take self.arrays.slots[key.index] is taken_array {
-                var array = taken_array;
-                if index < array.elements.len() {
-                    array.elements[index] = value;
-                    self.arrays.slots.insert(key.index, array);
-                    return true;
+            const update = IndexedValueUpdate {
+                key: SlotMapKey {
+                    index: array_index_value,
+                    generation: reference.generation
+                },
+                index: index,
+                value: value
+            };
+            switch self.arrays.with_result<IndexedValueUpdate, bool>(update, fn (arrays: &SlotMap<ArrayObject>, actual: IndexedValueUpdate): bool {
+                if take arrays.slots[actual.key.index] is taken_array {
+                    var array = taken_array;
+                    if actual.index < array.elements.len() {
+                        array.elements[actual.index] = actual.value;
+                        arrays.slots.insert(actual.key.index, array);
+                        return true;
+                    }
+                    arrays.slots.insert(actual.key.index, array);
                 }
-                self.arrays.slots.insert(key.index, array);
+                return false;
+            }) {
+                case .ok(updated) {
+                    return updated;
+                }
+                case .err {
+                    return false;
+                }
             }
         }
         return false;
@@ -365,11 +522,25 @@ pub struct Heap {
     pub fn get_field(self: &Heap, reference: Reference, slot: u16): ?Value {
         if self.object_index(reference) is object_index {
             const actual_slot = slot as usize;
-            const key = SlotMapKey { index: object_index, generation: reference.generation };
-            if &self.objects.slots[key.index] is object {
-                if actual_slot < object.fields.len() {
-                    return object.fields[actual_slot];
+            const lookup = IndexedSlotMapKey {
+                key: SlotMapKey {
+                    index: object_index,
+                    generation: reference.generation
+                },
+                index: actual_slot
+            };
+            switch self.objects.with_result<IndexedSlotMapKey, ?Value>(lookup, fn (objects: &SlotMap<Object>, actual: IndexedSlotMapKey): ?Value {
+                if &objects.slots[actual.key.index] is object {
+                    if actual.index < object.fields.len() {
+                        return object.fields[actual.index];
+                    }
                 }
+                return none;
+            }) {
+                case .ok(value) {
+                    return value;
+                }
+                case .err {}
             }
         }
         return none;
@@ -378,39 +549,176 @@ pub struct Heap {
     pub fn set_field(self: &Heap, reference: Reference, slot: u16, value: Value): bool {
         if self.object_index(reference) is object_index {
             const actual_slot = slot as usize;
-            const key = SlotMapKey { index: object_index, generation: reference.generation };
-            if take self.objects.slots[key.index] is taken_object {
-                var object = taken_object;
-                if actual_slot < object.fields.len() {
-                    object.fields[actual_slot] = value;
-                    self.objects.slots.insert(key.index, object);
-                    return true;
+            const update = IndexedValueUpdate {
+                key: SlotMapKey {
+                    index: object_index,
+                    generation: reference.generation
+                },
+                index: actual_slot,
+                value: value
+            };
+            switch self.objects.with_result<IndexedValueUpdate, bool>(update, fn (objects: &SlotMap<Object>, actual: IndexedValueUpdate): bool {
+                if take objects.slots[actual.key.index] is taken_object {
+                    var object = taken_object;
+                    if actual.index < object.fields.len() {
+                        object.fields[actual.index] = actual.value;
+                        objects.slots.insert(actual.key.index, object);
+                        return true;
+                    }
+                    objects.slots.insert(actual.key.index, object);
                 }
-                self.objects.slots.insert(key.index, object);
+                return false;
+            }) {
+                case .ok(updated) {
+                    return updated;
+                }
+                case .err {
+                    return false;
+                }
             }
         }
         return false;
     }
 
     pub fn current_thread_ref(self: &Heap): ?Reference {
-        return self.current_thread;
+        const current = current_monitor_owner_id();
+        if !lock_ok(self.java_threads_mutex) {
+            return self.current_thread;
+        }
+        const index = self.java_thread_index_by_id(current);
+        var reference = self.current_thread;
+        if index is actual_index {
+            reference = self.java_threads[actual_index].reference;
+        }
+        if !unlock_ok(self.java_threads_mutex) {
+            return self.current_thread;
+        }
+        return reference;
     }
 
     pub fn set_current_thread(self: &Heap, reference: Reference): void {
         self.current_thread = reference;
+        const current = current_monitor_owner_id();
+        const ignored = self.register_current_java_thread(reference, current, true, true);
+    }
+
+    pub fn register_current_java_thread(self: &Heap, reference: Reference, native_id: ThreadId, started: bool, alive: bool): bool {
+        if !lock_ok(self.java_threads_mutex) {
+            return false;
+        }
+        if self.java_thread_index(reference) is existing_index {
+            var state = self.java_threads[existing_index];
+            state.native_id = native_id;
+            state.started = started;
+            state.alive = alive;
+            self.java_threads[existing_index] = state;
+            const ignored_unlock_existing = unlock_ok(self.java_threads_mutex);
+            return true;
+        }
+        self.java_threads.push(JavaThreadState {
+            reference: reference,
+            native_id: native_id,
+            started: started,
+            alive: alive,
+            interrupted: false,
+        });
+        const ignored_unlock_new = unlock_ok(self.java_threads_mutex);
+        return true;
+    }
+
+    pub fn mark_java_thread_started(self: &Heap, reference: Reference): bool {
+        if !lock_ok(self.java_threads_mutex) {
+            return false;
+        }
+        if self.java_thread_index(reference) is existing_index {
+            var state = self.java_threads[existing_index];
+            state.started = true;
+            state.alive = true;
+            self.java_threads[existing_index] = state;
+        } else {
+            self.java_threads.push(JavaThreadState {
+                reference: reference,
+                native_id: none,
+                started: true,
+                alive: true,
+                interrupted: false,
+            });
+        }
+        const ignored_unlock = unlock_ok(self.java_threads_mutex);
+        return true;
+    }
+
+    pub fn mark_java_thread_finished(self: &Heap, reference: Reference): bool {
+        if !lock_ok(self.java_threads_mutex) {
+            return false;
+        }
+        if self.java_thread_index(reference) is existing_index {
+            var state = self.java_threads[existing_index];
+            state.alive = false;
+            self.java_threads[existing_index] = state;
+        }
+        const ignored_unlock = unlock_ok(self.java_threads_mutex);
+        return true;
+    }
+
+    pub fn java_thread_alive(self: &Heap, reference: Reference): bool {
+        if !lock_ok(self.java_threads_mutex) {
+            return false;
+        }
+        const index = self.java_thread_index(reference);
+        var alive = false;
+        if index is actual_index {
+            alive = self.java_threads[actual_index].alive;
+        }
+        if !unlock_ok(self.java_threads_mutex) {
+            return false;
+        }
+        return alive;
+    }
+
+    pub fn java_thread_started(self: &Heap, reference: Reference): bool {
+        if !lock_ok(self.java_threads_mutex) {
+            return false;
+        }
+        const index = self.java_thread_index(reference);
+        var started = false;
+        if index is actual_index {
+            started = self.java_threads[actual_index].started;
+        }
+        if !unlock_ok(self.java_threads_mutex) {
+            return false;
+        }
+        return started;
     }
 
     pub fn monitor_enter(self: &Heap, reference: Reference): bool {
+        var acquired = false;
+        while !acquired {
+            if self.monitor_try_enter(reference) is actual {
+                acquired = actual;
+            } else {
+                return false;
+            }
+            if !acquired {
+                switch sleep_ms(1) {
+                    case .ok {}
+                    case .err {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    pub fn monitor_try_enter(self: &Heap, reference: Reference): ?bool {
         if reference.is_null() {
-            return false;
+            return none;
         }
         if !lock_ok(self.monitor_table_mutex) {
-            return false;
+            return none;
         }
         const monitor_index = self.monitor_index_or_create(reference);
-        if !unlock_ok(self.monitor_table_mutex) {
-            return false;
-        }
         if monitor_index is actual_index {
             const current = current_monitor_owner_id();
             var monitor = self.monitors[actual_index];
@@ -418,19 +726,27 @@ pub struct Heap {
                 if owner.equals(current) {
                     monitor.depth = monitor.depth + 1;
                     self.monitors[actual_index] = monitor;
+                    const ignored_unlock_reentrant = unlock_ok(self.monitor_table_mutex);
                     return true;
                 }
             }
             const mutex = monitor.mutex;
-            if !lock_ok(mutex) {
-                return false;
+            const status = mutex.try_lock();
+            if status != SyncStatus.ok {
+                const ignored_unlock_busy = unlock_ok(self.monitor_table_mutex);
+                if status == SyncStatus.busy {
+                    return false;
+                }
+                return none;
             }
             monitor.owner = current;
             monitor.depth = 1;
             self.monitors[actual_index] = monitor;
+            const ignored_unlock_acquired = unlock_ok(self.monitor_table_mutex);
             return true;
         }
-        return false;
+        const ignored_unlock_missing = unlock_ok(self.monitor_table_mutex);
+        return none;
     }
 
     pub fn monitor_exit(self: &Heap, reference: Reference): bool {
@@ -514,6 +830,30 @@ pub struct Heap {
         });
         return self.monitors.len() - 1;
     }
+
+    fn java_thread_index(self: &Heap, reference: Reference): ?usize {
+        var index: usize = 0;
+        while index < self.java_threads.len() {
+            if self.java_threads[index].reference.equals(reference) {
+                return index;
+            }
+            index = index + 1;
+        }
+        return none;
+    }
+
+    fn java_thread_index_by_id(self: &Heap, native_id: ThreadId): ?usize {
+        var index: usize = 0;
+        while index < self.java_threads.len() {
+            if self.java_threads[index].native_id is actual_id {
+                if actual_id.equals(native_id) {
+                    return index;
+                }
+            }
+            index = index + 1;
+        }
+        return none;
+    }
 }
 
 fn lock_ok(mutex: Mutex): bool {
@@ -562,12 +902,15 @@ fn append_hierarchy_fields(fields: &List<Value>, class_index: usize, classes: []
 
 pub fn new_heap(): Heap {
     return Heap {
-        objects: [],
-        arrays: [],
+        objects: sync.concurrent_slot_map<Object>(),
+        arrays: sync.concurrent_slot_map<ArrayObject>(),
         strings: [],
         method_types: [],
         method_handles: [],
         current_thread: none,
+        java_threads: list<JavaThreadState>(),
+        java_threads_mutex: Mutex.init(),
+        java_threads_active: true,
         monitors: [],
         monitor_table_mutex: Mutex.init(),
         monitor_table_active: true,
@@ -576,15 +919,35 @@ pub fn new_heap(): Heap {
 
 fn assert_int_value(value: Value, expected: i32): void {
     switch value {
-    case .int_value(actual) { assert(actual == expected); }
-    case .byte_value { assert(false); }
-    case .short_value { assert(false); }
-    case .char_value { assert(false); }
-    case .long_value { assert(false); }
-    case .float_value { assert(false); }
-    case .double_value { assert(false); }
-    case .boolean_value { assert(false); }
-    case .return_address_value { assert(false); }
-    case .ref_value { assert(false); }
+        case .int_value(actual) {
+            assert(actual == expected);
+        }
+        case .byte_value {
+            assert(false);
+        }
+        case .short_value {
+            assert(false);
+        }
+        case .char_value {
+            assert(false);
+        }
+        case .long_value {
+            assert(false);
+        }
+        case .float_value {
+            assert(false);
+        }
+        case .double_value {
+            assert(false);
+        }
+        case .boolean_value {
+            assert(false);
+        }
+        case .return_address_value {
+            assert(false);
+        }
+        case .ref_value {
+            assert(false);
+        }
     }
 }
