@@ -53,11 +53,11 @@ pub struct Frame {
     }
 
     pub fn load(self: &Frame, index: u16): Value {
-        return self.local_vars[index as usize];
+        return self.local_vars[index];
     }
 
     pub fn store(self: &Frame, index: u16, value: Value): void {
-        self.local_vars[index as usize] = value;
+        self.local_vars[index] = value;
     }
 
     pub fn next(self: &Frame, offset: i32): void {
@@ -353,7 +353,7 @@ fn execute_method_frame_body(runtime: ?Runtime, vm: &VM, class_index: usize, met
     if class.name == "java/text/DecimalFormatSymbols" and method.name == "getInstance" {
         const reference = vm.heap.allocate_object_with_hierarchy(class_index, class_view);
         if class.field_index("zeroDigit", "C", false) is field_index {
-            const field = &class.fields[field_index as usize];
+            const field = &class.fields[field_index];
             const ignored_set = vm.heap.set_field(reference, field.slot, .char_value(48));
         }
         frame.clear_all();

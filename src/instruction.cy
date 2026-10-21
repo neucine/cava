@@ -337,7 +337,7 @@ pub fn find_field_by_name_in_hierarchy(context: &Context, vm: &VM, class_index: 
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         if class.field_index(name, descriptor, is_static) is field_index {
-            return .ok(class.fields[field_index as usize]);
+            return .ok(class.fields[field_index]);
         }
         if class.super_class == "" {
             return .err(InstructionError.invalid_constant);
@@ -3028,12 +3028,12 @@ fn initialize_system_static_fields(context: &Context, vm: &VM, system_index: usi
     if out_field_index is field_index_value {
         var fields = classes[system_index].fields[..];
         const field = &fields[field_index_value as usize];
-        classes[system_index].static_vars[field.slot as usize] = .ref_value(reference);
+        classes[system_index].static_vars[field.slot] = .ref_value(reference);
     }
     if err_field_index is field_index_value {
         var fields = classes[system_index].fields[..];
         const field = &fields[field_index_value as usize];
-        classes[system_index].static_vars[field.slot as usize] = .ref_value(reference);
+        classes[system_index].static_vars[field.slot] = .ref_value(reference);
     }
     return .ok();
 }
@@ -3044,7 +3044,7 @@ fn initialize_vm_static_fields(context: &Context, vm: &VM, vm_index: usize): res
     if vm_class.field_index("savedProps", "Ljava/util/Properties;", true) is field_index_value {
         var fields = vm_class.fields[..];
         const field = &fields[field_index_value as usize];
-        switch vm_class.static_vars[field.slot as usize] {
+        switch vm_class.static_vars[field.slot] {
             case .ref_value(props_reference) {
                 if props_reference.is_null() {
                     return .ok();

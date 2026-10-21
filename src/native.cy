@@ -136,7 +136,7 @@ fn set_system_static_ref(context: &Context, vm: &VM, name: string, descriptor: s
             if class.field_index(name, descriptor, true) is field_index_value {
                 var fields = class.fields[..];
                 const field = &fields[field_index_value as usize];
-                class.static_vars[field.slot as usize] = .ref_value(reference);
+                class.static_vars[field.slot] = .ref_value(reference);
                 return .ok();
             }
             return .err(InstructionError.invalid_constant);

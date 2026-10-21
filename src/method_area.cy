@@ -598,7 +598,7 @@ pub struct MethodArea {
             switch self.classes[class_index].constant_pool[constant_index] {
                 case .class_ref(name_index) {
                     if (name_index as usize) < self.classes[class_index].constant_pool.len() {
-                        switch self.classes[class_index].constant_pool[name_index as usize] {
+                        switch self.classes[class_index].constant_pool[name_index] {
                             case .utf8(name) {
                                 const name_bytes = name.bytes();
                                 if name_bytes.len() > 0 {
@@ -645,7 +645,7 @@ pub struct MethodArea {
             switch self.classes[class_index].constant_pool[constant_index] {
                 case .class_ref(name_index) {
                     if (name_index as usize) < self.classes[class_index].constant_pool.len() {
-                        switch self.classes[class_index].constant_pool[name_index as usize] {
+                        switch self.classes[class_index].constant_pool[name_index] {
                             case .utf8(name) {
                                 const name_bytes = name.bytes();
                                 if name_bytes.len() > 0 {
@@ -1188,7 +1188,7 @@ fn derive_interfaces_into(classfile: &ClassFile, interfaces: &List<string>): res
                 if name_index as usize >= classfile.constant_pool.len() {
                     return .err(ClassfileError.invalid_constant_index);
                 }
-                switch classfile.constant_pool[name_index as usize] {
+                switch classfile.constant_pool[name_index] {
                     case .utf8(name) {
                         var interface_name = string.from(name.bytes());
                         interfaces.push(interface_name);

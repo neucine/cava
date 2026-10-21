@@ -78,7 +78,7 @@ pub struct VM {
         const string_class_index = try self.resolve_class_index("java/lang/String");
         var classes = self.method_area.classes[..];
         if classes[string_class_index].field_index("value", "[C", false) is value_field_index {
-            const slot = classes[string_class_index].fields[value_field_index as usize].slot;
+            const slot = classes[string_class_index].fields[value_field_index].slot;
             if self.heap.get_field(reference, slot) is value {
                 switch value {
                     case .ref_value(chars_reference) {
@@ -150,14 +150,14 @@ pub struct VM {
             var fields = system_class.fields[..];
             const field = &fields[field_index_value as usize];
             if field.is_static() {
-                system_class.static_vars[field.slot as usize] = .ref_value(reference);
+                system_class.static_vars[field.slot] = .ref_value(reference);
             }
         }
         if self.method_area.field_index(system_index, "err", "Ljava/io/PrintStream;") is field_index_value {
             var fields = system_class.fields[..];
             const field = &fields[field_index_value as usize];
             if field.is_static() {
-                system_class.static_vars[field.slot as usize] = .ref_value(reference);
+                system_class.static_vars[field.slot] = .ref_value(reference);
             }
         }
         self.initialize_system_props(system_index);
@@ -190,7 +190,7 @@ pub struct VM {
                     const table = self.heap.allocate_array(0, "Ljava/util/Hashtable$Entry;".bytes(), 11);
                     const ignored = self.heap.set_field(props, table_field.slot, .ref_value(table));
                 }
-                system_class.static_vars[props_field.slot as usize] = .ref_value(props);
+                system_class.static_vars[props_field.slot] = .ref_value(props);
             }
         }
     }

@@ -570,7 +570,7 @@ pub struct ClassFile {
             return .err(ClassfileError.invalid_constant_index);
         }
 
-        switch self.constant_pool[index as usize] {
+        switch self.constant_pool[index] {
             case .utf8(value) {
                 return .ok(string.from(value.bytes()));
             } else {
@@ -584,7 +584,7 @@ pub struct ClassFile {
             return .err(ClassfileError.invalid_constant_index);
         }
 
-        switch self.constant_pool[index as usize] {
+        switch self.constant_pool[index] {
             case .class_ref(name_index) {
                 return self.utf8(name_index);
             } else {
@@ -598,7 +598,7 @@ pub struct ClassFile {
             return .err(ClassfileError.invalid_constant_index);
         }
 
-        switch self.constant_pool[index as usize] {
+        switch self.constant_pool[index] {
             case .name_and_type(pair) {
                 return .ok(ResolvedNameAndType {
                     name: try self.utf8(pair.name_index),
@@ -620,7 +620,7 @@ pub struct ClassFile {
             name_and_type_index: 0,
         };
 
-        switch self.constant_pool[index as usize] {
+        switch self.constant_pool[index] {
             case .field_ref(member) {
                 raw = member;
             }
@@ -642,7 +642,7 @@ pub struct ClassFile {
             name_index: 0,
             descriptor_index: 0,
         };
-        switch self.constant_pool[raw.name_and_type_index as usize] {
+        switch self.constant_pool[raw.name_and_type_index] {
             case .name_and_type(actual) {
                 pair = actual;
             } else {
