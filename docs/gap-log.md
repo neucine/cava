@@ -73,13 +73,13 @@ fn load(heap: &Heap, reference: Reference, index: i32): i32 {
 
 Expected capability: Cava should allocate the correct Java exception object and return `FrameResult.exception`, then later route it through method exception handlers.
 
-Current blocker: Cava has a heap and `FrameResult.exception`, but not Java exception object construction or handler search in the interpreter loop.
+Current blocker: Cava now searches local exception handlers and propagates existing exception references through calls, but array failure paths still use `assert(false)` because they do not construct the required Java exception objects.
 
 Classification: Cava Runtime Gap.
 
-Decision: Implement normal paths for primitive int array creation, load, store, length, and non-null `athrow` now. Keep exceptional paths that require constructing a Java exception object explicit with `assert(false)` until Java exception dispatch exists.
+Decision: Normal array paths and exception handler dispatch are implemented. Keep exceptional array paths that require constructing a Java exception object explicit with `assert(false)` until Java exception allocation is implemented.
 
-Status: Open.
+Status: Partially implemented (handler dispatch works; array exception construction remains open).
 
 ## 2026-06-30: JVM Floating-Point NaN and Saturating Conversion Semantics
 
@@ -99,13 +99,13 @@ fn convert(value: f64): i32 {
 
 Expected capability: Cava needs either runtime helpers for JVM float remainder/comparison/conversion or Cyna primitives that expose fmod-style remainder, unordered/NaN checks, and unchecked/saturating float casts.
 
-Current blocker: Cyna `%` only accepts integer operands, Cyna lowers float comparisons to ordered LLVM predicates, and checked float casts enforce finite/in-range exact conversion. That is good Cyna semantics, but it cannot directly express JVM bytecode edge behavior.
+Current blocker: Cava now implements the NaN-sensitive compare opcodes and float conversions, including explicit NaN and saturation checks for float-to-integer conversion. `frem` and `drem` remain unsupported; Cyna `%` only accepts integer operands. Edge-case test coverage for the conversion helpers remains limited.
 
 Classification: Cava Runtime Gap with possible Cyna runtime/helper support.
 
-Decision: Implement `i2f`, `i2d`, `l2f`, and `l2d` now because mixed integer/float arithmetic lowers to raw integer-to-float conversion. Keep `frem`, `drem`, the NaN-sensitive compare opcodes, and float-to-int/float-to-float opcodes unsupported until Cava has explicit JVM helpers.
+Decision: Cava has implemented integer-to-float, float-to-float, float-to-integer, and NaN-sensitive compare opcodes. Keep `frem` and `drem` unsupported until Cava has an explicit JVM remainder helper; verify conversion edge cases with focused tests.
 
-Status: Open.
+Status: Partially implemented (`frem` and `drem` remain open; conversion edge cases need tests).
 
 ## 2026-06-30: JVM ArithmeticException Construction for Integer Div/Rem
 
@@ -127,13 +127,13 @@ fn div(value: i32, divisor: i32): i32 {
 
 Expected capability: Cava needs method-area lookup plus heap construction for `java/lang/ArithmeticException`, then instruction execution should set `FrameResult.exception` instead of asserting or trapping.
 
-Current blocker: Cava has `Frame.throw_exception` and a `FrameResult.exception` carrier, but the interpreter does not yet allocate Java exception objects or search exception handlers.
+Current blocker: The interpreter now searches exception handlers and propagates existing exception references, but zero-divisor paths still use `assert(false)` because Cava does not construct `java/lang/ArithmeticException` objects there.
 
 Classification: Cava Runtime Gap.
 
-Decision: Implement the non-zero normal paths for `idiv`, `ldiv`, `irem`, and `lrem` now. Keep zero-divisor behavior explicit with `assert(false)` until Java exception allocation/handler dispatch exists.
+Decision: The non-zero paths and exception handler dispatch are implemented. Keep zero-divisor behavior explicit with `assert(false)` until Java exception allocation is implemented.
 
-Status: Open.
+Status: Partially implemented (handler dispatch works; zero-divisor exception construction remains open).
 
 ## 2026-06-29: Dynamic Filesystem Path String Leaks Through std.fs
 
