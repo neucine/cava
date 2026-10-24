@@ -2,7 +2,11 @@
 
 Cava is a Cyna language exercise. Finding gaps is a successful outcome.
 
-When the port encounters a Cyna limitation, pause and document it before adding a workaround.
+When the port encounters a Cyna limitation, pause and document it in the Cyna
+repository's `docs/LANGUAGE_GAPS.md` before adding a workaround. Do not create
+or append to a Cava-local Cyna gap log. The existing `docs/gap-log.md` is
+historical evidence only; Cava-specific JVM implementation work belongs in
+the porting plan or ordinary project tasks.
 
 ## Gap Categories
 
@@ -64,7 +68,7 @@ Examples:
 
 ## Required Gap Report
 
-Each gap should be recorded in `docs/gap-log.md` with:
+Record each Cyna gap in the Cyna repository's `docs/LANGUAGE_GAPS.md` with:
 
 - Date.
 - Module being ported.
@@ -75,12 +79,10 @@ Each gap should be recorded in `docs/gap-log.md` with:
 - Classification.
 - Decision.
 
-If the reproduction shows a reusable Cyna language, compiler, standard-library,
-or toolchain gap, also add or update its entry in Cyna's
-`docs/LANGUAGE_GAPS.md`. Keep the Cava report's affected Zava behavior and
-workaround here. Mark a fix as available to Cava only after checking the
-compiler version actually used by this project; a fix in a newer Cyna checkout
-does not by itself remove a local workaround.
+Include the affected Cava module, compiler revision, and any temporary
+workaround in that central entry. Mark a fix as available to Cava only after
+checking the compiler version actually used by this project; a fix in a newer
+Cyna checkout does not by itself remove a local workaround.
 
 ## Workaround Rule
 

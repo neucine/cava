@@ -47,14 +47,14 @@ If Zig Zava supports it, Cava should support it.
 
 If Zig Zava panics, leaves it TODO, or does not support it, Cava may do the same until parity is reached.
 
-If Cyna has a language, runtime, library, or tooling limitation that prevents a clean port, stop at the smallest reproducible case and document it in `docs/gap-log.md`.
+If Cyna has a language, runtime, library, or tooling limitation that prevents a clean port, stop at the smallest reproducible case and record it in Cyna's `docs/LANGUAGE_GAPS.md`. Do not create a Cava-local Cyna gap log.
 
 ## Documentation
 
 - [Scope](docs/scope.md)
 - [Porting Plan](docs/porting-plan.md)
 - [Cyna Gap Policy](docs/cyna-gap-policy.md)
-- [Gap Log](docs/gap-log.md)
+- [Historical Porting Findings](docs/gap-log.md) (closed to new Cyna entries)
 
 ## Testing
 

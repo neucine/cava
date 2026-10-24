@@ -44,7 +44,7 @@ During the parity phase:
   aligned unless Cyna cannot express it.
 - Every Cava behavior change should be traceable to one of:
   - a direct port of a Zava module/function;
-  - an explicitly documented Cyna gap in `docs/gap-log.md`;
+  - an explicitly documented Cyna gap in Cyna's `docs/LANGUAGE_GAPS.md`;
   - an intentionally temporary milestone shim, marked as such near the code.
 - Keep data structures close to Zava unless Cyna exposes a language gap.
 - Keep unsupported operations unsupported.
