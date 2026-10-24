@@ -75,6 +75,13 @@ Each gap should be recorded in `docs/gap-log.md` with:
 - Classification.
 - Decision.
 
+If the reproduction shows a reusable Cyna language, compiler, standard-library,
+or toolchain gap, also add or update its entry in Cyna's
+`docs/LANGUAGE_GAPS.md`. Keep the Cava report's affected Zava behavior and
+workaround here. Mark a fix as available to Cava only after checking the
+compiler version actually used by this project; a fix in a newer Cyna checkout
+does not by itself remove a local workaround.
+
 ## Workaround Rule
 
 Do not add a workaround until the gap is recorded.
