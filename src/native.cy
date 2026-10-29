@@ -449,12 +449,8 @@ fn java_string_bytes(context: &Context, vm: &VM, reference: Reference): [:]u8 ! 
                 while index < length {
                     if vm.heap.get_element(chars_reference, index) is element {
                         switch element {
-                            .char_value(ch) => {
-                                bytes.push(ch as u8);
-                            }
-                            .byte_value(ch) => {
-                                bytes.push(ch as u8);
-                            }
+                            .char_value(ch) => bytes.push(ch as u8);
+                            .byte_value(ch) => bytes.push(ch as u8);
                             _ => {
                                 drop bytes;
                                 throw InstructionError.invalid_constant;

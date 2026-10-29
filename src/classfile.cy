@@ -495,62 +495,27 @@ pub struct ClassFile {
         var out: List<Constant> = [];
         var index: usize = 0;
         while index < self.constant_pool.len() {
-            switch self.constant_pool[index] {
-                .unusable(value) => {
-                    out.push(.unusable(value));
-                }
-                .utf8(value) => {
-                    out.push(.utf8(value.clone()));
-                }
-                .integer(value) => {
-                    out.push(.integer(value));
-                }
-                .float(value) => {
-                    out.push(.float(value));
-                }
-                .long(value) => {
-                    out.push(.long(value));
-                }
-                .double(value) => {
-                    out.push(.double(value));
-                }
-                .class_ref(value) => {
-                    out.push(.class_ref(value));
-                }
-                .string_ref(value) => {
-                    out.push(.string_ref(value));
-                }
-                .field_ref(value) => {
-                    out.push(.field_ref(value));
-                }
-                .method_ref(value) => {
-                    out.push(.method_ref(value));
-                }
-                .interface_method_ref(value) => {
-                    out.push(.interface_method_ref(value));
-                }
-                .name_and_type(value) => {
-                    out.push(.name_and_type(value));
-                }
-                .method_handle(value) => {
-                    out.push(.method_handle(value));
-                }
-                .method_type(value) => {
-                    out.push(.method_type(value));
-                }
-                .dynamic(value) => {
-                    out.push(.dynamic(value));
-                }
-                .invoke_dynamic(value) => {
-                    out.push(.invoke_dynamic(value));
-                }
-                .module_ref(value) => {
-                    out.push(.module_ref(value));
-                }
-                .package_ref(value) => {
-                    out.push(.package_ref(value));
-                }
-            }
+            const cloned: Constant = switch self.constant_pool[index] {
+                .unusable(value) => .unusable(value);
+                .utf8(value) => .utf8(value.clone());
+                .integer(value) => .integer(value);
+                .float(value) => .float(value);
+                .long(value) => .long(value);
+                .double(value) => .double(value);
+                .class_ref(value) => .class_ref(value);
+                .string_ref(value) => .string_ref(value);
+                .field_ref(value) => .field_ref(value);
+                .method_ref(value) => .method_ref(value);
+                .interface_method_ref(value) => .interface_method_ref(value);
+                .name_and_type(value) => .name_and_type(value);
+                .method_handle(value) => .method_handle(value);
+                .method_type(value) => .method_type(value);
+                .dynamic(value) => .dynamic(value);
+                .invoke_dynamic(value) => .invoke_dynamic(value);
+                .module_ref(value) => .module_ref(value);
+                .package_ref(value) => .package_ref(value);
+            };
+            out.push(cloned);
             index = index + 1;
         }
         return out;

@@ -706,12 +706,8 @@ fn load_ref(context: &Context, index: u16): void {
 fn store_ref_like(context: &Context, index: u16): void {
     const value = context.frame.pop();
     switch value {
-        .ref_value(reference) => {
-            context.frame.store(index, .ref_value(reference));
-        }
-        .return_address_value(address) => {
-            context.frame.store(index, .return_address_value(address));
-        }
+        .ref_value(reference) => context.frame.store(index, .ref_value(reference));
+        .return_address_value(address) => context.frame.store(index, .return_address_value(address));
         _ => unreachable;
     }
 }
@@ -1251,12 +1247,8 @@ fn aaload(context: &Context, vm: &VM): void ! InstructionError {
 fn baload(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_array_load(context, vm);
     switch value {
-        .byte_value(actual) => {
-            push_int(context, actual as i32);
-        }
-        .boolean_value(actual) => {
-            push_int(context, actual as i32);
-        }
+        .byte_value(actual) => push_int(context, actual as i32);
+        .boolean_value(actual) => push_int(context, actual as i32);
         _ => unreachable;
     }
     return;
@@ -1265,9 +1257,7 @@ fn baload(context: &Context, vm: &VM): void ! InstructionError {
 fn caload(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_array_load(context, vm);
     switch value {
-        .char_value(actual) => {
-            push_int(context, actual as i32);
-        }
+        .char_value(actual) => push_int(context, actual as i32);
         _ => unreachable;
     }
     return;
@@ -1276,9 +1266,7 @@ fn caload(context: &Context, vm: &VM): void ! InstructionError {
 fn saload(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_array_load(context, vm);
     switch value {
-        .short_value(actual) => {
-            push_int(context, actual as i32);
-        }
+        .short_value(actual) => push_int(context, actual as i32);
         _ => unreachable;
     }
     return;
@@ -2391,12 +2379,8 @@ fn java_string_bytes_instruction(context: &Context, vm: &VM, reference: Referenc
                 while index < length {
                     if vm.heap.get_element(chars_reference, index) is element {
                         switch element {
-                            .char_value(ch) => {
-                                bytes.push(ch as u8);
-                            }
-                            .byte_value(ch) => {
-                                bytes.push(ch as u8);
-                            }
+                            .char_value(ch) => bytes.push(ch as u8);
+                            .byte_value(ch) => bytes.push(ch as u8);
                             _ => throw InstructionError.invalid_constant;
                         }
                     } else {
@@ -3188,62 +3172,28 @@ fn arraylength(context: &Context, vm: &VM): void ! InstructionError {
 fn wide(context: &Context): void ! InstructionError {
     const modified_opcode = context.read_u1();
     const index = context.read_u2();
-    var handled = false;
     var advance = true;
-
-    if modified_opcode == 21 {
-        load_int(context, index);
-        handled = true;
-    }
-    if modified_opcode == 22 {
-        load_long(context, index);
-        handled = true;
-    }
-    if modified_opcode == 23 {
-        load_float(context, index);
-        handled = true;
-    }
-    if modified_opcode == 24 {
-        load_double(context, index);
-        handled = true;
-    }
-    if modified_opcode == 25 {
-        load_ref(context, index);
-        handled = true;
-    }
-    if modified_opcode == 54 {
-        store_int(context, index);
-        handled = true;
-    }
-    if modified_opcode == 55 {
-        store_long(context, index);
-        handled = true;
-    }
-    if modified_opcode == 56 {
-        store_float(context, index);
-        handled = true;
-    }
-    if modified_opcode == 57 {
-        store_double(context, index);
-        handled = true;
-    }
-    if modified_opcode == 58 {
-        store_ref_like(context, index);
-        handled = true;
-    }
-    if modified_opcode == 132 {
-        const increment = context.read_i2() as i32;
-        const value = expect_int(context.frame.load(index));
-        context.frame.store(index, .int_value(value +% increment));
-        handled = true;
-    }
-    if modified_opcode == 169 {
-        context.frame.pc = expect_return_address(context.frame.load(index));
-        handled = true;
-        advance = false;
-    }
-    if !handled {
-        assert(false);
+    switch modified_opcode {
+        21 => load_int(context, index);
+        22 => load_long(context, index);
+        23 => load_float(context, index);
+        24 => load_double(context, index);
+        25 => load_ref(context, index);
+        54 => store_int(context, index);
+        55 => store_long(context, index);
+        56 => store_float(context, index);
+        57 => store_double(context, index);
+        58 => store_ref_like(context, index);
+        132 => {
+            const increment = context.read_i2() as i32;
+            const value = expect_int(context.frame.load(index));
+            context.frame.store(index, .int_value(value +% increment));
+        }
+        169 => {
+            context.frame.pc = expect_return_address(context.frame.load(index));
+            advance = false;
+        }
+        _ => unreachable;
     }
 
     if advance {
@@ -5137,88 +5087,62 @@ pub fn execute_array_next(context: &Context, class_name: string, method_name: st
             assert(index >= 0 and reference.non_null());
             if opcode <= 53 {
                 if runtime.arrays.get(reference, index as usize) is loaded {
-                    if opcode == 46 {
-                        push_int(context, expect_int(loaded));
-                    }
-                    if opcode == 47 {
-                        context.frame.push(.long_value(expect_long(loaded)));
-                    }
-                    if opcode == 48 {
-                        context.frame.push(.float_value(expect_float(loaded)));
-                    }
-                    if opcode == 49 {
-                        context.frame.push(.double_value(expect_double(loaded)));
-                    }
-                    if opcode == 50 {
-                        context.frame.push(.ref_value(expect_ref(loaded)));
-                    }
-                    if opcode == 51 {
-                        switch loaded {
-                            .byte_value(value) => {
-                                push_int(context, value as i32);
+                    switch opcode {
+                        46 => push_int(context, expect_int(loaded));
+                        47 => context.frame.push(.long_value(expect_long(loaded)));
+                        48 => context.frame.push(.float_value(expect_float(loaded)));
+                        49 => context.frame.push(.double_value(expect_double(loaded)));
+                        50 => context.frame.push(.ref_value(expect_ref(loaded)));
+                        51 => {
+                            switch loaded {
+                                .byte_value(value) => push_int(context, value as i32);
+                                .boolean_value(value) => push_int(context, value as i32);
+                                _ => unreachable;
                             }
-                            .boolean_value(value) => {
-                                push_int(context, value as i32);
-                            }
-                            _ => unreachable;
                         }
-                    }
-                    if opcode == 52 {
-                        switch loaded {
-                            .char_value(value) => {
-                                push_int(context, value as i32);
+                        52 => {
+                            switch loaded {
+                                .char_value(value) => push_int(context, value as i32);
+                                _ => unreachable;
                             }
-                            _ => unreachable;
                         }
-                    }
-                    if opcode == 53 {
-                        switch loaded {
-                            .short_value(value) => {
-                                push_int(context, value as i32);
+                        53 => {
+                            switch loaded {
+                                .short_value(value) => push_int(context, value as i32);
+                                _ => unreachable;
                             }
-                            _ => unreachable;
                         }
+                        _ => unreachable;
                     }
                 } else {
                     assert(false);
                 }
             } else {
-                if opcode == 79 {
-                    value = .int_value(expect_int(value));
-                }
-                if opcode == 80 {
-                    value = .long_value(expect_long(value));
-                }
-                if opcode == 81 {
-                    value = .float_value(expect_float(value));
-                }
-                if opcode == 82 {
-                    value = .double_value(expect_double(value));
-                }
-                if opcode == 83 {
-                    value = .ref_value(expect_ref(value));
-                }
-                if opcode == 84 {
-                    const raw = expect_int(value);
-                    if runtime.arrays.get(reference, index as usize) is current {
-                        switch current {
-                            .boolean_value => {
-                                value = .boolean_value((raw & 1) as u8);
+                switch opcode {
+                    79 => { value = .int_value(expect_int(value)); }
+                    80 => { value = .long_value(expect_long(value)); }
+                    81 => { value = .float_value(expect_float(value)); }
+                    82 => { value = .double_value(expect_double(value)); }
+                    83 => { value = .ref_value(expect_ref(value)); }
+                    84 => {
+                        const raw = expect_int(value);
+                        if runtime.arrays.get(reference, index as usize) is current {
+                            switch current {
+                                .boolean_value => {
+                                    value = .boolean_value((raw & 1) as u8);
+                                }
+                                .byte_value => {
+                                    value = .byte_value(((raw & 255) as u8) as! i8);
+                                }
+                                _ => unreachable;
                             }
-                            .byte_value => {
-                                value = .byte_value(((raw & 255) as u8) as! i8);
-                            }
-                            _ => unreachable;
+                        } else {
+                            assert(false);
                         }
-                    } else {
-                        assert(false);
                     }
-                }
-                if opcode == 85 {
-                    value = .char_value((expect_int(value) & 65535) as u16);
-                }
-                if opcode == 86 {
-                    value = .short_value(((expect_int(value) & 65535) as u16) as! i16);
+                    85 => { value = .char_value((expect_int(value) & 65535) as u16); }
+                    86 => { value = .short_value(((expect_int(value) & 65535) as u16) as! i16); }
+                    _ => unreachable;
                 }
                 assert(runtime.arrays.set(reference, index as usize, value));
             }
@@ -5269,19 +5193,13 @@ fn print_instruction_gap(context: &Context, vm: &VM, pc: u32, raw_opcode: u8): v
 }
 
 fn instruction_error_name(error_value: InstructionError): string {
-    if error_value == InstructionError.unsupported_opcode {
-        return "unsupported opcode";
-    }
-    if error_value == InstructionError.unsupported_native {
-        return "unsupported native";
-    }
-    if error_value == InstructionError.invalid_constant {
-        return "invalid or missing constant/class/member";
-    }
-    if error_value == InstructionError.missing_return {
-        return "missing return";
-    }
-    return "instruction error";
+    return switch error_value {
+        InstructionError.unsupported_opcode => "unsupported opcode";
+        InstructionError.unsupported_native => "unsupported native";
+        InstructionError.invalid_constant => "invalid or missing constant/class/member";
+        InstructionError.missing_return => "missing return";
+        _ => "instruction error";
+    };
 }
 
 pub fn print_instruction_error_context(context: &Context, vm: &VM, error_value: InstructionError): void {
@@ -5592,9 +5510,7 @@ fn assert_int_result(result: FrameResult, expected: i32): void {
         .return_value(value) => {
             if value is actual {
                 switch actual {
-                    .int_value(int_value) => {
-                        assert(int_value == expected);
-                    }
+                    .int_value(int_value) => assert(int_value == expected);
                     _ => unreachable;
                 }
             } else {
@@ -5610,9 +5526,7 @@ fn assert_long_result(result: FrameResult, expected: i64): void {
         .return_value(value) => {
             if value is actual {
                 switch actual {
-                    .long_value(long_value) => {
-                        assert(long_value == expected);
-                    }
+                    .long_value(long_value) => assert(long_value == expected);
                     _ => unreachable;
                 }
             } else {
@@ -5628,9 +5542,7 @@ fn assert_float_result(result: FrameResult, expected: f32): void {
         .return_value(value) => {
             if value is actual {
                 switch actual {
-                    .float_value(float_value) => {
-                        assert(float_value == expected);
-                    }
+                    .float_value(float_value) => assert(float_value == expected);
                     _ => unreachable;
                 }
             } else {
@@ -5646,9 +5558,7 @@ fn assert_double_result(result: FrameResult, expected: f64): void {
         .return_value(value) => {
             if value is actual {
                 switch actual {
-                    .double_value(double_value) => {
-                        assert(double_value == expected);
-                    }
+                    .double_value(double_value) => assert(double_value == expected);
                     _ => unreachable;
                 }
             } else {
@@ -5675,9 +5585,7 @@ fn assert_null_ref_result(result: FrameResult): void {
 
 fn assert_void_result(result: FrameResult): void {
     switch result {
-        .return_value(value) => {
-            assert(value == none);
-        }
+        .return_value(value) => assert(value == none);
         .exception => unreachable;
     }
 }
@@ -5685,9 +5593,7 @@ fn assert_void_result(result: FrameResult): void {
 fn assert_exception_result(result: FrameResult, expected: Reference): void {
     switch result {
         .return_value => unreachable;
-        .exception(reference) => {
-            assert(reference.equals(expected));
-        }
+        .exception(reference) => assert(reference.equals(expected));
     }
 }
 

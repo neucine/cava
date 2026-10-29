@@ -529,12 +529,8 @@ pub struct Class {
         var constant_index: usize = 0;
         while constant_index < self.constant_pool.len() {
             switch self.constant_pool[constant_index] {
-                .utf8(value) => {
-                    constants.push(.utf8(value.clone()));
-                }
-                _ => {
-                    constants.push(self.constant_pool[constant_index]);
-                }
+                .utf8(value) => constants.push(.utf8(value.clone()));
+                _ => constants.push(self.constant_pool[constant_index]);
             }
             constant_index = constant_index + 1;
         }

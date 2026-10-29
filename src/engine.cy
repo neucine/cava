@@ -194,33 +194,24 @@ pub struct Context {
 }
 
 pub fn execution_exit_code(error_value: InstructionError): i32 {
-    if error_value == InstructionError.unsupported_opcode {
-        return 20;
-    }
-    if error_value == InstructionError.unsupported_native {
-        return 21;
-    }
-    if error_value == InstructionError.invalid_constant {
-        return 22;
-    }
-    if error_value == InstructionError.missing_return {
-        return 23;
-    }
-    return 24;
+    return switch error_value {
+        InstructionError.unsupported_opcode => 20;
+        InstructionError.unsupported_native => 21;
+        InstructionError.invalid_constant => 22;
+        InstructionError.missing_return => 23;
+        _ => 24;
+    };
 }
 
 pub fn print_execution_error(error_value: InstructionError): void {
-    if error_value == InstructionError.unsupported_opcode {
-        println("execution failed: unsupported opcode");
-    } else if error_value == InstructionError.unsupported_native {
-        println("execution failed: unsupported native");
-    } else if error_value == InstructionError.invalid_constant {
-        println("execution failed: invalid or missing constant/class/member");
-    } else if error_value == InstructionError.missing_return {
-        println("execution failed: missing return");
-    } else {
-        println("execution failed");
-    }
+    const message = switch error_value {
+        InstructionError.unsupported_opcode => "execution failed: unsupported opcode";
+        InstructionError.unsupported_native => "execution failed: unsupported native";
+        InstructionError.invalid_constant => "execution failed: invalid or missing constant/class/member";
+        InstructionError.missing_return => "execution failed: missing return";
+        _ => "execution failed";
+    };
+    println(message);
 }
 
 fn handler_matches(context: &Context, vm: &VM, handler: ExceptionHandler, exception: Reference): bool ! InstructionError {
@@ -471,9 +462,7 @@ fn expect_ref_for_engine(value: Value): Reference {
 
 fn assert_int_value(value: Value, expected: i32): void {
     switch value {
-        .int_value(actual) => {
-            assert(actual == expected);
-        }
+        .int_value(actual) => assert(actual == expected);
         .byte_value => unreachable;
         .short_value => unreachable;
         .char_value => unreachable;

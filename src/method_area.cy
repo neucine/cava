@@ -13,19 +13,13 @@ pub enum MethodAreaError: i32 {
 }
 
 fn method_area_error_from_fs(err: FsError): MethodAreaError {
-    if err == FsError.not_found {
-        return MethodAreaError.not_found;
-    }
-    if err == FsError.permission_denied {
-        return MethodAreaError.permission_denied;
-    }
-    if err == FsError.already_exists {
-        return MethodAreaError.already_exists;
-    }
-    if err == FsError.invalid_path {
-        return MethodAreaError.invalid_path;
-    }
-    return MethodAreaError.io_error;
+    return switch err {
+        FsError.not_found => MethodAreaError.not_found;
+        FsError.permission_denied => MethodAreaError.permission_denied;
+        FsError.already_exists => MethodAreaError.already_exists;
+        FsError.invalid_path => MethodAreaError.invalid_path;
+        _ => MethodAreaError.io_error;
+    };
 }
 
 pub struct SymbolPool {

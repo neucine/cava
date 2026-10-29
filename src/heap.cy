@@ -848,9 +848,7 @@ pub fn new_heap(): Heap {
 
 fn assert_int_value(value: Value, expected: i32): void {
     switch value {
-        .int_value(actual) => {
-            assert(actual == expected);
-        }
+        .int_value(actual) => assert(actual == expected);
         .byte_value => unreachable;
         .short_value => unreachable;
         .char_value => unreachable;

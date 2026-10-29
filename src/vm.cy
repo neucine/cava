@@ -84,15 +84,9 @@ pub struct VM {
                             while index < length {
                                 if self.heap.get_element(chars_reference, index) is element {
                                     switch element {
-                                        .char_value(ch) => {
-                                            bytes.push(ch as u8);
-                                        }
-                                        .byte_value(ch) => {
-                                            bytes.push(ch as u8);
-                                        }
-                                        _ => {
-                                            bytes.push(0);
-                                        }
+                                        .char_value(ch) => bytes.push(ch as u8);
+                                        .byte_value(ch) => bytes.push(ch as u8);
+                                        _ => bytes.push(0);
                                     }
                                 }
                                 index = index + 1;
