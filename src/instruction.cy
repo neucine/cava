@@ -737,61 +737,25 @@ fn load_constant(context: &Context, vm: &VM, index: u16, wide: bool): void ! Ins
     }
 
     const constant = context.constant_pool[index as usize];
+    if wide {
+        switch constant {
+            .long(bits) => context.frame.push(.long_value(wide_bits(bits) as! i64));
+            .double(bits) => context.frame.push(.double_value(wide_bits(bits) as! f64));
+            _ => throw InstructionError.invalid_constant;
+        }
+        return;
+    }
+
     switch constant {
-        .integer(bits) => {
-            if wide {
-                throw InstructionError.invalid_constant;
-            }
-            context.frame.push(.int_value(bits as! i32));
-            return;
-        }
-        .float(bits) => {
-            if wide {
-                throw InstructionError.invalid_constant;
-            }
-            context.frame.push(.float_value(bits as! f32));
-            return;
-        }
-        .long(bits) => {
-            if !wide {
-                throw InstructionError.invalid_constant;
-            }
-            context.frame.push(.long_value(wide_bits(bits) as! i64));
-            return;
-        }
-        .double(bits) => {
-            if !wide {
-                throw InstructionError.invalid_constant;
-            }
-            context.frame.push(.double_value(wide_bits(bits) as! f64));
-            return;
-        }
-        .class_ref(name_index) => {
-            if wide {
-                throw InstructionError.invalid_constant;
-            }
-            return load_class_constant(context, vm, index, name_index);
-        }
-        .string_ref(utf8_index) => {
-            if wide {
-                throw InstructionError.invalid_constant;
-            }
-            return load_string_constant(context, vm, utf8_index);
-        }
-        .method_type(descriptor_index) => {
-            if wide {
-                throw InstructionError.invalid_constant;
-            }
-            return load_method_type_constant(context, vm, descriptor_index);
-        }
-        .method_handle(handle) => {
-            if wide {
-                throw InstructionError.invalid_constant;
-            }
-            return load_method_handle_constant(context, vm, handle);
-        }
+        .integer(bits) => context.frame.push(.int_value(bits as! i32));
+        .float(bits) => context.frame.push(.float_value(bits as! f32));
+        .class_ref(name_index) => { try load_class_constant(context, vm, index, name_index); }
+        .string_ref(utf8_index) => { try load_string_constant(context, vm, utf8_index); }
+        .method_type(descriptor_index) => { try load_method_type_constant(context, vm, descriptor_index); }
+        .method_handle(handle) => { try load_method_handle_constant(context, vm, handle); }
         _ => throw InstructionError.invalid_constant;
     }
+    return;
 }
 
 fn load_class_constant(context: &Context, vm: &VM, constant_index: u16, name_index: u16): void ! InstructionError {
