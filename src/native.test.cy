@@ -157,16 +157,20 @@ test "native Object.clone copies instance fields" {
         constant_pool: constant_pool[..]
     };
 
-    const result = try JavaLangObject.clone(&context, &vm, original);
+    const result = JavaLangObject.clone(&context, &vm, original) catch (problem) {
+        assert(false);
+        return;
+    };
     if result is value {
         switch value {
-            case .ref_value(clone) {
+            .ref_value(clone) => {
                 assert(!clone.equals(original));
                 if vm.heap.get_field(clone, 0) is cloned_value {
                     switch cloned_value {
-                        case .int_value(actual) {
+                        .int_value(actual) => {
                             assert(actual == 42);
-                        } else {
+                        }
+                        _ => {
                             assert(false);
                         }
                     }
@@ -176,16 +180,18 @@ test "native Object.clone copies instance fields" {
                 assert(vm.heap.set_field(original, 0, .int_value(7)));
                 if vm.heap.get_field(clone, 0) is cloned_after_original_update {
                     switch cloned_after_original_update {
-                        case .int_value(actual) {
+                        .int_value(actual) => {
                             assert(actual == 42);
-                        } else {
+                        }
+                        _ => {
                             assert(false);
                         }
                     }
                 } else {
                     assert(false);
                 }
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -283,12 +289,16 @@ test "native Class metadata reads represented class" {
         constant_pool: constant_pool[..]
     };
 
-    const modifiers = try JavaLangClass.getModifiers(&context, &vm, classes[0].class_object);
+    const modifiers = JavaLangClass.getModifiers(&context, &vm, classes[0].class_object) catch (problem) {
+        assert(false);
+        return;
+    };
     if modifiers is modifiers_value {
         switch modifiers_value {
-            case .int_value(actual) {
+            .int_value(actual) => {
                 assert(actual == 0x0021);
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -296,12 +306,16 @@ test "native Class metadata reads represented class" {
         assert(false);
     }
 
-    const super_class = try JavaLangClass.getSuperclass(&context, &vm, classes[0].class_object);
+    const super_class = JavaLangClass.getSuperclass(&context, &vm, classes[0].class_object) catch (problem) {
+        assert(false);
+        return;
+    };
     if super_class is super_value {
         switch super_value {
-            case .ref_value(actual) {
+            .ref_value(actual) => {
                 assert(actual.equals(classes[1].class_object));
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -309,12 +323,16 @@ test "native Class metadata reads represented class" {
         assert(false);
     }
 
-    const object_super_class = try JavaLangClass.getSuperclass(&context, &vm, classes[1].class_object);
+    const object_super_class = JavaLangClass.getSuperclass(&context, &vm, classes[1].class_object) catch (problem) {
+        assert(false);
+        return;
+    };
     if object_super_class is object_super_value {
         switch object_super_value {
-            case .ref_value(actual) {
+            .ref_value(actual) => {
                 assert(actual.is_null());
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -372,12 +390,16 @@ test "native bootstrap helpers return conservative values" {
         slot: 8,
         generation: 1,
     };
-    const free_memory = try JavaLangRuntime.freeMemory(&context, runtime);
+    const free_memory = JavaLangRuntime.freeMemory(&context, runtime) catch (problem) {
+        assert(false);
+        return;
+    };
     if free_memory is free_value {
         switch free_value {
-            case .long_value(actual) {
+            .long_value(actual) => {
                 assert(actual > 0);
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -385,12 +407,16 @@ test "native bootstrap helpers return conservative values" {
         assert(false);
     }
 
-    const access_flags_value = try SunReflectReflection.getClassAccessFlags(&context, &vm, class_object);
+    const access_flags_value = SunReflectReflection.getClassAccessFlags(&context, &vm, class_object) catch (problem) {
+        assert(false);
+        return;
+    };
     if access_flags_value is flags_value {
         switch flags_value {
-            case .int_value(actual) {
+            .int_value(actual) => {
                 assert(actual == 0x0421);
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -403,12 +429,16 @@ test "native bootstrap helpers return conservative values" {
         slot: 9,
         generation: 1,
     };
-    const canonicalized = try JavaIoUnixFileSystem.canonicalize0(&context, runtime, path);
+    const canonicalized = JavaIoUnixFileSystem.canonicalize0(&context, runtime, path) catch (problem) {
+        assert(false);
+        return;
+    };
     if canonicalized is canonicalized_value {
         switch canonicalized_value {
-            case .ref_value(actual) {
+            .ref_value(actual) => {
                 assert(actual.equals(path));
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -416,12 +446,16 @@ test "native bootstrap helpers return conservative values" {
         assert(false);
     }
 
-    const pending = try JavaLangRefReference.hasReferencePendingList(&context);
+    const pending = JavaLangRefReference.hasReferencePendingList(&context) catch (problem) {
+        assert(false);
+        return;
+    };
     if pending is pending_value {
         switch pending_value {
-            case .boolean_value(actual) {
+            .boolean_value(actual) => {
                 assert(actual == 0);
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -549,16 +583,23 @@ test "native Thread.currentThread creates stable java thread object" {
         constant_pool: constant_pool[..]
     };
 
-    const first = try JavaLangThread.currentThread(&context, &vm);
-    const second = try JavaLangThread.currentThread(&context, &vm);
+    const first = JavaLangThread.currentThread(&context, &vm) catch (problem) {
+        assert(false);
+        return;
+    };
+    const second = JavaLangThread.currentThread(&context, &vm) catch (problem) {
+        assert(false);
+        return;
+    };
     if first is first_value {
         switch first_value {
-            case .ref_value(first_ref) {
+            .ref_value(first_ref) => {
                 if second is second_value {
                     switch second_value {
-                        case .ref_value(second_ref) {
+                        .ref_value(second_ref) => {
                             assert(first_ref.equals(second_ref));
-                        } else {
+                        }
+                        _ => {
                             assert(false);
                         }
                     }
@@ -567,9 +608,10 @@ test "native Thread.currentThread creates stable java thread object" {
                 }
                 if vm.heap.get_field(first_ref, 1) is tid {
                     switch tid {
-                        case .long_value(actual) {
+                        .long_value(actual) => {
                             assert(actual == 1);
-                        } else {
+                        }
+                        _ => {
                             assert(false);
                         }
                     }
@@ -578,9 +620,10 @@ test "native Thread.currentThread creates stable java thread object" {
                 }
                 if vm.heap.get_field(first_ref, 3) is priority {
                     switch priority {
-                        case .int_value(actual) {
+                        .int_value(actual) => {
                             assert(actual == 1);
-                        } else {
+                        }
+                        _ => {
                             assert(false);
                         }
                     }
@@ -589,9 +632,10 @@ test "native Thread.currentThread creates stable java thread object" {
                 }
                 if vm.heap.get_field(first_ref, 0) is name {
                     switch name {
-                        case .ref_value(name_ref) {
+                        .ref_value(name_ref) => {
                             assert(name_ref.equals(vm.heap.strings[0].reference));
-                        } else {
+                        }
+                        _ => {
                             assert(false);
                         }
                     }
@@ -600,27 +644,30 @@ test "native Thread.currentThread creates stable java thread object" {
                 }
                 if vm.heap.get_field(first_ref, 2) is group {
                     switch group {
-                        case .ref_value(group_ref) {
+                        .ref_value(group_ref) => {
                             assert(group_ref.non_null());
                             if vm.heap.get_field(group_ref, 0) is group_name {
                                 switch group_name {
-                                    case .ref_value(group_name_ref) {
+                                    .ref_value(group_name_ref) => {
                                         assert(group_name_ref.equals(vm.heap.strings[0].reference));
-                                    } else {
+                                    }
+                                    _ => {
                                         assert(false);
                                     }
                                 }
                             } else {
                                 assert(false);
                             }
-                        } else {
+                        }
+                        _ => {
                             assert(false);
                         }
                     }
                 } else {
                     assert(false);
                 }
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }

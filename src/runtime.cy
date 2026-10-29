@@ -16,13 +16,12 @@ pub struct Runtime {
     pub initializers: ClassInitializers;
     workers: ConcurrentList<RuntimeWorker>;
 
-    @syntax.copy
-    pub fn clone(self: &const Runtime): Runtime {
+    pub fn alias_handles(self: &const Runtime): Runtime {
         return Runtime {
-            state: copy self.state,
-            arrays: copy self.arrays,
-            initializers: copy self.initializers,
-            workers: copy self.workers
+            state: self.state,
+            arrays: self.arrays.alias_handle(),
+            initializers: self.initializers.alias_handle(),
+            workers: self.workers
         };
     }
 
@@ -35,12 +34,9 @@ pub struct Runtime {
     pub fn pause(self: &const Runtime, millis: i64): bool {
         assert(self.state.unlock() == SyncStatus.ok);
         var succeeded = true;
-        switch sleep_ms(millis) {
-            case .ok {}
-            case .err {
-                succeeded = false;
-            }
-        }
+        sleep_ms(millis) catch (err) {
+            succeeded = false;
+        };
         assert(self.state.lock() == SyncStatus.ok);
         return succeeded;
     }
@@ -49,23 +45,19 @@ pub struct Runtime {
         var draining = true;
         while draining {
             var worker: ?RuntimeWorker = none;
-            switch self.workers.with_result<i32, ?RuntimeWorker>(0, fn (workers: &List<RuntimeWorker>, ignored: i32): ?RuntimeWorker {
+            worker = self.workers.with_result<i32, ?RuntimeWorker>(0, fn (workers: &List<RuntimeWorker>, ignored: i32): ?RuntimeWorker {
                 if workers.len() > 0 {
                     return workers.pop();
                 }
                 return none;
-            }) {
-                case .ok(value) {
-                    worker = value;
-                }
-                case .err {
-                    assert(false);
-                }
-            }
+            }) catch (err) {
+                assert(false);
+                return;
+            };
             if worker is actual {
                 switch actual.handle.join() {
-                    case .ok {}
-                    case .err {
+                    .settled => {}
+                    .retry => {
                         assert(false);
                     }
                 }
@@ -86,7 +78,7 @@ pub struct Runtime {
 pub fn new_runtime(): Runtime {
     const vm = new_vm();
     const arrays = ArrayAccess {
-        storage: copy vm.heap.arrays
+        storage: vm.heap.arrays
     };
     return Runtime {
         state: sync.shared(vm),

@@ -5,22 +5,19 @@ import { Reference, ReferenceKind, null_ref } from .types;
 test "parallel array access rejects stale and out of bounds references" {
     const runtime = new_runtime();
     var reference = null_ref;
-    switch runtime.state.with_result<i32, Reference>(0, fn (vm: &VM, ignored: i32): Reference {
+    reference = runtime.state.with_result<i32, Reference>(0, fn (vm: &VM, ignored: i32): Reference {
         return vm.heap.allocate_array(0, "I".bytes(), 2);
-    }) {
-        case .ok(actual) {
-            reference = actual;
-        }
-        case .err {
-            assert(false);
-        }
-    }
+    }) catch (problem) {
+        assert(false);
+        return;
+    };
     assert(runtime.arrays.set(reference, 0, .int_value(42)));
     if runtime.arrays.get(reference, 0) is value {
         switch value {
-            case .int_value(actual) {
+            .int_value(actual) => {
                 assert(actual == 42);
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }

@@ -53,7 +53,7 @@ test "heap allocates objects with default instance fields" {
         slot: 0,
     };
     var class = Class {
-        name: string.from("Example".bytes()),
+        name: "Example",
         descriptor: "LExample;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -101,7 +101,7 @@ test "heap updates instance fields by slot" {
         slot: 0,
     };
     var class = Class {
-        name: string.from("Example".bytes()),
+        name: "Example",
         descriptor: "LExample;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -146,7 +146,7 @@ test "heap rejects stale object slot references" {
         slot: 0,
     };
     var class = Class {
-        name: string.from("Example".bytes()),
+        name: "Example",
         descriptor: "LExample;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -225,9 +225,10 @@ test "heap allocates reference arrays with null elements" {
 
     if heap.get_element(reference, 0) is value {
         switch value {
-            case .ref_value(actual) {
+            .ref_value(actual) => {
                 assert(actual.is_null());
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -238,7 +239,7 @@ test "heap allocates reference arrays with null elements" {
 
 test "heap interns string objects by byte content" {
     var string_class = Class {
-        name: string.from("java/lang/String".bytes()),
+        name: "java/lang/String",
         descriptor: "Ljava/lang/String;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -273,7 +274,7 @@ test "heap interns string objects by byte content" {
 
 test "heap interns method type objects by descriptor" {
     var method_type_class = Class {
-        name: string.from("java/lang/invoke/MethodType".bytes()),
+        name: "java/lang/invoke/MethodType",
         descriptor: "Ljava/lang/invoke/MethodType;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -308,7 +309,7 @@ test "heap interns method type objects by descriptor" {
 
 test "heap interns method handle objects by reference kind and index" {
     var method_handle_class = Class {
-        name: string.from("java/lang/invoke/MethodHandle".bytes()),
+        name: "java/lang/invoke/MethodHandle",
         descriptor: "Ljava/lang/invoke/MethodHandle;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",

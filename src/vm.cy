@@ -18,30 +18,26 @@ pub struct VM {
         assert(self.heap.arrays.destroy() == SyncStatus.ok);
     }
 
-    pub fn resolve_class_index(self: &VM, name: string): result<usize, InstructionError> {
+    pub fn resolve_class_index(self: &VM, name: string): usize ! InstructionError {
         var classes = self.method_area.classes[..];
         var index: usize = 0;
         while index < classes.len() {
             const class = &classes[index];
             if class.name == name {
-                return .ok(index);
+                return index;
             }
             index = index + 1;
         }
-        switch self.method_area.resolve_class(copy name) {
-            case .ok(class_index) {
-                return .ok(class_index);
-            }
-            case .err {}
-        }
-        return .err(InstructionError.invalid_constant);
+        return self.method_area.resolve_class(name.clone()) catch (err) {
+            throw InstructionError.invalid_constant;
+        };
     }
 
-    pub fn allocate_java_string(self: &VM, value: []const u8): result<Reference, InstructionError> {
+    pub fn allocate_java_string(self: &VM, value: []const u8): Reference ! InstructionError {
         const string_class_index = try self.resolve_class_index("java/lang/String");
         var classes = self.method_area.classes[..];
         if self.heap.interned_string_reference(value) is existing_reference {
-            return .ok(existing_reference);
+            return existing_reference;
         }
         const reference = self.heap.allocate_object_with_hierarchy(string_class_index, classes);
         const string_class = &classes[string_class_index];
@@ -52,7 +48,7 @@ pub struct VM {
             while char_index < chars.len() {
                 if !self.heap.set_element(chars_reference, char_index, .char_value(chars[char_index])) {
                     drop chars;
-                    return .err(InstructionError.invalid_constant);
+                    throw InstructionError.invalid_constant;
                 }
                 char_index = char_index + 1;
             }
@@ -60,40 +56,41 @@ pub struct VM {
             var fields = string_class.fields[..];
             const field = &fields[value_field_index as usize];
             if !self.heap.set_field(reference, field.slot, .ref_value(chars_reference)) {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
         }
         if string_class.field_index("coder", "B", false) is coder_field_index {
             var fields = string_class.fields[..];
             const field = &fields[coder_field_index as usize];
             if !self.heap.set_field(reference, field.slot, .byte_value(0)) {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
         }
         self.heap.register_string_bytes(reference, value);
-        return .ok(reference);
+        return reference;
     }
 
-    pub fn print_java_string(self: &VM, reference: Reference, newline: bool): result<void, InstructionError> {
+    pub fn print_java_string(self: &VM, reference: Reference, newline: bool): void ! InstructionError {
         const string_class_index = try self.resolve_class_index("java/lang/String");
         var classes = self.method_area.classes[..];
         if classes[string_class_index].field_index("value", "[C", false) is value_field_index {
             const slot = classes[string_class_index].fields[value_field_index].slot;
             if self.heap.get_field(reference, slot) is value {
                 switch value {
-                    case .ref_value(chars_reference) {
+                    .ref_value(chars_reference) => {
                         if self.heap.array_length(chars_reference) is length {
                             var bytes: List<u8> = [];
                             var index: usize = 0;
                             while index < length {
                                 if self.heap.get_element(chars_reference, index) is element {
                                     switch element {
-                                        case .char_value(ch) {
+                                        .char_value(ch) => {
                                             bytes.push(ch as u8);
                                         }
-                                        case .byte_value(ch) {
+                                        .byte_value(ch) => {
                                             bytes.push(ch as u8);
-                                        } else {
+                                        }
+                                        _ => {
                                             bytes.push(0);
                                         }
                                     }
@@ -108,22 +105,22 @@ pub struct VM {
                             }
                             drop text;
                             drop bytes;
-                            return .ok();
+                            return;
                         }
                     }
-                    case .byte_value {}
-                    case .short_value {}
-                    case .char_value {}
-                    case .int_value {}
-                    case .long_value {}
-                    case .float_value {}
-                    case .double_value {}
-                    case .boolean_value {}
-                    case .return_address_value {}
+                    .byte_value => {}
+                    .short_value => {}
+                    .char_value => {}
+                    .int_value => {}
+                    .long_value => {}
+                    .float_value => {}
+                    .double_value => {}
+                    .boolean_value => {}
+                    .return_address_value => {}
                 }
             }
         }
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     pub fn initialize_system_out(self: &VM): void {

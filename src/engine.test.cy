@@ -53,14 +53,14 @@ test "frame manages locals operand stack and pc" {
     frame.return_value(return_value);
     if frame.result is result {
         switch result {
-            case .return_value(value) {
+            .return_value(value) => {
                 if value is actual {
                     assert_int_value(actual, 42);
                 } else {
                     assert(false);
                 }
             }
-            case .exception {
+            .exception => {
                 assert(false);
             }
         }
@@ -70,7 +70,7 @@ test "frame manages locals operand stack and pc" {
 }
 
 test "thread pushes and pops frames" {
-    var thread = new_thread(7, string.from("main".bytes()));
+    var thread = new_thread(7, "main");
     assert(thread.id == 7);
     assert(thread.status == ThreadStatus.started);
     assert(thread.depth() == 0);

@@ -133,10 +133,10 @@ pub fn is_primitive_descriptor(descriptor: []const u8): bool {
     return ch == 'B' or ch == 'C' or ch == 'D' or ch == 'F' or ch == 'I' or ch == 'J' or ch == 'S' or ch == 'Z';
 }
 
-pub fn method_argument_count(descriptor: string): result<usize, InstructionError> {
+pub fn method_argument_count(descriptor: string): usize ! InstructionError {
     const bytes = descriptor.bytes();
     if bytes.len() < 2 or bytes[0] != '(' {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     var index: usize = 1;
@@ -146,14 +146,14 @@ pub fn method_argument_count(descriptor: string): result<usize, InstructionError
             index = index + 1;
         }
         if index >= bytes.len() {
-            return .err(InstructionError.invalid_constant);
+            throw InstructionError.invalid_constant;
         }
         if bytes[index] == 'L' {
             while index < bytes.len() and bytes[index] != ';' {
                 index = index + 1;
             }
             if index >= bytes.len() {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
         }
         index = index + 1;
@@ -161,9 +161,9 @@ pub fn method_argument_count(descriptor: string): result<usize, InstructionError
     }
 
     if index >= bytes.len() or bytes[index] != ')' {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
-    return .ok(count);
+    return count;
 }
 
 pub fn reference_array_component_descriptor(class_name: string): string {
@@ -256,6 +256,17 @@ pub struct ExceptionHandler {
     pub catch_type: u16;
 }
 
+impl ExceptionHandler: Clone {
+    fn clone(self: &const ExceptionHandler): ExceptionHandler {
+        return ExceptionHandler {
+            start_pc: self.start_pc,
+            end_pc: self.end_pc,
+            handle_pc: self.handle_pc,
+            catch_type: self.catch_type,
+        };
+    }
+}
+
 pub struct Field {
     pub class_name: string;
     pub access_flags: FieldAccessFlags;
@@ -278,13 +289,12 @@ pub struct Field {
         self.descriptor = "";
     }
 
-    @syntax.copy
     pub fn clone(self: &const Field): Field {
         return Field {
-            class_name: copy self.class_name,
+            class_name: self.class_name.clone(),
             access_flags: self.access_flags,
-            name: copy self.name,
-            descriptor: copy self.descriptor,
+            name: self.name.clone(),
+            descriptor: self.descriptor.clone(),
             index: self.index,
             slot: self.slot,
         };
@@ -332,23 +342,22 @@ pub struct Method {
         self.return_descriptor = "";
     }
 
-    @syntax.copy
     pub fn clone(self: &const Method): Method {
         return Method {
-            class_name: copy self.class_name,
+            class_name: self.class_name.clone(),
             access_flags: self.access_flags,
-            name: copy self.name,
-            descriptor: copy self.descriptor,
-            code: copy self.code,
+            name: self.name.clone(),
+            descriptor: self.descriptor.clone(),
+            code: self.code.clone(),
             max_stack: self.max_stack,
             max_locals: self.max_locals,
             code_len: self.code_len,
             exception_count: self.exception_count,
-            exception_handlers: copy self.exception_handlers,
+            exception_handlers: self.exception_handlers.clone(),
             local_var_count: self.local_var_count,
             line_number_count: self.line_number_count,
             parameter_count: self.parameter_count,
-            return_descriptor: copy self.return_descriptor,
+            return_descriptor: self.return_descriptor.clone(),
         };
     }
 }
@@ -503,29 +512,53 @@ pub struct Class {
         self.element_type = "";
     }
 
-    @syntax.copy
     pub fn clone(self: &const Class): Class {
+        var fields: List<Field> = [];
+        var field_index: usize = 0;
+        while field_index < self.fields.len() {
+            fields.push(self.fields[field_index].clone());
+            field_index = field_index + 1;
+        }
         var methods: List<Method> = [];
         var index: usize = 0;
         while index < self.methods.len() {
-            methods.push(copy self.methods[index]);
+            methods.push(self.methods[index].clone());
             index = index + 1;
         }
+        var constants: List<Constant> = [];
+        var constant_index: usize = 0;
+        while constant_index < self.constant_pool.len() {
+            switch self.constant_pool[constant_index] {
+                .utf8(value) => {
+                    constants.push(.utf8(value.clone()));
+                }
+                _ => {
+                    constants.push(self.constant_pool[constant_index]);
+                }
+            }
+            constant_index = constant_index + 1;
+        }
+        var static_vars: List<Value> = [];
+        var static_index: usize = 0;
+        while static_index < self.static_vars.len() {
+            static_vars.push(self.static_vars[static_index]);
+            static_index = static_index + 1;
+        }
         return Class {
-            name: copy self.name,
-            descriptor: copy self.descriptor,
+            name: self.name.clone(),
+            descriptor: self.descriptor.clone(),
             access_flags: self.access_flags,
-            super_class: copy self.super_class,
-            interfaces: copy self.interfaces,
-            fields: copy self.fields,
+            super_class: self.super_class.clone(),
+            interfaces: self.interfaces.clone(),
+            fields: fields,
             methods: methods,
-            constant_pool: copy self.constant_pool,
+            constant_pool: constants,
             instance_vars: self.instance_vars,
-            static_vars: copy self.static_vars,
-            source_file: copy self.source_file,
+            static_vars: static_vars,
+            source_file: self.source_file.clone(),
             is_array: self.is_array,
-            component_type: copy self.component_type,
-            element_type: copy self.element_type,
+            component_type: self.component_type.clone(),
+            element_type: self.element_type.clone(),
             dimensions: self.dimensions,
             defined: self.defined,
             linked: self.linked,
@@ -536,34 +569,34 @@ pub struct Class {
 
 fn fail_unexpected_value(value: Value): void {
     switch value {
-        case .byte_value {
+        .byte_value => {
             assert(false);
         }
-        case .short_value {
+        .short_value => {
             assert(false);
         }
-        case .char_value {
+        .char_value => {
             assert(false);
         }
-        case .int_value {
+        .int_value => {
             assert(false);
         }
-        case .long_value {
+        .long_value => {
             assert(false);
         }
-        case .float_value {
+        .float_value => {
             assert(false);
         }
-        case .double_value {
+        .double_value => {
             assert(false);
         }
-        case .boolean_value {
+        .boolean_value => {
             assert(false);
         }
-        case .return_address_value {
+        .return_address_value => {
             assert(false);
         }
-        case .ref_value {
+        .ref_value => {
             assert(false);
         }
     }

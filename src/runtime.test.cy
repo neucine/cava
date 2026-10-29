@@ -22,39 +22,30 @@ fn runtime_test_worker(request: RuntimeTestRequest): void {
 }
 
 fn runtime_test_parent(request: RuntimeTestRequest): void {
-    switch thread.spawn(runtime_test_worker, request) {
-        case .ok(worker) {
-            request.runtime.track(worker);
-        }
-        case .err {
-            assert(false);
-        }
-    }
+    const worker = thread.spawn(runtime_test_worker, request) catch (problem) {
+        assert(false);
+        return;
+    };
+    request.runtime.track(worker);
 }
 
 test "runtime shutdown also joins workers started by workers" {
     const runtime = new_runtime();
     const completed = sync.concurrent_list<usize>();
-    switch thread.spawn(runtime_test_parent, RuntimeTestRequest {
-        runtime: copy runtime,
-        completed: copy completed
-    }) {
-        case .ok(worker) {
-            runtime.track(worker);
-        }
-        case .err {
-            assert(false);
-        }
-    }
+    const worker = thread.spawn(runtime_test_parent, RuntimeTestRequest {
+        runtime: runtime.alias_handles(),
+        completed: completed
+    }) catch (problem) {
+        assert(false);
+        return;
+    };
+    runtime.track(worker);
     runtime.finish();
-    switch completed.len() {
-        case .ok(count) {
-            assert(count == 1);
-        }
-        case .err {
-            assert(false);
-        }
-    }
+    const count = completed.len() catch (problem) {
+        assert(false);
+        return;
+    };
+    assert(count == 1);
     assert(completed.destroy() == SyncStatus.ok);
 }
 
@@ -63,28 +54,22 @@ test "runtime serializes metadata access and joins all workers before cleanup" {
     const completed = sync.concurrent_list<usize>();
     var index: usize = 0;
     while index < 6 {
-        switch thread.spawn(runtime_test_worker, RuntimeTestRequest {
-            runtime: copy runtime,
-            completed: copy completed
-        }) {
-            case .ok(worker) {
-                runtime.track(worker);
-            }
-            case .err {
-                assert(false);
-            }
-        }
+        const worker = thread.spawn(runtime_test_worker, RuntimeTestRequest {
+            runtime: runtime.alias_handles(),
+            completed: completed
+        }) catch (problem) {
+            assert(false);
+            return;
+        };
+        runtime.track(worker);
         index = index + 1;
     }
     runtime.finish();
-    switch completed.len() {
-        case .ok(count) {
-            assert(count == 6);
-        }
-        case .err {
-            assert(false);
-        }
-    }
+    const count = completed.len() catch (problem) {
+        assert(false);
+        return;
+    };
+    assert(count == 6);
     assert(completed.destroy() == SyncStatus.ok);
 }
 
@@ -92,30 +77,24 @@ test "runtime pause lets a worker enter while the calling Java thread sleeps" {
     const runtime = new_runtime();
     const completed = sync.concurrent_list<usize>();
     const request = RuntimeTestRequest {
-        runtime: copy runtime,
-        completed: copy completed
+        runtime: runtime.alias_handles(),
+        completed: completed
     };
     const status = runtime.state.with<RuntimeTestRequest>(request, fn (vm: &VM, actual: RuntimeTestRequest): void {
-        switch thread.spawn(runtime_test_worker, actual) {
-            case .ok(worker) {
-                actual.runtime.track(worker);
-            }
-            case .err {
-                assert(false);
-            }
-        }
+        const worker = thread.spawn(runtime_test_worker, actual) catch (problem) {
+            assert(false);
+            return;
+        };
+        actual.runtime.track(worker);
         var ready = false;
         var attempts: usize = 0;
         while !ready and attempts < 1000 {
             assert(actual.runtime.pause(1));
-            switch actual.completed.len() {
-                case .ok(count) {
-                    ready = count == 1;
-                }
-                case .err {
-                    assert(false);
-                }
-            }
+            const count = actual.completed.len() catch (problem) {
+                assert(false);
+                return;
+            };
+            ready = count == 1;
             attempts = attempts + 1;
         }
         assert(ready);

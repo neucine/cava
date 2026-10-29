@@ -116,42 +116,34 @@ pub struct Heap {
             index = index + 1;
         }
 
-        switch self.objects.insert(Object {
+        const key = self.objects.insert(Object {
             class_index: class_index,
             fields: fields,
-        }) {
-            case .ok(key) {
-                return Reference {
-                    kind: ReferenceKind.object,
-                    slot: key.index,
-                    generation: key.generation,
-                };
-            }
-            case .err {
-                return null_ref;
-            }
-        }
+        }) catch (problem) {
+            return null_ref;
+        };
+        return Reference {
+            kind: ReferenceKind.object,
+            slot: key.index,
+            generation: key.generation,
+        };
     }
 
     pub fn allocate_object_with_hierarchy(self: &Heap, class_index: usize, classes: []Class): Reference {
         var fields: List<Value> = [];
         append_hierarchy_fields(&fields, class_index, classes);
 
-        switch self.objects.insert(Object {
+        const key = self.objects.insert(Object {
             class_index: class_index,
             fields: fields,
-        }) {
-            case .ok(key) {
-                return Reference {
-                    kind: ReferenceKind.object,
-                    slot: key.index,
-                    generation: key.generation,
-                };
-            }
-            case .err {
-                return null_ref;
-            }
-        }
+        }) catch (problem) {
+            return null_ref;
+        };
+        return Reference {
+            kind: ReferenceKind.object,
+            slot: key.index,
+            generation: key.generation,
+        };
     }
 
     pub fn allocate_array(self: &Heap, class_index: usize, component_descriptor: []const u8, length: usize): Reference {
@@ -162,21 +154,17 @@ pub struct Heap {
             index = index + 1;
         }
 
-        switch self.arrays.insert(ArrayObject {
+        const key = self.arrays.insert(ArrayObject {
             class_index: class_index,
             elements: elements,
-        }) {
-            case .ok(key) {
-                return Reference {
-                    kind: ReferenceKind.array,
-                    slot: key.index,
-                    generation: key.generation,
-                };
-            }
-            case .err {
-                return null_ref;
-            }
-        }
+        }) catch (problem) {
+            return null_ref;
+        };
+        return Reference {
+            kind: ReferenceKind.array,
+            slot: key.index,
+            generation: key.generation,
+        };
     }
 
     pub fn intern_string(self: &Heap, class_index: usize, class: &Class, value: []const u8): Reference {
@@ -292,8 +280,9 @@ pub struct Heap {
     pub fn intern_method_type(self: &Heap, class_index: usize, class: &Class, descriptor: []const u8): Reference {
         var index: usize = 0;
         while index < self.method_types.len() {
-            if self.method_types[index].descriptor.bytes() == descriptor {
-                return self.method_types[index].reference;
+            const method_type = &self.method_types[index];
+            if method_type.descriptor.bytes() == descriptor {
+                return method_type.reference;
             }
             index = index + 1;
         }
@@ -334,13 +323,11 @@ pub struct Heap {
                 index: slot,
                 generation: reference.generation
             };
-            switch self.objects.contains(key) {
-                case .ok(found) {
-                    if found {
-                        return slot;
-                    }
-                }
-                case .err {}
+            if self.objects.contains(key) catch (problem) {
+                return none;
+            }
+            {
+                return slot;
             }
         }
         return none;
@@ -351,14 +338,9 @@ pub struct Heap {
     }
 
     pub fn object_count(self: &Heap): usize {
-        switch self.objects.len() {
-            case .ok(count) {
-                return count;
-            }
-            case .err {
-                return 0;
-            }
-        }
+        return self.objects.len() catch (problem) {
+            return 0;
+        };
     }
 
     pub fn object_class_index(self: &Heap, reference: Reference): ?usize {
@@ -367,17 +349,14 @@ pub struct Heap {
                 index: object_index,
                 generation: reference.generation
             };
-            switch self.objects.with_result<SlotMapKey, ?usize>(key, fn (objects: &SlotMap<Object>, actual_key: SlotMapKey): ?usize {
+            return self.objects.with_result<SlotMapKey, ?usize>(key, fn (objects: &SlotMap<Object>, actual_key: SlotMapKey): ?usize {
                 if &objects.slots[actual_key.index] is object {
                     return object.class_index;
                 }
                 return none;
-            }) {
-                case .ok(value) {
-                    return value;
-                }
-                case .err {}
-            }
+            }) catch (problem) {
+                return none;
+            };
         }
         return none;
     }
@@ -391,13 +370,11 @@ pub struct Heap {
                 index: slot,
                 generation: reference.generation
             };
-            switch self.arrays.contains(key) {
-                case .ok(found) {
-                    if found {
-                        return slot;
-                    }
-                }
-                case .err {}
+            if self.arrays.contains(key) catch (problem) {
+                return none;
+            }
+            {
+                return slot;
             }
         }
         return none;
@@ -408,14 +385,9 @@ pub struct Heap {
     }
 
     pub fn array_count(self: &Heap): usize {
-        switch self.arrays.len() {
-            case .ok(count) {
-                return count;
-            }
-            case .err {
-                return 0;
-            }
-        }
+        return self.arrays.len() catch (problem) {
+            return 0;
+        };
     }
 
     pub fn array_length(self: &Heap, reference: Reference): ?usize {
@@ -424,17 +396,14 @@ pub struct Heap {
                 index: array_index_value,
                 generation: reference.generation
             };
-            switch self.arrays.with_result<SlotMapKey, ?usize>(key, fn (arrays: &SlotMap<ArrayObject>, actual_key: SlotMapKey): ?usize {
+            return self.arrays.with_result<SlotMapKey, ?usize>(key, fn (arrays: &SlotMap<ArrayObject>, actual_key: SlotMapKey): ?usize {
                 if &arrays.slots[actual_key.index] is array {
                     return array.elements.len();
                 }
                 return none;
-            }) {
-                case .ok(value) {
-                    return value;
-                }
-                case .err {}
-            }
+            }) catch (problem) {
+                return none;
+            };
         }
         return none;
     }
@@ -445,17 +414,14 @@ pub struct Heap {
                 index: array_index_value,
                 generation: reference.generation
             };
-            switch self.arrays.with_result<SlotMapKey, ?usize>(key, fn (arrays: &SlotMap<ArrayObject>, actual_key: SlotMapKey): ?usize {
+            return self.arrays.with_result<SlotMapKey, ?usize>(key, fn (arrays: &SlotMap<ArrayObject>, actual_key: SlotMapKey): ?usize {
                 if &arrays.slots[actual_key.index] is array {
                     return array.class_index;
                 }
                 return none;
-            }) {
-                case .ok(value) {
-                    return value;
-                }
-                case .err {}
-            }
+            }) catch (problem) {
+                return none;
+            };
         }
         return none;
     }
@@ -469,19 +435,16 @@ pub struct Heap {
                 },
                 index: index
             };
-            switch self.arrays.with_result<IndexedSlotMapKey, ?Value>(lookup, fn (arrays: &SlotMap<ArrayObject>, actual: IndexedSlotMapKey): ?Value {
+            return self.arrays.with_result<IndexedSlotMapKey, ?Value>(lookup, fn (arrays: &SlotMap<ArrayObject>, actual: IndexedSlotMapKey): ?Value {
                 if &arrays.slots[actual.key.index] is array {
                     if actual.index < array.elements.len() {
                         return array.elements[actual.index];
                     }
                 }
                 return none;
-            }) {
-                case .ok(value) {
-                    return value;
-                }
-                case .err {}
-            }
+            }) catch (problem) {
+                return none;
+            };
         }
         return none;
     }
@@ -496,7 +459,7 @@ pub struct Heap {
                 index: index,
                 value: value
             };
-            switch self.arrays.with_result<IndexedValueUpdate, bool>(update, fn (arrays: &SlotMap<ArrayObject>, actual: IndexedValueUpdate): bool {
+            return self.arrays.with_result<IndexedValueUpdate, bool>(update, fn (arrays: &SlotMap<ArrayObject>, actual: IndexedValueUpdate): bool {
                 if take arrays.slots[actual.key.index] is taken_array {
                     var array = taken_array;
                     if actual.index < array.elements.len() {
@@ -507,14 +470,9 @@ pub struct Heap {
                     arrays.slots.insert(actual.key.index, array);
                 }
                 return false;
-            }) {
-                case .ok(updated) {
-                    return updated;
-                }
-                case .err {
-                    return false;
-                }
-            }
+            }) catch (problem) {
+                return false;
+            };
         }
         return false;
     }
@@ -529,19 +487,16 @@ pub struct Heap {
                 },
                 index: actual_slot
             };
-            switch self.objects.with_result<IndexedSlotMapKey, ?Value>(lookup, fn (objects: &SlotMap<Object>, actual: IndexedSlotMapKey): ?Value {
+            return self.objects.with_result<IndexedSlotMapKey, ?Value>(lookup, fn (objects: &SlotMap<Object>, actual: IndexedSlotMapKey): ?Value {
                 if &objects.slots[actual.key.index] is object {
                     if actual.index < object.fields.len() {
                         return object.fields[actual.index];
                     }
                 }
                 return none;
-            }) {
-                case .ok(value) {
-                    return value;
-                }
-                case .err {}
-            }
+            }) catch (problem) {
+                return none;
+            };
         }
         return none;
     }
@@ -557,7 +512,7 @@ pub struct Heap {
                 index: actual_slot,
                 value: value
             };
-            switch self.objects.with_result<IndexedValueUpdate, bool>(update, fn (objects: &SlotMap<Object>, actual: IndexedValueUpdate): bool {
+            return self.objects.with_result<IndexedValueUpdate, bool>(update, fn (objects: &SlotMap<Object>, actual: IndexedValueUpdate): bool {
                 if take objects.slots[actual.key.index] is taken_object {
                     var object = taken_object;
                     if actual.index < object.fields.len() {
@@ -568,14 +523,9 @@ pub struct Heap {
                     objects.slots.insert(actual.key.index, object);
                 }
                 return false;
-            }) {
-                case .ok(updated) {
-                    return updated;
-                }
-                case .err {
-                    return false;
-                }
-            }
+            }) catch (problem) {
+                return false;
+            };
         }
         return false;
     }
@@ -700,12 +650,9 @@ pub struct Heap {
                 return false;
             }
             if !acquired {
-                switch sleep_ms(1) {
-                    case .ok {}
-                    case .err {
-                        return false;
-                    }
-                }
+                sleep_ms(1) catch (problem) {
+                    return false;
+                };
             }
         }
         return true;
@@ -919,34 +866,34 @@ pub fn new_heap(): Heap {
 
 fn assert_int_value(value: Value, expected: i32): void {
     switch value {
-        case .int_value(actual) {
+        .int_value(actual) => {
             assert(actual == expected);
         }
-        case .byte_value {
+        .byte_value => {
             assert(false);
         }
-        case .short_value {
+        .short_value => {
             assert(false);
         }
-        case .char_value {
+        .char_value => {
             assert(false);
         }
-        case .long_value {
+        .long_value => {
             assert(false);
         }
-        case .float_value {
+        .float_value => {
             assert(false);
         }
-        case .double_value {
+        .double_value => {
             assert(false);
         }
-        case .boolean_value {
+        .boolean_value => {
             assert(false);
         }
-        case .return_address_value {
+        .return_address_value => {
             assert(false);
         }
-        case .ref_value {
+        .ref_value => {
             assert(false);
         }
     }

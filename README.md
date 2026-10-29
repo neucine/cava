@@ -58,6 +58,12 @@ If Cyna has a language, runtime, library, or tooling limitation that prevents a 
 
 ## Testing
 
+Cava requires Cyna 0.4.0 with compiler fixes through commit
+`1708585ede9e38c9826761be72beb1f5bdff7072` on
+`neucine/cyna` branch `codex/cyna-040-consumers`. Put that compiler's
+`zig-out/bin` on `PATH` before building or testing Cava. The initial 0.4.0
+release lacks fixes needed by this migration.
+
 Cava tests live beside their production modules as `src/*.test.cy` files.
 Each test file explicitly imports its sibling module and is compiled as an
 independent root:
@@ -65,6 +71,9 @@ independent root:
 ```sh
 cyna test
 ```
+
+Use `cyna build --verbose` for phase progress or `cyna build --timings` for a
+phase summary after compilation.
 
 ## Java Threads
 

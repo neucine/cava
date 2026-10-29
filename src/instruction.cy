@@ -221,74 +221,79 @@ pub struct Instruction {
     pub is_local: bool;
 }
 
-type ExecuteFn = fn (context: &Context, vm: &VM): result<void, InstructionError>;
-type LocalExecuteFn = fn (context: &Context): result<void, InstructionError>;
+type ExecuteFn = fn (context: &Context, vm: &VM): void ! InstructionError;
+type LocalExecuteFn = fn (context: &Context): void ! InstructionError;
 
-pub fn constant_utf8(context: &Context, index: u16): result<string, InstructionError> {
+pub fn constant_utf8(context: &Context, index: u16): string ! InstructionError {
     if index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     switch context.constant_pool[index as usize] {
-        case .utf8(value) {
-            return .ok(string.from(value.bytes()));
-        } else {
-            return .err(InstructionError.invalid_constant);
+        .utf8(value) => {
+            return value;
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 }
 
-pub fn constant_class_name(context: &Context, index: u16): result<string, InstructionError> {
+pub fn constant_class_name(context: &Context, index: u16): string ! InstructionError {
     if index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     switch context.constant_pool[index as usize] {
-        case .class_ref(name_index) {
+        .class_ref(name_index) => {
             return constant_utf8(context, name_index);
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 }
 
-fn constant_utf8_equals(context: &Context, index: u16, expected: string): result<bool, InstructionError> {
+fn constant_utf8_equals(context: &Context, index: u16, expected: string): bool ! InstructionError {
     if index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     switch context.constant_pool[index as usize] {
-        case .utf8(value) {
-            return .ok(value == expected);
-        } else {
-            return .err(InstructionError.invalid_constant);
+        .utf8(value) => {
+            return value == expected;
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 }
 
-pub fn find_class_index_by_constant(context: &Context, vm: &VM, index: u16): result<usize, InstructionError> {
+pub fn find_class_index_by_constant(context: &Context, vm: &VM, index: u16): usize ! InstructionError {
     if index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var name_index: u16 = 0;
     switch context.constant_pool[index as usize] {
-        case .class_ref(actual) {
+        .class_ref(actual) => {
             name_index = actual;
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
     if name_index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     switch context.constant_pool[name_index as usize] {
-        case .utf8(name) {
-            return vm.resolve_class_index(copy name);
-        } else {
-            return .err(InstructionError.invalid_constant);
+        .utf8(name) => {
+            return vm.resolve_class_index(name.clone());
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 }
 
-pub fn find_class_index(context: &Context, vm: &VM, name: string): result<usize, InstructionError> {
-    return vm.resolve_class_index(copy name);
+pub fn find_class_index(context: &Context, vm: &VM, name: string): usize ! InstructionError {
+    return vm.resolve_class_index(name.clone());
 }
 
 pub fn field_runtime_slot(vm: &VM, reference: Reference, field: Field): ?u16 {
@@ -298,218 +303,220 @@ pub fn field_runtime_slot(vm: &VM, reference: Reference, field: Field): ?u16 {
     return none;
 }
 
-fn find_field_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): result<usize, InstructionError> {
+fn find_field_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): usize ! InstructionError {
     var index: usize = 0;
     while index < class.fields.len() {
         const field = &class.fields[index];
         const name_matches = try constant_utf8_equals(context, name_index, field.name);
         const descriptor_matches = try constant_utf8_equals(context, descriptor_index, field.descriptor);
         if name_matches and descriptor_matches {
-            return .ok(index);
+            return index;
         }
         index = index + 1;
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-fn find_field_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_index: u16, descriptor_index: u16): result<Field, InstructionError> {
+fn find_field_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_index: u16, descriptor_index: u16): Field ! InstructionError {
     var current_index = class_index;
     while true {
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
-        switch find_field_index_by_constants(class, context, name_index, descriptor_index) {
-            case .ok(field_index) {
-                return .ok(class.fields[field_index]);
-            }
-            case .err {}
+        const field_index: ?usize = find_field_index_by_constants(class, context, name_index, descriptor_index) catch (problem) {
+            yield none;
+        };
+        if field_index is found {
+            return class.fields[found];
         }
         if class.super_class == "" {
-            return .err(InstructionError.invalid_constant);
+            throw InstructionError.invalid_constant;
         }
-        current_index = try vm.resolve_class_index(copy class.super_class);
+        current_index = try vm.resolve_class_index(class.super_class.clone());
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-pub fn find_field_by_name_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name: string, descriptor: string, is_static: bool): result<Field, InstructionError> {
+pub fn find_field_by_name_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name: string, descriptor: string, is_static: bool): Field ! InstructionError {
     var current_index = class_index;
     while true {
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         if class.field_index(name, descriptor, is_static) is field_index {
-            return .ok(class.fields[field_index]);
+            return class.fields[field_index];
         }
         if class.super_class == "" {
-            return .err(InstructionError.invalid_constant);
+            throw InstructionError.invalid_constant;
         }
-        current_index = try vm.resolve_class_index(copy class.super_class);
+        current_index = try vm.resolve_class_index(class.super_class.clone());
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-pub fn find_field_index(class: &Class, name: string, descriptor: string): result<usize, InstructionError> {
+pub fn find_field_index(class: &Class, name: string, descriptor: string): usize ! InstructionError {
     var index: usize = 0;
     while index < class.fields.len() {
         const field = &class.fields[index];
         if field.name == name and field.descriptor == descriptor {
-            return .ok(index);
+            return index;
         }
         index = index + 1;
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-fn find_static_method_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): result<usize, InstructionError> {
+fn find_static_method_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): usize ! InstructionError {
     var index: usize = 0;
     while index < class.methods.len() {
         const method = &class.methods[index];
         const name_matches = try constant_utf8_equals(context, name_index, method.name);
         const descriptor_matches = try constant_utf8_equals(context, descriptor_index, method.descriptor);
         if method.is_static() and name_matches and descriptor_matches {
-            return .ok(index);
+            return index;
         }
         index = index + 1;
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-fn find_instance_method_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): result<usize, InstructionError> {
+fn find_instance_method_index_by_constants(class: &Class, context: &Context, name_index: u16, descriptor_index: u16): usize ! InstructionError {
     var index: usize = 0;
     while index < class.methods.len() {
         const method = &class.methods[index];
         const name_matches = try constant_utf8_equals(context, name_index, method.name);
         const descriptor_matches = try constant_utf8_equals(context, descriptor_index, method.descriptor);
         if !method.is_static() and name_matches and descriptor_matches {
-            return .ok(index);
+            return index;
         }
         index = index + 1;
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-fn find_static_method_index_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_index: u16, descriptor_index: u16): result<ResolvedMethod, InstructionError> {
+fn find_static_method_index_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_index: u16, descriptor_index: u16): ResolvedMethod ! InstructionError {
     var current_index = class_index;
     while true {
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
-        switch find_static_method_index_by_constants(class, context, name_index, descriptor_index) {
-            case .ok(method_index) {
-                return .ok(ResolvedMethod {
-                    class_index: current_index,
-                    method_index: method_index
-                });
-            }
-            case .err {}
+        const method_index: ?usize = find_static_method_index_by_constants(class, context, name_index, descriptor_index) catch (problem) {
+            yield none;
+        };
+        if method_index is found {
+            return ResolvedMethod {
+                class_index: current_index,
+                method_index: found
+            };
         }
         if class.super_class == "" {
-            return .err(InstructionError.invalid_constant);
+            throw InstructionError.invalid_constant;
         }
-        current_index = try vm.resolve_class_index(copy class.super_class);
+        current_index = try vm.resolve_class_index(class.super_class.clone());
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-fn find_instance_method_index_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_index: u16, descriptor_index: u16): result<ResolvedMethod, InstructionError> {
+fn find_instance_method_index_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_index: u16, descriptor_index: u16): ResolvedMethod ! InstructionError {
     var current_index = class_index;
     while true {
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
-        switch find_instance_method_index_by_constants(class, context, name_index, descriptor_index) {
-            case .ok(method_index) {
-                return .ok(ResolvedMethod {
-                    class_index: current_index,
-                    method_index: method_index
-                });
-            }
-            case .err {}
+        const method_index: ?usize = find_instance_method_index_by_constants(class, context, name_index, descriptor_index) catch (problem) {
+            yield none;
+        };
+        if method_index is found {
+            return ResolvedMethod {
+                class_index: current_index,
+                method_index: found
+            };
         }
         if class.super_class == "" {
-            return .err(InstructionError.invalid_constant);
+            throw InstructionError.invalid_constant;
         }
-        current_index = try vm.resolve_class_index(copy class.super_class);
+        current_index = try vm.resolve_class_index(class.super_class.clone());
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-fn find_interface_method_index_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_index: u16, descriptor_index: u16): result<ResolvedMethod, InstructionError> {
+fn find_interface_method_index_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_index: u16, descriptor_index: u16): ResolvedMethod ! InstructionError {
     if class_index >= vm.method_area.classes.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var classes = vm.method_area.classes[..];
-    switch find_instance_method_index_by_constants(&classes[class_index], context, name_index, descriptor_index) {
-        case .ok(method_index) {
-            return .ok(ResolvedMethod {
-                class_index: class_index,
-                method_index: method_index
-            });
-        }
-        case .err {}
+    const method_index: ?usize = find_instance_method_index_by_constants(&classes[class_index], context, name_index, descriptor_index) catch (problem) {
+        yield none;
+    };
+    if method_index is found {
+        return ResolvedMethod {
+            class_index: class_index,
+            method_index: found
+        };
     }
 
     var interface_index: usize = 0;
     while interface_index < classes[class_index].interfaces.len() {
-        switch vm.resolve_class_index(copy classes[class_index].interfaces[interface_index]) {
-            case .ok(parent_index) {
-                switch find_interface_method_index_in_hierarchy(context, vm, parent_index, name_index, descriptor_index) {
-                    case .ok(found) {
-                        return .ok(found);
-                    }
-                    case .err {}
-                }
+        const parent_index: ?usize = vm.resolve_class_index(classes[class_index].interfaces[interface_index].clone()) catch (problem) {
+            yield none;
+        };
+        if parent_index is parent {
+            const method: ?ResolvedMethod = find_interface_method_index_in_hierarchy(context, vm, parent, name_index, descriptor_index) catch (problem) {
+                yield none;
+            };
+            if method is found {
+                return found;
             }
-            case .err {}
         }
         interface_index = interface_index + 1;
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-pub fn find_instance_method_by_name_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name: string, descriptor: string): result<ResolvedMethod, InstructionError> {
+pub fn find_instance_method_by_name_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name: string, descriptor: string): ResolvedMethod ! InstructionError {
     var current_index = class_index;
     while true {
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         if class.method_index(name, descriptor, false) is method_index {
-            return .ok(ResolvedMethod {
+            return ResolvedMethod {
                 class_index: current_index,
                 method_index: method_index as usize
-            });
+            };
         }
         if class.super_class == "" {
-            return .err(InstructionError.invalid_constant);
+            throw InstructionError.invalid_constant;
         }
-        current_index = try vm.resolve_class_index(copy class.super_class);
+        current_index = try vm.resolve_class_index(class.super_class.clone());
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-pub fn resolve_field(context: &Context, vm: &VM, index: u16): result<Field, InstructionError> {
+pub fn resolve_field(context: &Context, vm: &VM, index: u16): Field ! InstructionError {
     if index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     var class_index: u16 = 0;
     var name_and_type_index: u16 = 0;
     switch context.constant_pool[index as usize] {
-        case .field_ref(member) {
+        .field_ref(member) => {
             class_index = member.class_index;
             name_and_type_index = member.name_and_type_index;
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var name_index: u16 = 0;
     var descriptor_index: u16 = 0;
     switch context.constant_pool[name_and_type_index as usize] {
-        case .name_and_type(pair) {
+        .name_and_type(pair) => {
             name_index = pair.name_index;
             descriptor_index = pair.descriptor_index;
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 
@@ -517,33 +524,35 @@ pub fn resolve_field(context: &Context, vm: &VM, index: u16): result<Field, Inst
     return find_field_in_hierarchy(context, vm, actual_class_index, name_index, descriptor_index);
 }
 
-pub fn resolve_static_method(context: &Context, vm: &VM, index: u16): result<ResolvedMethod, InstructionError> {
+pub fn resolve_static_method(context: &Context, vm: &VM, index: u16): ResolvedMethod ! InstructionError {
     if index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     var class_index: u16 = 0;
     var name_and_type_index: u16 = 0;
     switch context.constant_pool[index as usize] {
-        case .method_ref(member) {
+        .method_ref(member) => {
             class_index = member.class_index;
             name_and_type_index = member.name_and_type_index;
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var name_index: u16 = 0;
     var descriptor_index: u16 = 0;
     switch context.constant_pool[name_and_type_index as usize] {
-        case .name_and_type(pair) {
+        .name_and_type(pair) => {
             name_index = pair.name_index;
             descriptor_index = pair.descriptor_index;
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 
@@ -551,33 +560,35 @@ pub fn resolve_static_method(context: &Context, vm: &VM, index: u16): result<Res
     return find_static_method_index_in_hierarchy(context, vm, actual_class_index, name_index, descriptor_index);
 }
 
-pub fn resolve_instance_method(context: &Context, vm: &VM, index: u16): result<ResolvedMethod, InstructionError> {
+pub fn resolve_instance_method(context: &Context, vm: &VM, index: u16): ResolvedMethod ! InstructionError {
     if index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     var class_index: u16 = 0;
     var name_and_type_index: u16 = 0;
     switch context.constant_pool[index as usize] {
-        case .method_ref(member) {
+        .method_ref(member) => {
             class_index = member.class_index;
             name_and_type_index = member.name_and_type_index;
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var name_index: u16 = 0;
     var descriptor_index: u16 = 0;
     switch context.constant_pool[name_and_type_index as usize] {
-        case .name_and_type(pair) {
+        .name_and_type(pair) => {
             name_index = pair.name_index;
             descriptor_index = pair.descriptor_index;
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 
@@ -585,33 +596,35 @@ pub fn resolve_instance_method(context: &Context, vm: &VM, index: u16): result<R
     return find_instance_method_index_in_hierarchy(context, vm, actual_class_index, name_index, descriptor_index);
 }
 
-pub fn resolve_interface_method(context: &Context, vm: &VM, index: u16): result<ResolvedMethod, InstructionError> {
+pub fn resolve_interface_method(context: &Context, vm: &VM, index: u16): ResolvedMethod ! InstructionError {
     if index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     var class_index: u16 = 0;
     var name_and_type_index: u16 = 0;
     switch context.constant_pool[index as usize] {
-        case .interface_method_ref(member) {
+        .interface_method_ref(member) => {
             class_index = member.class_index;
             name_and_type_index = member.name_and_type_index;
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var name_index: u16 = 0;
     var descriptor_index: u16 = 0;
     switch context.constant_pool[name_and_type_index as usize] {
-        case .name_and_type(pair) {
+        .name_and_type(pair) => {
             name_index = pair.name_index;
             descriptor_index = pair.descriptor_index;
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 
@@ -625,21 +638,22 @@ fn push_int(context: &Context, value: i32): void {
 
 fn expect_int(value: Value): i32 {
     switch value {
-        case .int_value(actual) {
+        .int_value(actual) => {
             return actual;
         }
-        case .boolean_value(actual) {
+        .boolean_value(actual) => {
             return actual as i32;
         }
-        case .byte_value(actual) {
+        .byte_value(actual) => {
             return actual as i32;
         }
-        case .short_value(actual) {
+        .short_value(actual) => {
             return actual as i32;
         }
-        case .char_value(actual) {
+        .char_value(actual) => {
             return actual as i32;
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
@@ -648,9 +662,10 @@ fn expect_int(value: Value): i32 {
 
 fn expect_ref(value: Value): Reference {
     switch value {
-        case .ref_value(actual) {
+        .ref_value(actual) => {
             return actual;
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
@@ -659,9 +674,10 @@ fn expect_ref(value: Value): Reference {
 
 fn expect_long(value: Value): i64 {
     switch value {
-        case .long_value(actual) {
+        .long_value(actual) => {
             return actual;
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
@@ -670,9 +686,10 @@ fn expect_long(value: Value): i64 {
 
 fn expect_float(value: Value): f32 {
     switch value {
-        case .float_value(actual) {
+        .float_value(actual) => {
             return actual;
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
@@ -681,9 +698,10 @@ fn expect_float(value: Value): f32 {
 
 fn expect_double(value: Value): f64 {
     switch value {
-        case .double_value(actual) {
+        .double_value(actual) => {
             return actual;
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
@@ -692,9 +710,10 @@ fn expect_double(value: Value): f64 {
 
 fn expect_return_address(value: Value): u32 {
     switch value {
-        case .return_address_value(actual) {
+        .return_address_value(actual) => {
             return actual;
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
@@ -765,12 +784,13 @@ fn load_ref(context: &Context, index: u16): void {
 fn store_ref_like(context: &Context, index: u16): void {
     const value = context.frame.pop();
     switch value {
-        case .ref_value(reference) {
+        .ref_value(reference) => {
             context.frame.store(index, .ref_value(reference));
         }
-        case .return_address_value(address) {
+        .return_address_value(address) => {
             context.frame.store(index, .return_address_value(address));
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
@@ -778,12 +798,13 @@ fn store_ref_like(context: &Context, index: u16): void {
 
 fn is_category2(value: Value): bool {
     switch value {
-        case .long_value {
+        .long_value => {
             return true;
         }
-        case .double_value {
+        .double_value => {
             return true;
-        } else {
+        }
+        _ => {
             return false;
         }
     }
@@ -800,71 +821,72 @@ fn wide_bits(value: ConstantWide): u64 {
     return ((value.high_bytes as u64) << 32) | (value.low_bytes as u64);
 }
 
-fn load_constant(context: &Context, vm: &VM, index: u16, wide: bool): result<void, InstructionError> {
+fn load_constant(context: &Context, vm: &VM, index: u16, wide: bool): void ! InstructionError {
     if index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     const constant = context.constant_pool[index as usize];
     switch constant {
-        case .integer(bits) {
+        .integer(bits) => {
             if wide {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
             context.frame.push(.int_value(bits as! i32));
-            return .ok();
+            return;
         }
-        case .float(bits) {
+        .float(bits) => {
             if wide {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
             context.frame.push(.float_value(bits as! f32));
-            return .ok();
+            return;
         }
-        case .long(bits) {
+        .long(bits) => {
             if !wide {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
             context.frame.push(.long_value(wide_bits(bits) as! i64));
-            return .ok();
+            return;
         }
-        case .double(bits) {
+        .double(bits) => {
             if !wide {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
             context.frame.push(.double_value(wide_bits(bits) as! f64));
-            return .ok();
+            return;
         }
-        case .class_ref(name_index) {
+        .class_ref(name_index) => {
             if wide {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
             return load_class_constant(context, vm, index, name_index);
         }
-        case .string_ref(utf8_index) {
+        .string_ref(utf8_index) => {
             if wide {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
             return load_string_constant(context, vm, utf8_index);
         }
-        case .method_type(descriptor_index) {
+        .method_type(descriptor_index) => {
             if wide {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
             return load_method_type_constant(context, vm, descriptor_index);
         }
-        case .method_handle(handle) {
+        .method_handle(handle) => {
             if wide {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
             return load_method_handle_constant(context, vm, handle);
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 }
 
-fn load_class_constant(context: &Context, vm: &VM, constant_index: u16, name_index: u16): result<void, InstructionError> {
+fn load_class_constant(context: &Context, vm: &VM, constant_index: u16, name_index: u16): void ! InstructionError {
     const ignored = name_index;
     const target_class_index = try find_class_index_by_constant(context, vm, constant_index);
     const class_class_index = try vm.resolve_class_index("java/lang/Class");
@@ -875,45 +897,44 @@ fn load_class_constant(context: &Context, vm: &VM, constant_index: u16, name_ind
         target_class.class_object = vm.heap.allocate_object(class_class_index, class_class);
     }
     context.frame.push(.ref_value(target_class.class_object));
-    return .ok();
+    return;
 }
 
-fn load_string_constant(context: &Context, vm: &VM, utf8_index: u16): result<void, InstructionError> {
+fn load_string_constant(context: &Context, vm: &VM, utf8_index: u16): void ! InstructionError {
     if utf8_index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     var value: []const u8 = "".bytes();
     switch context.constant_pool[utf8_index as usize] {
-        case .utf8(actual) {
+        .utf8(actual) => {
             value = actual.bytes();
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 
-    switch vm.method_area.resolve_class("java/lang/String") {
-        case .ok {}
-        case .err {
-            return .err(InstructionError.invalid_constant);
-        }
-    }
+    const ignored_class = vm.method_area.resolve_class("java/lang/String") catch (problem) {
+        throw InstructionError.invalid_constant;
+    };
     const reference = try vm.allocate_java_string(value);
     context.frame.push(.ref_value(reference));
-    return .ok();
+    return;
 }
 
-fn load_method_type_constant(context: &Context, vm: &VM, descriptor_index: u16): result<void, InstructionError> {
+fn load_method_type_constant(context: &Context, vm: &VM, descriptor_index: u16): void ! InstructionError {
     if descriptor_index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     var descriptor: []const u8 = "".bytes();
     switch context.constant_pool[descriptor_index as usize] {
-        case .utf8(actual) {
+        .utf8(actual) => {
             descriptor = actual.bytes();
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
 
@@ -921,465 +942,468 @@ fn load_method_type_constant(context: &Context, vm: &VM, descriptor_index: u16):
     var classes = vm.method_area.classes[..];
     const reference = vm.heap.intern_method_type(method_type_class_index, &classes[method_type_class_index], descriptor);
     context.frame.push(.ref_value(reference));
-    return .ok();
+    return;
 }
 
-fn load_method_handle_constant(context: &Context, vm: &VM, handle: ConstantMethodHandle): result<void, InstructionError> {
+fn load_method_handle_constant(context: &Context, vm: &VM, handle: ConstantMethodHandle): void ! InstructionError {
     if handle.reference_kind < 1 or handle.reference_kind > 9 {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     if handle.reference_index as usize >= context.constant_pool.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     const method_handle_class_index = try vm.resolve_class_index("java/lang/invoke/MethodHandle");
     var classes = vm.method_area.classes[..];
     const reference = vm.heap.intern_method_handle(method_handle_class_index, &classes[method_handle_class_index], handle.reference_kind, handle.reference_index);
     context.frame.push(.ref_value(reference));
-    return .ok();
+    return;
 }
 
-fn unsupported(context: &Context, vm: &VM): result<void, InstructionError> {
-    return .err(InstructionError.unsupported_opcode);
+fn unsupported(context: &Context, vm: &VM): void ! InstructionError {
+    throw InstructionError.unsupported_opcode;
 }
 
-fn nop(context: &Context): result<void, InstructionError> {
-    return .ok();
+fn nop(context: &Context): void ! InstructionError {
+    return;
 }
 
-fn aconst_null(context: &Context): result<void, InstructionError> {
+fn aconst_null(context: &Context): void ! InstructionError {
     context.frame.push(.ref_value(null_ref));
-    return .ok();
+    return;
 }
 
-fn iconst_m1(context: &Context): result<void, InstructionError> {
+fn iconst_m1(context: &Context): void ! InstructionError {
     push_int(context, 0 - 1);
-    return .ok();
+    return;
 }
 
-fn iconst_0(context: &Context): result<void, InstructionError> {
+fn iconst_0(context: &Context): void ! InstructionError {
     push_int(context, 0);
-    return .ok();
+    return;
 }
 
-fn iconst_1(context: &Context): result<void, InstructionError> {
+fn iconst_1(context: &Context): void ! InstructionError {
     push_int(context, 1);
-    return .ok();
+    return;
 }
 
-fn iconst_2(context: &Context): result<void, InstructionError> {
+fn iconst_2(context: &Context): void ! InstructionError {
     push_int(context, 2);
-    return .ok();
+    return;
 }
 
-fn iconst_3(context: &Context): result<void, InstructionError> {
+fn iconst_3(context: &Context): void ! InstructionError {
     push_int(context, 3);
-    return .ok();
+    return;
 }
 
-fn iconst_4(context: &Context): result<void, InstructionError> {
+fn iconst_4(context: &Context): void ! InstructionError {
     push_int(context, 4);
-    return .ok();
+    return;
 }
 
-fn iconst_5(context: &Context): result<void, InstructionError> {
+fn iconst_5(context: &Context): void ! InstructionError {
     push_int(context, 5);
-    return .ok();
+    return;
 }
 
-fn lconst_0(context: &Context): result<void, InstructionError> {
+fn lconst_0(context: &Context): void ! InstructionError {
     context.frame.push(.long_value(0));
-    return .ok();
+    return;
 }
 
-fn lconst_1(context: &Context): result<void, InstructionError> {
+fn lconst_1(context: &Context): void ! InstructionError {
     context.frame.push(.long_value(1));
-    return .ok();
+    return;
 }
 
-fn fconst_0(context: &Context): result<void, InstructionError> {
+fn fconst_0(context: &Context): void ! InstructionError {
     context.frame.push(.float_value(0.0));
-    return .ok();
+    return;
 }
 
-fn fconst_1(context: &Context): result<void, InstructionError> {
+fn fconst_1(context: &Context): void ! InstructionError {
     context.frame.push(.float_value(1.0));
-    return .ok();
+    return;
 }
 
-fn fconst_2(context: &Context): result<void, InstructionError> {
+fn fconst_2(context: &Context): void ! InstructionError {
     context.frame.push(.float_value(2.0));
-    return .ok();
+    return;
 }
 
-fn dconst_0(context: &Context): result<void, InstructionError> {
+fn dconst_0(context: &Context): void ! InstructionError {
     context.frame.push(.double_value(0.0));
-    return .ok();
+    return;
 }
 
-fn dconst_1(context: &Context): result<void, InstructionError> {
+fn dconst_1(context: &Context): void ! InstructionError {
     context.frame.push(.double_value(1.0));
-    return .ok();
+    return;
 }
 
-fn ldc(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ldc(context: &Context, vm: &VM): void ! InstructionError {
     return load_constant(context, vm, context.read_u1() as u16, false);
 }
 
-fn ldc_w(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ldc_w(context: &Context, vm: &VM): void ! InstructionError {
     return load_constant(context, vm, context.read_u2(), false);
 }
 
-fn ldc2_w(context: &Context, vm: &VM): result<void, InstructionError> {
+fn ldc2_w(context: &Context, vm: &VM): void ! InstructionError {
     return load_constant(context, vm, context.read_u2(), true);
 }
 
-fn bipush(context: &Context): result<void, InstructionError> {
+fn bipush(context: &Context): void ! InstructionError {
     push_int(context, sign_extend_u1(context.read_u1()));
-    return .ok();
+    return;
 }
 
-fn sipush(context: &Context): result<void, InstructionError> {
+fn sipush(context: &Context): void ! InstructionError {
     push_int(context, context.read_i2() as i32);
-    return .ok();
+    return;
 }
 
-fn iload(context: &Context): result<void, InstructionError> {
+fn iload(context: &Context): void ! InstructionError {
     load_int(context, context.read_u1() as u16);
-    return .ok();
+    return;
 }
 
-fn lload(context: &Context): result<void, InstructionError> {
+fn lload(context: &Context): void ! InstructionError {
     load_long(context, context.read_u1() as u16);
-    return .ok();
+    return;
 }
 
-fn fload(context: &Context): result<void, InstructionError> {
+fn fload(context: &Context): void ! InstructionError {
     load_float(context, context.read_u1() as u16);
-    return .ok();
+    return;
 }
 
-fn dload(context: &Context): result<void, InstructionError> {
+fn dload(context: &Context): void ! InstructionError {
     load_double(context, context.read_u1() as u16);
-    return .ok();
+    return;
 }
 
-fn aload(context: &Context): result<void, InstructionError> {
+fn aload(context: &Context): void ! InstructionError {
     load_ref(context, context.read_u1() as u16);
-    return .ok();
+    return;
 }
 
-fn iload_0(context: &Context): result<void, InstructionError> {
+fn iload_0(context: &Context): void ! InstructionError {
     load_int(context, 0);
-    return .ok();
+    return;
 }
 
-fn iload_1(context: &Context): result<void, InstructionError> {
+fn iload_1(context: &Context): void ! InstructionError {
     load_int(context, 1);
-    return .ok();
+    return;
 }
 
-fn iload_2(context: &Context): result<void, InstructionError> {
+fn iload_2(context: &Context): void ! InstructionError {
     load_int(context, 2);
-    return .ok();
+    return;
 }
 
-fn iload_3(context: &Context): result<void, InstructionError> {
+fn iload_3(context: &Context): void ! InstructionError {
     load_int(context, 3);
-    return .ok();
+    return;
 }
 
-fn lload_0(context: &Context): result<void, InstructionError> {
+fn lload_0(context: &Context): void ! InstructionError {
     load_long(context, 0);
-    return .ok();
+    return;
 }
 
-fn lload_1(context: &Context): result<void, InstructionError> {
+fn lload_1(context: &Context): void ! InstructionError {
     load_long(context, 1);
-    return .ok();
+    return;
 }
 
-fn lload_2(context: &Context): result<void, InstructionError> {
+fn lload_2(context: &Context): void ! InstructionError {
     load_long(context, 2);
-    return .ok();
+    return;
 }
 
-fn lload_3(context: &Context): result<void, InstructionError> {
+fn lload_3(context: &Context): void ! InstructionError {
     load_long(context, 3);
-    return .ok();
+    return;
 }
 
-fn fload_0(context: &Context): result<void, InstructionError> {
+fn fload_0(context: &Context): void ! InstructionError {
     load_float(context, 0);
-    return .ok();
+    return;
 }
 
-fn fload_1(context: &Context): result<void, InstructionError> {
+fn fload_1(context: &Context): void ! InstructionError {
     load_float(context, 1);
-    return .ok();
+    return;
 }
 
-fn fload_2(context: &Context): result<void, InstructionError> {
+fn fload_2(context: &Context): void ! InstructionError {
     load_float(context, 2);
-    return .ok();
+    return;
 }
 
-fn fload_3(context: &Context): result<void, InstructionError> {
+fn fload_3(context: &Context): void ! InstructionError {
     load_float(context, 3);
-    return .ok();
+    return;
 }
 
-fn dload_0(context: &Context): result<void, InstructionError> {
+fn dload_0(context: &Context): void ! InstructionError {
     load_double(context, 0);
-    return .ok();
+    return;
 }
 
-fn dload_1(context: &Context): result<void, InstructionError> {
+fn dload_1(context: &Context): void ! InstructionError {
     load_double(context, 1);
-    return .ok();
+    return;
 }
 
-fn dload_2(context: &Context): result<void, InstructionError> {
+fn dload_2(context: &Context): void ! InstructionError {
     load_double(context, 2);
-    return .ok();
+    return;
 }
 
-fn dload_3(context: &Context): result<void, InstructionError> {
+fn dload_3(context: &Context): void ! InstructionError {
     load_double(context, 3);
-    return .ok();
+    return;
 }
 
-fn aload_0(context: &Context): result<void, InstructionError> {
+fn aload_0(context: &Context): void ! InstructionError {
     load_ref(context, 0);
-    return .ok();
+    return;
 }
 
-fn aload_1(context: &Context): result<void, InstructionError> {
+fn aload_1(context: &Context): void ! InstructionError {
     load_ref(context, 1);
-    return .ok();
+    return;
 }
 
-fn aload_2(context: &Context): result<void, InstructionError> {
+fn aload_2(context: &Context): void ! InstructionError {
     load_ref(context, 2);
-    return .ok();
+    return;
 }
 
-fn aload_3(context: &Context): result<void, InstructionError> {
+fn aload_3(context: &Context): void ! InstructionError {
     load_ref(context, 3);
-    return .ok();
+    return;
 }
 
-fn istore(context: &Context): result<void, InstructionError> {
+fn istore(context: &Context): void ! InstructionError {
     store_int(context, context.read_u1() as u16);
-    return .ok();
+    return;
 }
 
-fn lstore(context: &Context): result<void, InstructionError> {
+fn lstore(context: &Context): void ! InstructionError {
     store_long(context, context.read_u1() as u16);
-    return .ok();
+    return;
 }
 
-fn fstore(context: &Context): result<void, InstructionError> {
+fn fstore(context: &Context): void ! InstructionError {
     store_float(context, context.read_u1() as u16);
-    return .ok();
+    return;
 }
 
-fn dstore(context: &Context): result<void, InstructionError> {
+fn dstore(context: &Context): void ! InstructionError {
     store_double(context, context.read_u1() as u16);
-    return .ok();
+    return;
 }
 
-fn astore(context: &Context): result<void, InstructionError> {
+fn astore(context: &Context): void ! InstructionError {
     store_ref_like(context, context.read_u1() as u16);
-    return .ok();
+    return;
 }
 
-fn istore_0(context: &Context): result<void, InstructionError> {
+fn istore_0(context: &Context): void ! InstructionError {
     store_int(context, 0);
-    return .ok();
+    return;
 }
 
-fn istore_1(context: &Context): result<void, InstructionError> {
+fn istore_1(context: &Context): void ! InstructionError {
     store_int(context, 1);
-    return .ok();
+    return;
 }
 
-fn istore_2(context: &Context): result<void, InstructionError> {
+fn istore_2(context: &Context): void ! InstructionError {
     store_int(context, 2);
-    return .ok();
+    return;
 }
 
-fn istore_3(context: &Context): result<void, InstructionError> {
+fn istore_3(context: &Context): void ! InstructionError {
     store_int(context, 3);
-    return .ok();
+    return;
 }
 
-fn lstore_0(context: &Context): result<void, InstructionError> {
+fn lstore_0(context: &Context): void ! InstructionError {
     store_long(context, 0);
-    return .ok();
+    return;
 }
 
-fn lstore_1(context: &Context): result<void, InstructionError> {
+fn lstore_1(context: &Context): void ! InstructionError {
     store_long(context, 1);
-    return .ok();
+    return;
 }
 
-fn lstore_2(context: &Context): result<void, InstructionError> {
+fn lstore_2(context: &Context): void ! InstructionError {
     store_long(context, 2);
-    return .ok();
+    return;
 }
 
-fn lstore_3(context: &Context): result<void, InstructionError> {
+fn lstore_3(context: &Context): void ! InstructionError {
     store_long(context, 3);
-    return .ok();
+    return;
 }
 
-fn fstore_0(context: &Context): result<void, InstructionError> {
+fn fstore_0(context: &Context): void ! InstructionError {
     store_float(context, 0);
-    return .ok();
+    return;
 }
 
-fn fstore_1(context: &Context): result<void, InstructionError> {
+fn fstore_1(context: &Context): void ! InstructionError {
     store_float(context, 1);
-    return .ok();
+    return;
 }
 
-fn fstore_2(context: &Context): result<void, InstructionError> {
+fn fstore_2(context: &Context): void ! InstructionError {
     store_float(context, 2);
-    return .ok();
+    return;
 }
 
-fn fstore_3(context: &Context): result<void, InstructionError> {
+fn fstore_3(context: &Context): void ! InstructionError {
     store_float(context, 3);
-    return .ok();
+    return;
 }
 
-fn dstore_0(context: &Context): result<void, InstructionError> {
+fn dstore_0(context: &Context): void ! InstructionError {
     store_double(context, 0);
-    return .ok();
+    return;
 }
 
-fn dstore_1(context: &Context): result<void, InstructionError> {
+fn dstore_1(context: &Context): void ! InstructionError {
     store_double(context, 1);
-    return .ok();
+    return;
 }
 
-fn dstore_2(context: &Context): result<void, InstructionError> {
+fn dstore_2(context: &Context): void ! InstructionError {
     store_double(context, 2);
-    return .ok();
+    return;
 }
 
-fn dstore_3(context: &Context): result<void, InstructionError> {
+fn dstore_3(context: &Context): void ! InstructionError {
     store_double(context, 3);
-    return .ok();
+    return;
 }
 
-fn astore_0(context: &Context): result<void, InstructionError> {
+fn astore_0(context: &Context): void ! InstructionError {
     store_ref_like(context, 0);
-    return .ok();
+    return;
 }
 
-fn astore_1(context: &Context): result<void, InstructionError> {
+fn astore_1(context: &Context): void ! InstructionError {
     store_ref_like(context, 1);
-    return .ok();
+    return;
 }
 
-fn astore_2(context: &Context): result<void, InstructionError> {
+fn astore_2(context: &Context): void ! InstructionError {
     store_ref_like(context, 2);
-    return .ok();
+    return;
 }
 
-fn astore_3(context: &Context): result<void, InstructionError> {
+fn astore_3(context: &Context): void ! InstructionError {
     store_ref_like(context, 3);
-    return .ok();
+    return;
 }
 
-fn iaload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iaload(context: &Context, vm: &VM): void ! InstructionError {
     push_int(context, expect_int(expect_array_load(context, vm)));
-    return .ok();
+    return;
 }
 
-fn laload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn laload(context: &Context, vm: &VM): void ! InstructionError {
     context.frame.push(.long_value(expect_long(expect_array_load(context, vm))));
-    return .ok();
+    return;
 }
 
-fn faload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn faload(context: &Context, vm: &VM): void ! InstructionError {
     context.frame.push(.float_value(expect_float(expect_array_load(context, vm))));
-    return .ok();
+    return;
 }
 
-fn daload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn daload(context: &Context, vm: &VM): void ! InstructionError {
     context.frame.push(.double_value(expect_double(expect_array_load(context, vm))));
-    return .ok();
+    return;
 }
 
-fn aaload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn aaload(context: &Context, vm: &VM): void ! InstructionError {
     context.frame.push(.ref_value(expect_ref(expect_array_load(context, vm))));
-    return .ok();
+    return;
 }
 
-fn baload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn baload(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_array_load(context, vm);
     switch value {
-        case .byte_value(actual) {
+        .byte_value(actual) => {
             push_int(context, actual as i32);
         }
-        case .boolean_value(actual) {
+        .boolean_value(actual) => {
             push_int(context, actual as i32);
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
-    return .ok();
+    return;
 }
 
-fn caload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn caload(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_array_load(context, vm);
     switch value {
-        case .char_value(actual) {
+        .char_value(actual) => {
             push_int(context, actual as i32);
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
-    return .ok();
+    return;
 }
 
-fn saload(context: &Context, vm: &VM): result<void, InstructionError> {
+fn saload(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_array_load(context, vm);
     switch value {
-        case .short_value(actual) {
+        .short_value(actual) => {
             push_int(context, actual as i32);
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
-    return .ok();
+    return;
 }
 
-fn pop(context: &Context): result<void, InstructionError> {
+fn pop(context: &Context): void ! InstructionError {
     const ignored = context.frame.pop();
-    return .ok();
+    return;
 }
 
-fn pop2(context: &Context): result<void, InstructionError> {
+fn pop2(context: &Context): void ! InstructionError {
     const first = context.frame.pop();
     if !is_category2(first) {
         const second = context.frame.pop();
         const ignored = second;
     }
-    return .ok();
+    return;
 }
 
-fn dup(context: &Context): result<void, InstructionError> {
+fn dup(context: &Context): void ! InstructionError {
     const value = context.frame.pop();
     context.frame.push(value);
     context.frame.push(value);
-    return .ok();
+    return;
 }
 
-fn dup_x1(context: &Context): result<void, InstructionError> {
+fn dup_x1(context: &Context): void ! InstructionError {
     const value1 = context.frame.pop();
     const value2 = context.frame.pop();
     if is_category2(value1) or is_category2(value2) {
@@ -1388,10 +1412,10 @@ fn dup_x1(context: &Context): result<void, InstructionError> {
     context.frame.push(value1);
     context.frame.push(value2);
     context.frame.push(value1);
-    return .ok();
+    return;
 }
 
-fn dup_x2(context: &Context): result<void, InstructionError> {
+fn dup_x2(context: &Context): void ! InstructionError {
     const value1 = context.frame.pop();
     if is_category2(value1) {
         assert(false);
@@ -1401,7 +1425,7 @@ fn dup_x2(context: &Context): result<void, InstructionError> {
         context.frame.push(value1);
         context.frame.push(value2);
         context.frame.push(value1);
-        return .ok();
+        return;
     }
     const value3 = context.frame.pop();
     if is_category2(value3) {
@@ -1411,15 +1435,15 @@ fn dup_x2(context: &Context): result<void, InstructionError> {
     context.frame.push(value3);
     context.frame.push(value2);
     context.frame.push(value1);
-    return .ok();
+    return;
 }
 
-fn dup2(context: &Context): result<void, InstructionError> {
+fn dup2(context: &Context): void ! InstructionError {
     const value1 = context.frame.pop();
     if is_category2(value1) {
         context.frame.push(value1);
         context.frame.push(value1);
-        return .ok();
+        return;
     }
     const value2 = context.frame.pop();
     if is_category2(value2) {
@@ -1429,10 +1453,10 @@ fn dup2(context: &Context): result<void, InstructionError> {
     context.frame.push(value1);
     context.frame.push(value2);
     context.frame.push(value1);
-    return .ok();
+    return;
 }
 
-fn dup2_x1(context: &Context): result<void, InstructionError> {
+fn dup2_x1(context: &Context): void ! InstructionError {
     const value1 = context.frame.pop();
     if is_category2(value1) {
         const value2 = context.frame.pop();
@@ -1442,7 +1466,7 @@ fn dup2_x1(context: &Context): result<void, InstructionError> {
         context.frame.push(value1);
         context.frame.push(value2);
         context.frame.push(value1);
-        return .ok();
+        return;
     }
     const value2 = context.frame.pop();
     const value3 = context.frame.pop();
@@ -1454,10 +1478,10 @@ fn dup2_x1(context: &Context): result<void, InstructionError> {
     context.frame.push(value3);
     context.frame.push(value2);
     context.frame.push(value1);
-    return .ok();
+    return;
 }
 
-fn dup2_x2(context: &Context): result<void, InstructionError> {
+fn dup2_x2(context: &Context): void ! InstructionError {
     const value1 = context.frame.pop();
     if is_category2(value1) {
         const value2 = context.frame.pop();
@@ -1465,7 +1489,7 @@ fn dup2_x2(context: &Context): result<void, InstructionError> {
             context.frame.push(value1);
             context.frame.push(value2);
             context.frame.push(value1);
-            return .ok();
+            return;
         }
         const value3 = context.frame.pop();
         if is_category2(value3) {
@@ -1473,7 +1497,7 @@ fn dup2_x2(context: &Context): result<void, InstructionError> {
             context.frame.push(value3);
             context.frame.push(value2);
             context.frame.push(value1);
-            return .ok();
+            return;
         }
         assert(false);
     }
@@ -1488,7 +1512,7 @@ fn dup2_x2(context: &Context): result<void, InstructionError> {
         context.frame.push(value3);
         context.frame.push(value2);
         context.frame.push(value1);
-        return .ok();
+        return;
     }
     const value4 = context.frame.pop();
     if is_category2(value4) {
@@ -1500,10 +1524,10 @@ fn dup2_x2(context: &Context): result<void, InstructionError> {
     context.frame.push(value3);
     context.frame.push(value2);
     context.frame.push(value1);
-    return .ok();
+    return;
 }
 
-fn swap(context: &Context): result<void, InstructionError> {
+fn swap(context: &Context): void ! InstructionError {
     const value1 = context.frame.pop();
     const value2 = context.frame.pop();
     if is_category2(value1) or is_category2(value2) {
@@ -1511,40 +1535,40 @@ fn swap(context: &Context): result<void, InstructionError> {
     }
     context.frame.push(value1);
     context.frame.push(value2);
-    return .ok();
+    return;
 }
 
-fn iastore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn iastore(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_int(context.frame.pop());
     store_array_value(context, vm, .int_value(value));
-    return .ok();
+    return;
 }
 
-fn lastore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn lastore(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_long(context.frame.pop());
     store_array_value(context, vm, .long_value(value));
-    return .ok();
+    return;
 }
 
-fn fastore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn fastore(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_float(context.frame.pop());
     store_array_value(context, vm, .float_value(value));
-    return .ok();
+    return;
 }
 
-fn dastore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn dastore(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_double(context.frame.pop());
     store_array_value(context, vm, .double_value(value));
-    return .ok();
+    return;
 }
 
-fn aastore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn aastore(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_ref(context.frame.pop());
     store_array_value(context, vm, .ref_value(value));
-    return .ok();
+    return;
 }
 
-fn bastore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn bastore(context: &Context, vm: &VM): void ! InstructionError {
     const raw = expect_int(context.frame.pop());
     const index = expect_int(context.frame.pop());
     const reference = expect_ref(context.frame.pop());
@@ -1553,139 +1577,140 @@ fn bastore(context: &Context, vm: &VM): result<void, InstructionError> {
     }
     if vm.heap.get_element(reference, index as usize) is current {
         switch current {
-            case .boolean_value {
+            .boolean_value => {
                 const low_bit: u8 = (raw & 1) as u8;
                 if vm.heap.set_element(reference, index as usize, .boolean_value(low_bit)) {
-                    return .ok();
+                    return;
                 }
             }
-            case .byte_value {
+            .byte_value => {
                 const low_bits: u8 = (raw & 255) as u8;
                 if vm.heap.set_element(reference, index as usize, .byte_value(low_bits as! i8)) {
-                    return .ok();
+                    return;
                 }
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
     }
     assert(false);
-    return .ok();
+    return;
 }
 
-fn castore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn castore(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_int(context.frame.pop());
     const low_bits: u16 = (value & 65535) as u16;
     store_array_value(context, vm, .char_value(low_bits));
-    return .ok();
+    return;
 }
 
-fn sastore(context: &Context, vm: &VM): result<void, InstructionError> {
+fn sastore(context: &Context, vm: &VM): void ! InstructionError {
     const value = expect_int(context.frame.pop());
     const low_bits: u16 = (value & 65535) as u16;
     store_array_value(context, vm, .short_value(low_bits as! i16));
-    return .ok();
+    return;
 }
 
-fn iadd(context: &Context): result<void, InstructionError> {
+fn iadd(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 +% value2);
-    return .ok();
+    return;
 }
 
-fn ladd(context: &Context): result<void, InstructionError> {
+fn ladd(context: &Context): void ! InstructionError {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 +% value2));
-    return .ok();
+    return;
 }
 
-fn fadd(context: &Context): result<void, InstructionError> {
+fn fadd(context: &Context): void ! InstructionError {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     context.frame.push(.float_value(value1 + value2));
-    return .ok();
+    return;
 }
 
-fn dadd(context: &Context): result<void, InstructionError> {
+fn dadd(context: &Context): void ! InstructionError {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     context.frame.push(.double_value(value1 + value2));
-    return .ok();
+    return;
 }
 
-fn isub(context: &Context): result<void, InstructionError> {
+fn isub(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 -% value2);
-    return .ok();
+    return;
 }
 
-fn lsub(context: &Context): result<void, InstructionError> {
+fn lsub(context: &Context): void ! InstructionError {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 -% value2));
-    return .ok();
+    return;
 }
 
-fn fsub(context: &Context): result<void, InstructionError> {
+fn fsub(context: &Context): void ! InstructionError {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     context.frame.push(.float_value(value1 - value2));
-    return .ok();
+    return;
 }
 
-fn dsub(context: &Context): result<void, InstructionError> {
+fn dsub(context: &Context): void ! InstructionError {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     context.frame.push(.double_value(value1 - value2));
-    return .ok();
+    return;
 }
 
-fn imul(context: &Context): result<void, InstructionError> {
+fn imul(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 *% value2);
-    return .ok();
+    return;
 }
 
-fn lmul(context: &Context): result<void, InstructionError> {
+fn lmul(context: &Context): void ! InstructionError {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 *% value2));
-    return .ok();
+    return;
 }
 
-fn fmul(context: &Context): result<void, InstructionError> {
+fn fmul(context: &Context): void ! InstructionError {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     context.frame.push(.float_value(value1 * value2));
-    return .ok();
+    return;
 }
 
-fn dmul(context: &Context): result<void, InstructionError> {
+fn dmul(context: &Context): void ! InstructionError {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     context.frame.push(.double_value(value1 * value2));
-    return .ok();
+    return;
 }
 
-fn fdiv(context: &Context): result<void, InstructionError> {
+fn fdiv(context: &Context): void ! InstructionError {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     context.frame.push(.float_value(value1 / value2));
-    return .ok();
+    return;
 }
 
-fn ddiv(context: &Context): result<void, InstructionError> {
+fn ddiv(context: &Context): void ! InstructionError {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     context.frame.push(.double_value(value1 / value2));
-    return .ok();
+    return;
 }
 
-fn idiv(context: &Context): result<void, InstructionError> {
+fn idiv(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     if value2 == 0 {
@@ -1697,10 +1722,10 @@ fn idiv(context: &Context): result<void, InstructionError> {
     } else {
         push_int(context, value1 / value2);
     }
-    return .ok();
+    return;
 }
 
-fn ldiv(context: &Context): result<void, InstructionError> {
+fn ldiv(context: &Context): void ! InstructionError {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     if value2 == 0 {
@@ -1712,192 +1737,192 @@ fn ldiv(context: &Context): result<void, InstructionError> {
     } else {
         context.frame.push(.long_value(value1 / value2));
     }
-    return .ok();
+    return;
 }
 
-fn irem(context: &Context): result<void, InstructionError> {
+fn irem(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     if value2 == 0 {
         assert(false);
     }
     push_int(context, value1 % value2);
-    return .ok();
+    return;
 }
 
-fn lrem(context: &Context): result<void, InstructionError> {
+fn lrem(context: &Context): void ! InstructionError {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     if value2 == 0 {
         assert(false);
     }
     context.frame.push(.long_value(value1 % value2));
-    return .ok();
+    return;
 }
 
-fn ineg(context: &Context): result<void, InstructionError> {
+fn ineg(context: &Context): void ! InstructionError {
     const value = expect_int(context.frame.pop());
     push_int(context, 0 -% value);
-    return .ok();
+    return;
 }
 
-fn lneg(context: &Context): result<void, InstructionError> {
+fn lneg(context: &Context): void ! InstructionError {
     const value = expect_long(context.frame.pop());
     context.frame.push(.long_value(0 -% value));
-    return .ok();
+    return;
 }
 
-fn fneg(context: &Context): result<void, InstructionError> {
+fn fneg(context: &Context): void ! InstructionError {
     const value = expect_float(context.frame.pop());
     const zero: f32 = 0.0;
     context.frame.push(.float_value(zero - value));
-    return .ok();
+    return;
 }
 
-fn dneg(context: &Context): result<void, InstructionError> {
+fn dneg(context: &Context): void ! InstructionError {
     const value = expect_double(context.frame.pop());
     context.frame.push(.double_value(0.0 - value));
-    return .ok();
+    return;
 }
 
-fn ishl(context: &Context): result<void, InstructionError> {
+fn ishl(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 << (value2 & 31));
-    return .ok();
+    return;
 }
 
-fn lshl(context: &Context): result<void, InstructionError> {
+fn lshl(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 << (value2 & 63)));
-    return .ok();
+    return;
 }
 
-fn ishr(context: &Context): result<void, InstructionError> {
+fn ishr(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 >> (value2 & 31));
-    return .ok();
+    return;
 }
 
-fn lshr(context: &Context): result<void, InstructionError> {
+fn lshr(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 >> (value2 & 63)));
-    return .ok();
+    return;
 }
 
-fn iushr(context: &Context): result<void, InstructionError> {
+fn iushr(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     const bits: u32 = value1 as! u32;
     push_int(context, (bits >> (value2 & 31)) as! i32);
-    return .ok();
+    return;
 }
 
-fn lushr(context: &Context): result<void, InstructionError> {
+fn lushr(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     const bits: u64 = value1 as! u64;
     context.frame.push(.long_value((bits >> (value2 & 63)) as! i64));
-    return .ok();
+    return;
 }
 
-fn iand(context: &Context): result<void, InstructionError> {
+fn iand(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 & value2);
-    return .ok();
+    return;
 }
 
-fn land(context: &Context): result<void, InstructionError> {
+fn land(context: &Context): void ! InstructionError {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 & value2));
-    return .ok();
+    return;
 }
 
-fn ior(context: &Context): result<void, InstructionError> {
+fn ior(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, value1 | value2);
-    return .ok();
+    return;
 }
 
-fn lor(context: &Context): result<void, InstructionError> {
+fn lor(context: &Context): void ! InstructionError {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value(value1 | value2));
-    return .ok();
+    return;
 }
 
-fn ixor(context: &Context): result<void, InstructionError> {
+fn ixor(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     push_int(context, (value1 | value2) -% (value1 & value2));
-    return .ok();
+    return;
 }
 
-fn lxor(context: &Context): result<void, InstructionError> {
+fn lxor(context: &Context): void ! InstructionError {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     context.frame.push(.long_value((value1 | value2) -% (value1 & value2)));
-    return .ok();
+    return;
 }
 
-fn iinc(context: &Context): result<void, InstructionError> {
+fn iinc(context: &Context): void ! InstructionError {
     const index = context.read_u1() as u16;
     const increment = sign_extend_u1(context.read_u1());
     const value = expect_int(context.frame.load(index));
     context.frame.store(index, .int_value(value +% increment));
-    return .ok();
+    return;
 }
 
-fn i2l(context: &Context): result<void, InstructionError> {
+fn i2l(context: &Context): void ! InstructionError {
     context.frame.push(.long_value(expect_int(context.frame.pop()) as i64));
-    return .ok();
+    return;
 }
 
-fn i2f(context: &Context): result<void, InstructionError> {
+fn i2f(context: &Context): void ! InstructionError {
     const value = expect_int(context.frame.pop());
     const zero: f32 = 0.0;
     context.frame.push(.float_value(value + zero));
-    return .ok();
+    return;
 }
 
-fn i2d(context: &Context): result<void, InstructionError> {
+fn i2d(context: &Context): void ! InstructionError {
     const value = expect_int(context.frame.pop());
     const zero: f64 = 0.0;
     context.frame.push(.double_value(value + zero));
-    return .ok();
+    return;
 }
 
-fn l2i(context: &Context): result<void, InstructionError> {
+fn l2i(context: &Context): void ! InstructionError {
     const value = expect_long(context.frame.pop());
     const low_bits: u32 = (value & 4294967295) as u32;
     push_int(context, low_bits as! i32);
-    return .ok();
+    return;
 }
 
-fn l2f(context: &Context): result<void, InstructionError> {
+fn l2f(context: &Context): void ! InstructionError {
     const value = expect_long(context.frame.pop());
     const zero: f32 = 0.0;
     context.frame.push(.float_value(value + zero));
-    return .ok();
+    return;
 }
 
-fn l2d(context: &Context): result<void, InstructionError> {
+fn l2d(context: &Context): void ! InstructionError {
     const value = expect_long(context.frame.pop());
     const zero: f64 = 0.0;
     context.frame.push(.double_value(value + zero));
-    return .ok();
+    return;
 }
 
-fn f2d(context: &Context): result<void, InstructionError> {
+fn f2d(context: &Context): void ! InstructionError {
     const value = expect_float(context.frame.pop());
     context.frame.push(.double_value(value as f64));
-    return .ok();
+    return;
 }
 
 fn jvm_f2i_value(value: f32): i32 {
@@ -1960,53 +1985,53 @@ fn jvm_d2l_value(value: f64): i64 {
     return value as i64;
 }
 
-fn f2i(context: &Context): result<void, InstructionError> {
+fn f2i(context: &Context): void ! InstructionError {
     push_int(context, jvm_f2i_value(expect_float(context.frame.pop())));
-    return .ok();
+    return;
 }
 
-fn f2l(context: &Context): result<void, InstructionError> {
+fn f2l(context: &Context): void ! InstructionError {
     context.frame.push(.long_value(jvm_f2l_value(expect_float(context.frame.pop()))));
-    return .ok();
+    return;
 }
 
-fn d2i(context: &Context): result<void, InstructionError> {
+fn d2i(context: &Context): void ! InstructionError {
     push_int(context, jvm_d2i_value(expect_double(context.frame.pop())));
-    return .ok();
+    return;
 }
 
-fn d2l(context: &Context): result<void, InstructionError> {
+fn d2l(context: &Context): void ! InstructionError {
     context.frame.push(.long_value(jvm_d2l_value(expect_double(context.frame.pop()))));
-    return .ok();
+    return;
 }
 
-fn d2f(context: &Context): result<void, InstructionError> {
+fn d2f(context: &Context): void ! InstructionError {
     context.frame.push(.float_value(expect_double(context.frame.pop()) as f32));
-    return .ok();
+    return;
 }
 
-fn i2b(context: &Context): result<void, InstructionError> {
+fn i2b(context: &Context): void ! InstructionError {
     const value = expect_int(context.frame.pop());
     const low_bits: u8 = (value & 255) as u8;
     push_int(context, (low_bits as! i8) as i32);
-    return .ok();
+    return;
 }
 
-fn i2c(context: &Context): result<void, InstructionError> {
+fn i2c(context: &Context): void ! InstructionError {
     const value = expect_int(context.frame.pop());
     const low_bits: u16 = (value & 65535) as u16;
     push_int(context, low_bits as i32);
-    return .ok();
+    return;
 }
 
-fn i2s(context: &Context): result<void, InstructionError> {
+fn i2s(context: &Context): void ! InstructionError {
     const value = expect_int(context.frame.pop());
     const low_bits: u16 = (value & 65535) as u16;
     push_int(context, (low_bits as! i16) as i32);
-    return .ok();
+    return;
 }
 
-fn lcmp(context: &Context): result<void, InstructionError> {
+fn lcmp(context: &Context): void ! InstructionError {
     const value2 = expect_long(context.frame.pop());
     const value1 = expect_long(context.frame.pop());
     if value1 > value2 {
@@ -2016,10 +2041,10 @@ fn lcmp(context: &Context): result<void, InstructionError> {
     } else {
         push_int(context, 0 - 1);
     }
-    return .ok();
+    return;
 }
 
-fn fcmpl(context: &Context): result<void, InstructionError> {
+fn fcmpl(context: &Context): void ! InstructionError {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 < value2 {
@@ -2029,10 +2054,10 @@ fn fcmpl(context: &Context): result<void, InstructionError> {
     } else {
         push_int(context, 1);
     }
-    return .ok();
+    return;
 }
 
-fn fcmpg(context: &Context): result<void, InstructionError> {
+fn fcmpg(context: &Context): void ! InstructionError {
     const value2 = expect_float(context.frame.pop());
     const value1 = expect_float(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 > value2 {
@@ -2042,10 +2067,10 @@ fn fcmpg(context: &Context): result<void, InstructionError> {
     } else {
         push_int(context, 0 - 1);
     }
-    return .ok();
+    return;
 }
 
-fn dcmpl(context: &Context): result<void, InstructionError> {
+fn dcmpl(context: &Context): void ! InstructionError {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 < value2 {
@@ -2055,10 +2080,10 @@ fn dcmpl(context: &Context): result<void, InstructionError> {
     } else {
         push_int(context, 1);
     }
-    return .ok();
+    return;
 }
 
-fn dcmpg(context: &Context): result<void, InstructionError> {
+fn dcmpg(context: &Context): void ! InstructionError {
     const value2 = expect_double(context.frame.pop());
     const value1 = expect_double(context.frame.pop());
     if value1 != value1 or value2 != value2 or value1 > value2 {
@@ -2068,7 +2093,7 @@ fn dcmpg(context: &Context): result<void, InstructionError> {
     } else {
         push_int(context, 0 - 1);
     }
-    return .ok();
+    return;
 }
 
 fn branch(context: &Context, should_branch: bool): void {
@@ -2078,116 +2103,116 @@ fn branch(context: &Context, should_branch: bool): void {
     }
 }
 
-fn ifeq(context: &Context): result<void, InstructionError> {
+fn ifeq(context: &Context): void ! InstructionError {
     branch(context, expect_int(context.frame.pop()) == 0);
-    return .ok();
+    return;
 }
 
-fn ifne(context: &Context): result<void, InstructionError> {
+fn ifne(context: &Context): void ! InstructionError {
     branch(context, expect_int(context.frame.pop()) != 0);
-    return .ok();
+    return;
 }
 
-fn iflt(context: &Context): result<void, InstructionError> {
+fn iflt(context: &Context): void ! InstructionError {
     branch(context, expect_int(context.frame.pop()) < 0);
-    return .ok();
+    return;
 }
 
-fn ifge(context: &Context): result<void, InstructionError> {
+fn ifge(context: &Context): void ! InstructionError {
     branch(context, expect_int(context.frame.pop()) >= 0);
-    return .ok();
+    return;
 }
 
-fn ifgt(context: &Context): result<void, InstructionError> {
+fn ifgt(context: &Context): void ! InstructionError {
     branch(context, expect_int(context.frame.pop()) > 0);
-    return .ok();
+    return;
 }
 
-fn ifle(context: &Context): result<void, InstructionError> {
+fn ifle(context: &Context): void ! InstructionError {
     branch(context, expect_int(context.frame.pop()) <= 0);
-    return .ok();
+    return;
 }
 
-fn if_icmpeq(context: &Context): result<void, InstructionError> {
+fn if_icmpeq(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 == value2);
-    return .ok();
+    return;
 }
 
-fn if_icmpne(context: &Context): result<void, InstructionError> {
+fn if_icmpne(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 != value2);
-    return .ok();
+    return;
 }
 
-fn if_icmplt(context: &Context): result<void, InstructionError> {
+fn if_icmplt(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 < value2);
-    return .ok();
+    return;
 }
 
-fn if_icmpge(context: &Context): result<void, InstructionError> {
+fn if_icmpge(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 >= value2);
-    return .ok();
+    return;
 }
 
-fn if_icmpgt(context: &Context): result<void, InstructionError> {
+fn if_icmpgt(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 > value2);
-    return .ok();
+    return;
 }
 
-fn if_icmple(context: &Context): result<void, InstructionError> {
+fn if_icmple(context: &Context): void ! InstructionError {
     const value2 = expect_int(context.frame.pop());
     const value1 = expect_int(context.frame.pop());
     branch(context, value1 <= value2);
-    return .ok();
+    return;
 }
 
-fn if_acmpeq(context: &Context): result<void, InstructionError> {
+fn if_acmpeq(context: &Context): void ! InstructionError {
     const value2 = expect_ref(context.frame.pop());
     const value1 = expect_ref(context.frame.pop());
     branch(context, value1.equals(value2));
-    return .ok();
+    return;
 }
 
-fn if_acmpne(context: &Context): result<void, InstructionError> {
+fn if_acmpne(context: &Context): void ! InstructionError {
     const value2 = expect_ref(context.frame.pop());
     const value1 = expect_ref(context.frame.pop());
     branch(context, !value1.equals(value2));
-    return .ok();
+    return;
 }
 
-fn goto_(context: &Context): result<void, InstructionError> {
+fn goto_(context: &Context): void ! InstructionError {
     context.frame.next(context.read_i2() as i32);
-    return .ok();
+    return;
 }
 
-fn goto_w(context: &Context): result<void, InstructionError> {
+fn goto_w(context: &Context): void ! InstructionError {
     context.frame.next(context.read_i4());
-    return .ok();
+    return;
 }
 
-fn jsr(context: &Context): result<void, InstructionError> {
+fn jsr(context: &Context): void ! InstructionError {
     const return_address = context.frame.pc + 3;
     context.frame.push(.return_address_value(return_address));
     context.frame.next(context.read_i2() as i32);
-    return .ok();
+    return;
 }
 
-fn ret(context: &Context): result<void, InstructionError> {
+fn ret(context: &Context): void ! InstructionError {
     const index = context.read_u1() as u16;
     context.frame.pc = expect_return_address(context.frame.load(index));
-    return .ok();
+    return;
 }
 
-fn tableswitch(context: &Context): result<void, InstructionError> {
+fn tableswitch(context: &Context): void ! InstructionError {
     const key = expect_int(context.frame.pop());
     context.padding();
     const default_offset = context.read_i4();
@@ -2202,16 +2227,16 @@ fn tableswitch(context: &Context): result<void, InstructionError> {
         const jump_offset = context.read_i4();
         if key == current {
             context.frame.next(jump_offset);
-            return .ok();
+            return;
         }
         current = current + 1;
     }
 
     context.frame.next(default_offset);
-    return .ok();
+    return;
 }
 
-fn lookupswitch(context: &Context): result<void, InstructionError> {
+fn lookupswitch(context: &Context): void ! InstructionError {
     const key = expect_int(context.frame.pop());
     context.padding();
     const default_offset = context.read_i4();
@@ -2226,60 +2251,60 @@ fn lookupswitch(context: &Context): result<void, InstructionError> {
         const jump_offset = context.read_i4();
         if key == match_value {
             context.frame.next(jump_offset);
-            return .ok();
+            return;
         }
         index = index + 1;
     }
 
     context.frame.next(default_offset);
-    return .ok();
+    return;
 }
 
-fn jsr_w(context: &Context): result<void, InstructionError> {
+fn jsr_w(context: &Context): void ! InstructionError {
     const return_address = context.frame.pc + 5;
     context.frame.push(.return_address_value(return_address));
     context.frame.next(context.read_i4());
-    return .ok();
+    return;
 }
 
-fn ireturn(context: &Context): result<void, InstructionError> {
+fn ireturn(context: &Context): void ! InstructionError {
     const result: FrameResult = .return_value(context.frame.stack.pop());
     context.frame.result = result;
-    return .ok();
+    return;
 }
 
-fn lreturn(context: &Context): result<void, InstructionError> {
+fn lreturn(context: &Context): void ! InstructionError {
     const value: Value = .long_value(expect_long(context.frame.pop()));
     const result: FrameResult = .return_value(value);
     context.frame.result = result;
-    return .ok();
+    return;
 }
 
-fn freturn(context: &Context): result<void, InstructionError> {
+fn freturn(context: &Context): void ! InstructionError {
     const value: Value = .float_value(expect_float(context.frame.pop()));
     const result: FrameResult = .return_value(value);
     context.frame.result = result;
-    return .ok();
+    return;
 }
 
-fn dreturn(context: &Context): result<void, InstructionError> {
+fn dreturn(context: &Context): void ! InstructionError {
     const value: Value = .double_value(expect_double(context.frame.pop()));
     const result: FrameResult = .return_value(value);
     context.frame.result = result;
-    return .ok();
+    return;
 }
 
-fn areturn(context: &Context): result<void, InstructionError> {
+fn areturn(context: &Context): void ! InstructionError {
     const value: Value = .ref_value(expect_ref(context.frame.pop()));
     const result: FrameResult = .return_value(value);
     context.frame.result = result;
-    return .ok();
+    return;
 }
 
-fn return_(context: &Context): result<void, InstructionError> {
+fn return_(context: &Context): void ! InstructionError {
     const result: FrameResult = .return_value(none);
     context.frame.result = result;
-    return .ok();
+    return;
 }
 
 fn value_local_width(value: Value): u16 {
@@ -2350,52 +2375,53 @@ pub fn is_access_controller_do_privileged(classes: []Class, class_index: usize, 
     or descriptor == "(Ljava/security/PrivilegedExceptionAction;Ljava/security/AccessControlContext;)Ljava/lang/Object;";
 }
 
-fn execute_child_method_frame(context: &Context, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
+fn execute_child_method_frame(context: &Context, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): FrameResult ! InstructionError {
     if context.runtime is runtime {
-        return execute_method_frame_with_runtime(copy runtime, vm, class_index, method_index, frame, constant_pool);
+        return execute_method_frame_with_runtime(runtime.alias_handles(), vm, class_index, method_index, frame, constant_pool);
     }
     return execute_method_frame_with_vm(vm, class_index, method_index, frame, constant_pool);
 }
 
-pub fn invoke_privileged_action(context: &Context, vm: &VM, action: Reference): result<?Value, InstructionError> {
+pub fn invoke_privileged_action(context: &Context, vm: &VM, action: Reference): ?Value ! InstructionError {
     if action.is_null() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var action_class_index: usize = 0;
     if vm.heap.object_class_index(action) is actual_class_index {
         action_class_index = actual_class_index;
     } else {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var run_method_index: usize = 0;
     var classes = vm.method_area.classes[..];
     if classes[action_class_index].method_index("run", "()Ljava/lang/Object;", false) is actual_run_method_index {
         run_method_index = actual_run_method_index as usize;
     } else {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var frame = new_frame(action_class_index, run_method_index, classes[action_class_index].methods[run_method_index].max_locals, classes[action_class_index].methods[run_method_index].max_stack);
     frame.store(0, .ref_value(action));
     const result = try execute_child_method_frame(context, vm, action_class_index, run_method_index, frame, context.constant_pool);
     switch result {
-        case .return_value(value) {
-            return .ok(value);
+        .return_value(value) => {
+            const _cava_optional_4: ?Value = value;
+            return _cava_optional_4;
         }
-        case .exception {
-            return .err(InstructionError.invalid_constant);
+        .exception => {
+            throw InstructionError.invalid_constant;
         }
     }
 }
 
-fn invoke_instance_method_direct(context: &Context, vm: &VM, receiver: Reference, name: string, descriptor: string, arguments: &List<Value>): result<?Value, InstructionError> {
+fn invoke_instance_method_direct(context: &Context, vm: &VM, receiver: Reference, name: string, descriptor: string, arguments: &List<Value>): ?Value ! InstructionError {
     if receiver.is_null() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var receiver_class_index: usize = 0;
     if vm.heap.object_class_index(receiver) is actual_receiver_class_index {
         receiver_class_index = actual_receiver_class_index;
     } else {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     const target = try find_instance_method_by_name_in_hierarchy(context, vm, receiver_class_index, name, descriptor);
@@ -2404,7 +2430,7 @@ fn invoke_instance_method_direct(context: &Context, vm: &VM, receiver: Reference
     var target_methods = target_class.methods[..];
     const target_method = &target_methods[target.method_index];
     if target_method.is_native() {
-        return .err(InstructionError.unsupported_native);
+        throw InstructionError.unsupported_native;
     }
 
     var frame = new_frame(target.class_index, target.method_index, target_method.max_locals, target_method.max_stack);
@@ -2420,11 +2446,12 @@ fn invoke_instance_method_direct(context: &Context, vm: &VM, receiver: Reference
 
     const result = try execute_child_method_frame(context, vm, target.class_index, target.method_index, frame, context.constant_pool);
     switch result {
-        case .return_value(value) {
-            return .ok(value);
+        .return_value(value) => {
+            const _cava_optional_3: ?Value = value;
+            return _cava_optional_3;
         }
-        case .exception {
-            return .err(InstructionError.invalid_constant);
+        .exception => {
+            throw InstructionError.invalid_constant;
         }
     }
 }
@@ -2442,57 +2469,59 @@ fn find_class_object_index_instruction(context: &Context, vm: &VM, class_object:
     return none;
 }
 
-fn get_instance_field_by_name(context: &Context, vm: &VM, reference: Reference, class_index: usize, name: string, descriptor: string): result<Value, InstructionError> {
+fn get_instance_field_by_name(context: &Context, vm: &VM, reference: Reference, class_index: usize, name: string, descriptor: string): Value ! InstructionError {
     const field = try find_field_by_name_in_hierarchy(context, vm, class_index, name, descriptor, false);
     if field_runtime_slot(vm, reference, field) is slot {
         if vm.heap.get_field(reference, slot) is value {
-            return .ok(value);
+            return value;
         }
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-fn java_string_bytes_instruction(context: &Context, vm: &VM, reference: Reference): result<[:]u8, InstructionError> {
+fn java_string_bytes_instruction(context: &Context, vm: &VM, reference: Reference): [:]u8 ! InstructionError {
     var value_option = vm.heap.string_bytes(reference);
     if take value_option is value {
-        const bytes = copy value.value;
-        return .ok(bytes);
+        const bytes = value.value.clone();
+        return bytes;
     }
     const string_class_index = try vm.resolve_class_index("java/lang/String");
     const value_field = try get_instance_field_by_name(context, vm, reference, string_class_index, "value", "[C");
     switch value_field {
-        case .ref_value(chars_reference) {
+        .ref_value(chars_reference) => {
             if vm.heap.array_length(chars_reference) is length {
                 var bytes: List<u8> = [];
                 var index: usize = 0;
                 while index < length {
                     if vm.heap.get_element(chars_reference, index) is element {
                         switch element {
-                            case .char_value(ch) {
+                            .char_value(ch) => {
                                 bytes.push(ch as u8);
                             }
-                            case .byte_value(ch) {
+                            .byte_value(ch) => {
                                 bytes.push(ch as u8);
-                            } else {
-                                return .err(InstructionError.invalid_constant);
+                            }
+                            _ => {
+                                throw InstructionError.invalid_constant;
                             }
                         }
                     } else {
-                        return .err(InstructionError.invalid_constant);
+                        throw InstructionError.invalid_constant;
                     }
                     index = index + 1;
                 }
                 const out = byte_buffer(bytes[..]);
-                return .ok(out);
+                return out;
             }
-        } else {
-            return .err(InstructionError.invalid_constant);
+        }
+        _ => {
+            throw InstructionError.invalid_constant;
         }
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-pub fn invoke_reflect_constructor(context: &Context, vm: &VM, constructor: Reference, args_array: Reference): result<?Value, InstructionError> {
+pub fn invoke_reflect_constructor(context: &Context, vm: &VM, constructor: Reference, args_array: Reference): ?Value ! InstructionError {
     const constructor_class_index = try vm.resolve_class_index("java/lang/reflect/Constructor");
     const clazz_value = try get_instance_field_by_name(context, vm, constructor, constructor_class_index, "clazz", "Ljava/lang/Class;");
     const signature_value = try get_instance_field_by_name(context, vm, constructor, constructor_class_index, "signature", "Ljava/lang/String;");
@@ -2503,7 +2532,7 @@ pub fn invoke_reflect_constructor(context: &Context, vm: &VM, constructor: Refer
     if find_class_object_index_instruction(context, vm, clazz_reference) is actual_target_class_index {
         target_class_index = actual_target_class_index;
     } else {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var classes = vm.method_area.classes[..];
     const target_class = &classes[target_class_index];
@@ -2512,7 +2541,7 @@ pub fn invoke_reflect_constructor(context: &Context, vm: &VM, constructor: Refer
     if target_class.method_index("<init>", descriptor, false) is constructor_method_index_value {
         constructor_method_index = constructor_method_index_value as usize;
     } else {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var methods = target_class.methods[..];
     const constructor_method = &methods[constructor_method_index];
@@ -2532,17 +2561,18 @@ pub fn invoke_reflect_constructor(context: &Context, vm: &VM, constructor: Refer
     }
     const result = try execute_child_method_frame(context, vm, target_class_index, constructor_method_index, frame, target_class.constant_pool[..]);
     switch result {
-        case .return_value {
+        .return_value => {
             const out: Value = .ref_value(object);
-            return .ok(out);
+            const _cava_optional_2: ?Value = out;
+            return _cava_optional_2;
         }
-        case .exception {
-            return .err(InstructionError.invalid_constant);
+        .exception => {
+            throw InstructionError.invalid_constant;
         }
     }
 }
 
-fn set_java_system_property(context: &Context, vm: &VM, properties: Reference, key: []const u8, value: []const u8): result<void, InstructionError> {
+fn set_java_system_property(context: &Context, vm: &VM, properties: Reference, key: []const u8, value: []const u8): void ! InstructionError {
     var arguments: List<Value> = [];
     const ignored_string_index = try vm.resolve_class_index("java/lang/String");
     const key_reference = try vm.allocate_java_string(key);
@@ -2551,10 +2581,10 @@ fn set_java_system_property(context: &Context, vm: &VM, properties: Reference, k
     arguments.push(.ref_value(value_reference));
     const result = try invoke_instance_method_direct(context, vm, properties, "setProperty", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;", &arguments);
     const ignored = result;
-    return .ok();
+    return;
 }
 
-pub fn initialize_java_system_properties(context: &Context, vm: &VM, properties: Reference): result<?Value, InstructionError> {
+pub fn initialize_java_system_properties(context: &Context, vm: &VM, properties: Reference): ?Value ! InstructionError {
     try set_java_system_property(context, vm, properties, "java.version".bytes(), "1.8.0_152-ea".bytes());
     try set_java_system_property(context, vm, properties, "java.home".bytes(), "".bytes());
     try set_java_system_property(context, vm, properties, "java.specification.name".bytes(), "Java Platform API Specification".bytes());
@@ -2614,17 +2644,18 @@ pub fn initialize_java_system_properties(context: &Context, vm: &VM, properties:
     try set_java_system_property(context, vm, properties, "socksNonProxyHosts".bytes(), "local|*.local|169.254/16|*.169.254/16".bytes());
     try set_java_system_property(context, vm, properties, "gopherProxySet".bytes(), "false".bytes());
     const out: Value = .ref_value(properties);
-    return .ok(out);
+    const _cava_optional_1: ?Value = out;
+    return _cava_optional_1;
 }
 
-fn invoke_static(context: &Context, vm: &VM): result<void, InstructionError> {
+fn invoke_static(context: &Context, vm: &VM): void ! InstructionError {
     const resolved = try resolve_static_method(context, vm, context.read_u2());
     var classes = vm.method_area.classes[..];
     var class = &classes[resolved.class_index];
     var methods = class.methods[..];
     var method = &methods[resolved.method_index];
     if method.is_abstract() {
-        return .err(InstructionError.unsupported_opcode);
+        throw InstructionError.unsupported_opcode;
     }
 
     const argument_count = try method_argument_count(method.descriptor);
@@ -2644,18 +2675,11 @@ fn invoke_static(context: &Context, vm: &VM): result<void, InstructionError> {
 
     if active_method.is_native() {
         const native_args = native_arguments(arguments);
-        const result = execute_native_method(context, vm, resolved.class_index, resolved.method_index, none, native_args);
-        switch result {
-            case .ok(value) {
-                if value is actual {
-                    context.frame.push(actual);
-                }
-                return .ok();
-            }
-            case .err(error_value) {
-                return .err(error_value);
-            }
+        const value = try execute_native_method(context, vm, resolved.class_index, resolved.method_index, none, native_args);
+        if value is actual {
+            context.frame.push(actual);
         }
+        return;
     } else {
         var frame = new_frame(resolved.class_index, resolved.method_index, active_method.max_locals, active_method.max_stack);
         var local_index: u16 = 0;
@@ -2673,14 +2697,14 @@ fn invoke_static(context: &Context, vm: &VM): result<void, InstructionError> {
     }
 }
 
-fn invoke_special(context: &Context, vm: &VM): result<void, InstructionError> {
+fn invoke_special(context: &Context, vm: &VM): void ! InstructionError {
     const resolved = try resolve_instance_method(context, vm, context.read_u2());
     var classes = vm.method_area.classes[..];
     const class = &classes[resolved.class_index];
     var methods = class.methods[..];
     const method = &methods[resolved.method_index];
     if method.is_abstract() {
-        return .err(InstructionError.unsupported_opcode);
+        throw InstructionError.unsupported_opcode;
     }
 
     const argument_count = try method_argument_count(method.descriptor);
@@ -2693,23 +2717,16 @@ fn invoke_special(context: &Context, vm: &VM): result<void, InstructionError> {
 
     const receiver = expect_ref(context.frame.pop());
     if receiver.is_null() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     if method.is_native() {
         const native_args = native_arguments(arguments);
-        const result = execute_native_method(context, vm, resolved.class_index, resolved.method_index, receiver, native_args);
-        switch result {
-            case .ok(value) {
-                if value is actual {
-                    context.frame.push(actual);
-                }
-                return .ok();
-            }
-            case .err(error_value) {
-                return .err(error_value);
-            }
+        const value = try execute_native_method(context, vm, resolved.class_index, resolved.method_index, receiver, native_args);
+        if value is actual {
+            context.frame.push(actual);
         }
+        return;
     } else {
         var frame = new_frame(resolved.class_index, resolved.method_index, method.max_locals, method.max_stack);
         frame.store(0, .ref_value(receiver));
@@ -2728,7 +2745,7 @@ fn invoke_special(context: &Context, vm: &VM): result<void, InstructionError> {
     }
 }
 
-fn invoke_virtual(context: &Context, vm: &VM): result<void, InstructionError> {
+fn invoke_virtual(context: &Context, vm: &VM): void ! InstructionError {
     const declared = try resolve_instance_method(context, vm, context.read_u2());
     var classes = vm.method_area.classes[..];
     const declared_class = &classes[declared.class_index];
@@ -2744,10 +2761,10 @@ fn invoke_virtual(context: &Context, vm: &VM): result<void, InstructionError> {
 
     const receiver = expect_ref(context.frame.pop());
     if receiver.is_null() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
-    const target_name = copy declared_method.name;
-    const target_descriptor = copy declared_method.descriptor;
+    const target_name = declared_method.name.clone();
+    const target_descriptor = declared_method.descriptor.clone();
     if vm.heap.array_class_index(receiver) is array_class_index {
         if target_name == "clone" and target_descriptor == "()Ljava/lang/Object;" {
             var component_descriptor = "Ljava/lang/Object;".bytes();
@@ -2764,7 +2781,7 @@ fn invoke_virtual(context: &Context, vm: &VM): result<void, InstructionError> {
                             element_index = element_index + 1;
                         }
                         context.frame.push(.ref_value(clone));
-                        return .ok();
+                        return;
                     }
                 }
             }
@@ -2778,53 +2795,39 @@ fn invoke_virtual(context: &Context, vm: &VM): result<void, InstructionError> {
                     element_index = element_index + 1;
                 }
                 context.frame.push(.ref_value(clone));
-                return .ok();
+                return;
             }
         }
         if target_name == "getClass" and target_descriptor == "()Ljava/lang/Class;" {
             const native_args: List<Value> = [];
-            const result = execute_native_method(context, vm, declared.class_index, declared.method_index, receiver, native_args);
-            switch result {
-                case .ok(value) {
-                    if value is actual {
-                        context.frame.push(actual);
-                    }
-                    return .ok();
-                }
-                case .err(error_value) {
-                    return .err(error_value);
-                }
+            const value = try execute_native_method(context, vm, declared.class_index, declared.method_index, receiver, native_args);
+            if value is actual {
+                context.frame.push(actual);
             }
+            return;
         }
     }
     var receiver_class_index: usize = 0;
     if vm.heap.object_class_index(receiver) is actual_receiver_class_index {
         receiver_class_index = actual_receiver_class_index;
     } else {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
-    const target = try find_instance_method_by_name_in_hierarchy(context, vm, receiver_class_index, copy target_name, copy target_descriptor);
+    const target = try find_instance_method_by_name_in_hierarchy(context, vm, receiver_class_index, target_name.clone(), target_descriptor.clone());
     const target_class = &classes[target.class_index];
     var target_methods = target_class.methods[..];
     const target_method = &target_methods[target.method_index];
     if target_method.is_abstract() {
-        return .err(InstructionError.unsupported_opcode);
+        throw InstructionError.unsupported_opcode;
     }
 
     if target_method.is_native() {
         const native_args = native_arguments(arguments);
-        const result = execute_native_method(context, vm, target.class_index, target.method_index, receiver, native_args);
-        switch result {
-            case .ok(value) {
-                if value is actual {
-                    context.frame.push(actual);
-                }
-                return .ok();
-            }
-            case .err(error_value) {
-                return .err(error_value);
-            }
+        const value = try execute_native_method(context, vm, target.class_index, target.method_index, receiver, native_args);
+        if value is actual {
+            context.frame.push(actual);
         }
+        return;
     } else {
         var frame = new_frame(target.class_index, target.method_index, target_method.max_locals, target_method.max_stack);
         frame.store(0, .ref_value(receiver));
@@ -2843,12 +2846,12 @@ fn invoke_virtual(context: &Context, vm: &VM): result<void, InstructionError> {
     }
 }
 
-fn invoke_interface(context: &Context, vm: &VM): result<void, InstructionError> {
+fn invoke_interface(context: &Context, vm: &VM): void ! InstructionError {
     const declared = try resolve_interface_method(context, vm, context.read_u2());
     const count = context.read_u1();
     const zero = context.read_u1();
     if count == 0 or zero != 0 {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     var classes = vm.method_area.classes[..];
@@ -2865,38 +2868,31 @@ fn invoke_interface(context: &Context, vm: &VM): result<void, InstructionError> 
 
     const receiver = expect_ref(context.frame.pop());
     if receiver.is_null() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var receiver_class_index: usize = 0;
     if vm.heap.object_class_index(receiver) is actual_receiver_class_index {
         receiver_class_index = actual_receiver_class_index;
     } else {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
-    const target_name = copy declared_method.name;
-    const target_descriptor = copy declared_method.descriptor;
-    const target = try find_instance_method_by_name_in_hierarchy(context, vm, receiver_class_index, copy target_name, copy target_descriptor);
+    const target_name = declared_method.name.clone();
+    const target_descriptor = declared_method.descriptor.clone();
+    const target = try find_instance_method_by_name_in_hierarchy(context, vm, receiver_class_index, target_name.clone(), target_descriptor.clone());
     const target_class = &classes[target.class_index];
     var target_methods = target_class.methods[..];
     const target_method = &target_methods[target.method_index];
     if target_method.is_abstract() {
-        return .err(InstructionError.unsupported_opcode);
+        throw InstructionError.unsupported_opcode;
     }
 
     if target_method.is_native() {
         const native_args = native_arguments(arguments);
-        const result = execute_native_method(context, vm, target.class_index, target.method_index, receiver, native_args);
-        switch result {
-            case .ok(value) {
-                if value is actual {
-                    context.frame.push(actual);
-                }
-                return .ok();
-            }
-            case .err(error_value) {
-                return .err(error_value);
-            }
+        const value = try execute_native_method(context, vm, target.class_index, target.method_index, receiver, native_args);
+        if value is actual {
+            context.frame.push(actual);
         }
+        return;
     } else {
         var frame = new_frame(target.class_index, target.method_index, target_method.max_locals, target_method.max_stack);
         frame.store(0, .ref_value(receiver));
@@ -2915,75 +2911,72 @@ fn invoke_interface(context: &Context, vm: &VM): result<void, InstructionError> 
     }
 }
 
-fn new_(context: &Context, vm: &VM): result<void, InstructionError> {
+fn new_(context: &Context, vm: &VM): void ! InstructionError {
     const class_index = try find_class_index_by_constant(context, vm, context.read_u2());
     var classes = vm.method_area.classes[..];
     try initialize_static_class(context, vm, class_index);
     const reference = vm.heap.allocate_object_with_hierarchy(class_index, classes);
     context.frame.push(.ref_value(reference));
-    return .ok();
+    return;
 }
 
-fn getstatic(context: &Context, vm: &VM): result<void, InstructionError> {
+fn getstatic(context: &Context, vm: &VM): void ! InstructionError {
     const field = try resolve_field(context, vm, context.read_u2());
     if !field.is_static() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
-    const class_index = try vm.resolve_class_index(copy field.class_name);
+    const class_index = try vm.resolve_class_index(field.class_name.clone());
     try initialize_static_class(context, vm, class_index);
     const slot = field.slot as usize;
     var classes = vm.method_area.classes[..];
     var class = &classes[class_index];
     if slot >= class.static_vars.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     const value = class.static_vars[slot];
     drop field;
     context.frame.push(value);
-    return .ok();
+    return;
 }
 
-fn initialize_static_class(context: &Context, vm: &VM, class_index: usize): result<void, InstructionError> {
+fn initialize_static_class(context: &Context, vm: &VM, class_index: usize): void ! InstructionError {
     if context.runtime is runtime {
         var decision = runtime.initializers.begin(class_index);
         while decision == InitializationDecision.waiting {
             if !runtime.pause(1) {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
             decision = runtime.initializers.begin(class_index);
         }
         if decision == InitializationDecision.failed {
-            return .err(InstructionError.invalid_constant);
+            throw InstructionError.invalid_constant;
         }
         if decision == InitializationDecision.complete or decision == InitializationDecision.recursive {
-            return .ok();
+            return;
         }
-        const result = initialize_static_class_body(context, vm, class_index);
-        switch result {
-            case .ok {
-                runtime.initializers.finish(class_index, true);
-            }
-            case .err {
-                runtime.initializers.finish(class_index, false);
-            }
-        }
-        return result;
+        initialize_static_class_body(context, vm, class_index) catch (problem) {
+            runtime.initializers.finish(class_index, false);
+            throw problem;
+        };
+        runtime.initializers.finish(class_index, true);
+        return;
     }
-    return initialize_static_class_body(context, vm, class_index);
+    try initialize_static_class_body(context, vm, class_index);
+    return;
 }
 
-fn initialize_static_class_body(context: &Context, vm: &VM, class_index: usize): result<void, InstructionError> {
+fn initialize_static_class_body(context: &Context, vm: &VM, class_index: usize): void ! InstructionError {
     if class_index >= vm.method_area.classes.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     var classes = vm.method_area.classes[..];
     const class = &classes[class_index];
     if class.linked {
-        return .ok();
+        return;
     }
-    const class_name = copy class.name;
+    const class_name = class.name.clone();
     if class.super_class.len() > 0 {
-        if find_loaded_class_index(classes, copy class.super_class) is super_index {
+        if find_loaded_class_index(classes, class.super_class.clone()) is super_index {
             try initialize_static_class(context, vm, super_index);
         }
     }
@@ -2995,9 +2988,9 @@ fn initialize_static_class_body(context: &Context, vm: &VM, class_index: usize):
         var frame = new_frame(class_index, clinit_index, active_class.methods[clinit_index].max_locals, active_class.methods[clinit_index].max_stack);
         const result = try execute_child_method_frame(context, vm, class_index, clinit_index, frame, active_class.constant_pool[..]);
         switch result {
-            case .return_value {}
-            case .exception {
-                return .err(InstructionError.invalid_constant);
+            .return_value => {}
+            .exception => {
+                throw InstructionError.invalid_constant;
             }
         }
     }
@@ -3007,15 +3000,15 @@ fn initialize_static_class_body(context: &Context, vm: &VM, class_index: usize):
     if class_name == "sun/misc/VM" {
         try initialize_vm_static_fields(context, vm, class_index);
     }
-    return .ok();
+    return;
 }
 
-fn initialize_system_static_fields(context: &Context, vm: &VM, system_index: usize): result<void, InstructionError> {
+fn initialize_system_static_fields(context: &Context, vm: &VM, system_index: usize): void ! InstructionError {
     var classes = vm.method_area.classes[..];
     const out_field_index = classes[system_index].field_index("out", "Ljava/io/PrintStream;", true);
     const err_field_index = classes[system_index].field_index("err", "Ljava/io/PrintStream;", true);
     if out_field_index == none and err_field_index == none {
-        return .ok();
+        return;
     }
 
     const print_stream_index = try vm.resolve_class_index("java/io/PrintStream");
@@ -3035,19 +3028,19 @@ fn initialize_system_static_fields(context: &Context, vm: &VM, system_index: usi
         const field = &fields[field_index_value as usize];
         classes[system_index].static_vars[field.slot] = .ref_value(reference);
     }
-    return .ok();
+    return;
 }
 
-fn initialize_vm_static_fields(context: &Context, vm: &VM, vm_index: usize): result<void, InstructionError> {
+fn initialize_vm_static_fields(context: &Context, vm: &VM, vm_index: usize): void ! InstructionError {
     var classes = vm.method_area.classes[..];
     var vm_class = &classes[vm_index];
     if vm_class.field_index("savedProps", "Ljava/util/Properties;", true) is field_index_value {
         var fields = vm_class.fields[..];
         const field = &fields[field_index_value as usize];
         switch vm_class.static_vars[field.slot] {
-            case .ref_value(props_reference) {
+            .ref_value(props_reference) => {
                 if props_reference.is_null() {
-                    return .ok();
+                    return;
                 }
                 if vm.heap.object_class_index(props_reference) is props_class_index {
                     const count_field = try find_field_by_name_in_hierarchy(context, vm, props_class_index, "count", "I", false);
@@ -3055,36 +3048,37 @@ fn initialize_vm_static_fields(context: &Context, vm: &VM, vm_index: usize): res
                         const ignored_set = vm.heap.set_field(props_reference, count_slot, .int_value(1));
                     }
                 }
-            } else {
-                return .ok();
+            }
+            _ => {
+                return;
             }
         }
     }
-    return .ok();
+    return;
 }
 
-fn putstatic(context: &Context, vm: &VM): result<void, InstructionError> {
+fn putstatic(context: &Context, vm: &VM): void ! InstructionError {
     const field = try resolve_field(context, vm, context.read_u2());
     if !field.is_static() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
-    const class_index = try vm.resolve_class_index(copy field.class_name);
+    const class_index = try vm.resolve_class_index(field.class_name.clone());
     try initialize_static_class(context, vm, class_index);
     const slot = field.slot as usize;
     var classes = vm.method_area.classes[..];
     var class = &classes[class_index];
     if slot >= class.static_vars.len() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     class.static_vars[slot] = context.frame.pop();
     drop field;
-    return .ok();
+    return;
 }
 
-fn getfield(context: &Context, vm: &VM): result<void, InstructionError> {
+fn getfield(context: &Context, vm: &VM): void ! InstructionError {
     const field = try resolve_field(context, vm, context.read_u2());
     if field.is_static() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     const reference = expect_ref(context.frame.pop());
     if reference.is_null() {
@@ -3101,15 +3095,15 @@ fn getfield(context: &Context, vm: &VM): result<void, InstructionError> {
     drop field;
     if found {
         context.frame.push(out);
-        return .ok();
+        return;
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-fn putfield(context: &Context, vm: &VM): result<void, InstructionError> {
+fn putfield(context: &Context, vm: &VM): void ! InstructionError {
     const field = try resolve_field(context, vm, context.read_u2());
     if field.is_static() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     const value = context.frame.pop();
     const reference = expect_ref(context.frame.pop());
@@ -3124,12 +3118,12 @@ fn putfield(context: &Context, vm: &VM): result<void, InstructionError> {
     }
     drop field;
     if stored {
-        return .ok();
+        return;
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-fn athrow(context: &Context, vm: &VM): result<void, InstructionError> {
+fn athrow(context: &Context, vm: &VM): void ! InstructionError {
     const reference = expect_ref(context.frame.pop());
     if reference.is_null() {
         assert(false);
@@ -3137,10 +3131,10 @@ fn athrow(context: &Context, vm: &VM): result<void, InstructionError> {
     if !(try dispatch_exception(context, vm, reference)) {
         context.frame.throw_exception(reference);
     }
-    return .ok();
+    return;
 }
 
-fn newarray(context: &Context, vm: &VM): result<void, InstructionError> {
+fn newarray(context: &Context, vm: &VM): void ! InstructionError {
     const count = expect_int(context.frame.pop());
     if count < 0 {
         assert(false);
@@ -3182,10 +3176,10 @@ fn newarray(context: &Context, vm: &VM): result<void, InstructionError> {
 
     const reference = vm.heap.allocate_array(0, descriptor.bytes(), count as usize);
     context.frame.push(.ref_value(reference));
-    return .ok();
+    return;
 }
 
-fn anewarray(context: &Context, vm: &VM): result<void, InstructionError> {
+fn anewarray(context: &Context, vm: &VM): void ! InstructionError {
     const class_name = try constant_class_name(context, context.read_u2());
     const count = expect_int(context.frame.pop());
     if count < 0 {
@@ -3194,84 +3188,80 @@ fn anewarray(context: &Context, vm: &VM): result<void, InstructionError> {
 
     const descriptor = reference_array_component_descriptor(class_name);
     const array_descriptor = reference_array_descriptor(descriptor);
-    var array_class_index: usize = 0;
-    switch vm.resolve_class_index(copy array_descriptor) {
-        case .ok(found_index) {
-            array_class_index = found_index;
-        }
-        case .err {}
-    }
+    const array_class_index = vm.resolve_class_index(array_descriptor.clone()) catch (problem) {
+        yield 0;
+    };
     const reference = vm.heap.allocate_array(array_class_index, descriptor.bytes(), count as usize);
     context.frame.push(.ref_value(reference));
-    return .ok();
+    return;
 }
 
-fn checkcast(context: &Context, vm: &VM): result<void, InstructionError> {
+fn checkcast(context: &Context, vm: &VM): void ! InstructionError {
     const expected_class_index = try find_class_index_by_constant(context, vm, context.read_u2());
     const reference = expect_ref(context.frame.pop());
     if reference.is_null() {
         context.frame.push(.ref_value(reference));
-        return .ok();
+        return;
     }
     var classes = vm.method_area.classes[..];
     if vm.heap.object_class_index(reference) is actual_class_index {
         if reference_assignable_to(classes, actual_class_index, expected_class_index) {
             context.frame.push(.ref_value(reference));
-            return .ok();
+            return;
         }
     }
     if vm.heap.array_class_index(reference) is actual_class_index {
         if reference_assignable_to(classes, actual_class_index, expected_class_index) {
             context.frame.push(.ref_value(reference));
-            return .ok();
+            return;
         }
         if actual_class_index == 0 and expected_class_index < classes.len() and classes[expected_class_index].is_array {
             context.frame.push(.ref_value(reference));
-            return .ok();
+            return;
         }
     }
-    return .err(InstructionError.invalid_constant);
+    throw InstructionError.invalid_constant;
 }
 
-fn instanceof(context: &Context, vm: &VM): result<void, InstructionError> {
+fn instanceof(context: &Context, vm: &VM): void ! InstructionError {
     const expected_class_index = try find_class_index_by_constant(context, vm, context.read_u2());
     const reference = expect_ref(context.frame.pop());
     if reference.is_null() {
         push_int(context, 0);
-        return .ok();
+        return;
     }
     var classes = vm.method_area.classes[..];
     if vm.heap.object_class_index(reference) is actual_class_index {
         if reference_assignable_to(classes, actual_class_index, expected_class_index) {
             push_int(context, 1);
-            return .ok();
+            return;
         }
     }
     if vm.heap.array_class_index(reference) is actual_class_index {
         if reference_assignable_to(classes, actual_class_index, expected_class_index) {
             push_int(context, 1);
-            return .ok();
+            return;
         }
         if actual_class_index == 0 and expected_class_index < classes.len() and classes[expected_class_index].is_array {
             push_int(context, 1);
-            return .ok();
+            return;
         }
     }
     push_int(context, 0);
-    return .ok();
+    return;
 }
 
-fn monitorenter(context: &Context, vm: &VM): result<void, InstructionError> {
+fn monitorenter(context: &Context, vm: &VM): void ! InstructionError {
     const reference = expect_ref(context.frame.pop());
     return enter_monitor(context.runtime, vm, reference);
 }
 
-fn monitorexit(context: &Context, vm: &VM): result<void, InstructionError> {
+fn monitorexit(context: &Context, vm: &VM): void ! InstructionError {
     const reference = expect_ref(context.frame.pop());
     if !vm.heap.monitor_exit(reference) {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
-    return .ok();
+    return;
 }
 
 fn allocate_multi_array(context: &Context, vm: &VM, descriptor: string, counts: []i32, depth: usize): Reference {
@@ -3294,11 +3284,11 @@ fn allocate_multi_array(context: &Context, vm: &VM, descriptor: string, counts: 
     return reference;
 }
 
-fn multianewarray(context: &Context, vm: &VM): result<void, InstructionError> {
+fn multianewarray(context: &Context, vm: &VM): void ! InstructionError {
     const descriptor = try constant_class_name(context, context.read_u2());
     const dimensions = context.read_u1();
     if dimensions == 0 {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
 
     var counts = [: dimensions as usize]i32;
@@ -3314,23 +3304,23 @@ fn multianewarray(context: &Context, vm: &VM): result<void, InstructionError> {
 
     const reference = allocate_multi_array(context, vm, descriptor, counts[..], 0);
     context.frame.push(.ref_value(reference));
-    return .ok();
+    return;
 }
 
-fn arraylength(context: &Context, vm: &VM): result<void, InstructionError> {
+fn arraylength(context: &Context, vm: &VM): void ! InstructionError {
     const reference = expect_ref(context.frame.pop());
     if reference.is_null() {
         assert(false);
     }
     if vm.heap.array_length(reference) is length {
         push_int(context, length as i32);
-        return .ok();
+        return;
     }
     assert(false);
-    return .ok();
+    return;
 }
 
-fn wide(context: &Context): result<void, InstructionError> {
+fn wide(context: &Context): void ! InstructionError {
     const modified_opcode = context.read_u1();
     const index = context.read_u2();
     var handled = false;
@@ -3394,17 +3384,17 @@ fn wide(context: &Context): result<void, InstructionError> {
     if advance {
         context.frame.next(context.frame.offset as i32);
     }
-    return .ok();
+    return;
 }
 
-fn ifnull(context: &Context): result<void, InstructionError> {
+fn ifnull(context: &Context): void ! InstructionError {
     branch(context, expect_ref(context.frame.pop()).is_null());
-    return .ok();
+    return;
 }
 
-fn ifnonnull(context: &Context): result<void, InstructionError> {
+fn ifnonnull(context: &Context): void ! InstructionError {
     branch(context, expect_ref(context.frame.pop()).non_null());
-    return .ok();
+    return;
 }
 
 const registry: [256]Instruction = [{
@@ -5201,42 +5191,42 @@ const registry: [256]Instruction = [{
     }, // 0xFF unsupported
 ];
 
-pub fn fetch(raw: u8): result<Instruction, InstructionError> {
+pub fn fetch(raw: u8): Instruction ! InstructionError {
     const instruction = registry[raw as usize];
     if instruction.opcode == Opcode.unsupported {
-        return .err(InstructionError.unsupported_opcode);
+        throw InstructionError.unsupported_opcode;
     }
-    return .ok(instruction);
+    return instruction;
 }
 
-fn execute_frame_unavailable(context: &Context): result<void, InstructionError> {
-    return .err(InstructionError.unsupported_opcode);
+fn execute_frame_unavailable(context: &Context): void ! InstructionError {
+    throw InstructionError.unsupported_opcode;
 }
 
-fn execute_frame_registered(context: &Context, vm: &VM): result<void, InstructionError> {
+fn execute_frame_registered(context: &Context, vm: &VM): void ! InstructionError {
     const instruction = try fetch(context.code[context.frame.pc as usize]);
     if instruction.is_local {
         const execute = instruction.local_execute;
         return execute(context);
     }
-    return .err(InstructionError.unsupported_opcode);
+    throw InstructionError.unsupported_opcode;
 }
 
-pub fn execute_frame_next(context: &Context, class_name: string, method_name: string): result<bool, InstructionError> {
+pub fn execute_frame_next(context: &Context, class_name: string, method_name: string): bool ! InstructionError {
     const pc = context.frame.pc;
-    switch fetch(context.code[pc as usize]) {
-        case .ok(instruction) {
-            if instruction.is_local {
-                const execute = instruction.local_execute;
-                trace_frame_instruction(context, class_name, method_name, instruction);
-                try execute(context);
-                finish_instruction(context, pc, instruction.length);
-                return .ok(true);
-            }
+    const fetched: ?Instruction = fetch(context.code[pc as usize]) catch (problem) {
+        yield none;
+    };
+    if fetched is instruction {
+        if instruction.is_local {
+            const execute = instruction.local_execute;
+            trace_frame_instruction(context, class_name, method_name, instruction);
+            try execute(context);
+            finish_instruction(context, pc, instruction.length);
+            return true;
         }
-        case .err {}
     }
-    return .ok(false);
+    return false;
 }
 
 pub fn trace_frame_instruction(context: &Context, class_name: string, method_name: string, instruction: Instruction): void {
@@ -5259,11 +5249,11 @@ pub fn finish_instruction(context: &Context, pc: u32, length: u32): void {
     context.frame.offset = 1;
 }
 
-pub fn execute_array_next(context: &Context, class_name: string, method_name: string): result<bool, InstructionError> {
+pub fn execute_array_next(context: &Context, class_name: string, method_name: string): bool ! InstructionError {
     const pc = context.frame.pc;
     const opcode = context.code[pc as usize];
     if !((opcode >= 46 and opcode <= 53) or (opcode >= 79 and opcode <= 86) or opcode == 190) {
-        return .ok(false);
+        return false;
     }
     if context.runtime is runtime {
         trace_frame_instruction(context, class_name, method_name, try fetch(opcode));
@@ -5301,30 +5291,33 @@ pub fn execute_array_next(context: &Context, class_name: string, method_name: st
                     }
                     if opcode == 51 {
                         switch loaded {
-                            case .byte_value(value) {
+                            .byte_value(value) => {
                                 push_int(context, value as i32);
                             }
-                            case .boolean_value(value) {
+                            .boolean_value(value) => {
                                 push_int(context, value as i32);
-                            } else {
+                            }
+                            _ => {
                                 assert(false);
                             }
                         }
                     }
                     if opcode == 52 {
                         switch loaded {
-                            case .char_value(value) {
+                            .char_value(value) => {
                                 push_int(context, value as i32);
-                            } else {
+                            }
+                            _ => {
                                 assert(false);
                             }
                         }
                     }
                     if opcode == 53 {
                         switch loaded {
-                            case .short_value(value) {
+                            .short_value(value) => {
                                 push_int(context, value as i32);
-                            } else {
+                            }
+                            _ => {
                                 assert(false);
                             }
                         }
@@ -5352,12 +5345,13 @@ pub fn execute_array_next(context: &Context, class_name: string, method_name: st
                     const raw = expect_int(value);
                     if runtime.arrays.get(reference, index as usize) is current {
                         switch current {
-                            case .boolean_value {
+                            .boolean_value => {
                                 value = .boolean_value((raw & 1) as u8);
                             }
-                            case .byte_value {
+                            .byte_value => {
                                 value = .byte_value(((raw & 255) as u8) as! i8);
-                            } else {
+                            }
+                            _ => {
                                 assert(false);
                             }
                         }
@@ -5375,33 +5369,21 @@ pub fn execute_array_next(context: &Context, class_name: string, method_name: st
             }
         }
         finish_instruction(context, pc, 1);
-        return .ok(true);
+        return true;
     }
-    return .ok(false);
+    return false;
 }
 
-pub fn execute_next(context: &Context, vm: &VM): result<void, InstructionError> {
+pub fn execute_next(context: &Context, vm: &VM): void ! InstructionError {
     const pc = context.frame.pc;
     const raw_opcode = context.code[pc as usize];
-    var instruction: Instruction = {
-        opcode: .unsupported,
-        length: 0,
-        execute: unsupported,
-        local_execute: execute_frame_unavailable,
-        is_local: false
+    const instruction = fetch(raw_opcode) catch (error_value) {
+        if error_value == InstructionError.unsupported_opcode {
+            print_instruction_gap(context, vm, pc, raw_opcode);
+            panic("unsupported JVM instruction");
+        }
+        throw error_value;
     };
-    switch fetch(raw_opcode) {
-        case .ok(actual_instruction) {
-            instruction = actual_instruction;
-        }
-        case .err(error_value) {
-            if error_value == InstructionError.unsupported_opcode {
-                print_instruction_gap(context, vm, pc, raw_opcode);
-                panic("unsupported JVM instruction");
-            }
-            return .err(error_value);
-        }
-    }
 
     if instruction_trace_enabled() {
         trace_instruction(context, vm, pc, instruction);
@@ -5411,7 +5393,7 @@ pub fn execute_next(context: &Context, vm: &VM): result<void, InstructionError> 
     try execute(context, vm);
 
     finish_instruction(context, pc, instruction.length);
-    return .ok();
+    return;
 }
 
 fn print_instruction_gap(context: &Context, vm: &VM, pc: u32, raw_opcode: u8): void {
@@ -5476,13 +5458,12 @@ pub fn print_instruction_error_context(context: &Context, vm: &VM, error_value: 
         print("  opcode: ");
         print(raw_opcode as i64);
         print(" ");
-        switch fetch(raw_opcode) {
-            case .ok(instruction) {
-                println(opcode_name(instruction.opcode));
-            }
-            case .err {
-                println("unsupported");
-            }
+        const fetched: ?Instruction = fetch(raw_opcode) catch (problem) {
+            println("unsupported");
+            yield none;
+        };
+        if fetched is instruction {
+            println(opcode_name(instruction.opcode));
         }
     }
 }
@@ -6115,10 +6096,10 @@ fn trace_instruction(context: &Context, vm: &VM, pc: u32, instruction: Instructi
     println(opcode_name(instruction.opcode));
 }
 
-pub fn execute_method(method: &Method): result<FrameResult, InstructionError> {
+pub fn execute_method(method: &Method): FrameResult ! InstructionError {
     var constant_pool: [:]Constant = [: 0][];
     var vm = new_vm();
-    var code = copy method.code;
+    var code = method.code.clone();
     var frame = new_frame(0, 0, method.max_locals, method.max_stack);
     var context = Context {
         runtime: none,
@@ -6138,7 +6119,7 @@ pub fn execute_method(method: &Method): result<FrameResult, InstructionError> {
             drop code;
             vm.clear();
             drop vm;
-            return .ok(out);
+            return out;
         }
     }
     drop context;
@@ -6146,17 +6127,18 @@ pub fn execute_method(method: &Method): result<FrameResult, InstructionError> {
     drop code;
     vm.clear();
     drop vm;
-    return .err(InstructionError.missing_return);
+    throw InstructionError.missing_return;
 }
 
 fn assert_int_result(result: FrameResult, expected: i32): void {
     switch result {
-        case .return_value(value) {
+        .return_value(value) => {
             if value is actual {
                 switch actual {
-                    case .int_value(int_value) {
+                    .int_value(int_value) => {
                         assert(int_value == expected);
-                    } else {
+                    }
+                    _ => {
                         assert(false);
                     }
                 }
@@ -6164,7 +6146,7 @@ fn assert_int_result(result: FrameResult, expected: i32): void {
                 assert(false);
             }
         }
-        case .exception {
+        .exception => {
             assert(false);
         }
     }
@@ -6172,12 +6154,13 @@ fn assert_int_result(result: FrameResult, expected: i32): void {
 
 fn assert_long_result(result: FrameResult, expected: i64): void {
     switch result {
-        case .return_value(value) {
+        .return_value(value) => {
             if value is actual {
                 switch actual {
-                    case .long_value(long_value) {
+                    .long_value(long_value) => {
                         assert(long_value == expected);
-                    } else {
+                    }
+                    _ => {
                         assert(false);
                     }
                 }
@@ -6185,7 +6168,7 @@ fn assert_long_result(result: FrameResult, expected: i64): void {
                 assert(false);
             }
         }
-        case .exception {
+        .exception => {
             assert(false);
         }
     }
@@ -6193,12 +6176,13 @@ fn assert_long_result(result: FrameResult, expected: i64): void {
 
 fn assert_float_result(result: FrameResult, expected: f32): void {
     switch result {
-        case .return_value(value) {
+        .return_value(value) => {
             if value is actual {
                 switch actual {
-                    case .float_value(float_value) {
+                    .float_value(float_value) => {
                         assert(float_value == expected);
-                    } else {
+                    }
+                    _ => {
                         assert(false);
                     }
                 }
@@ -6206,7 +6190,7 @@ fn assert_float_result(result: FrameResult, expected: f32): void {
                 assert(false);
             }
         }
-        case .exception {
+        .exception => {
             assert(false);
         }
     }
@@ -6214,12 +6198,13 @@ fn assert_float_result(result: FrameResult, expected: f32): void {
 
 fn assert_double_result(result: FrameResult, expected: f64): void {
     switch result {
-        case .return_value(value) {
+        .return_value(value) => {
             if value is actual {
                 switch actual {
-                    case .double_value(double_value) {
+                    .double_value(double_value) => {
                         assert(double_value == expected);
-                    } else {
+                    }
+                    _ => {
                         assert(false);
                     }
                 }
@@ -6227,7 +6212,7 @@ fn assert_double_result(result: FrameResult, expected: f64): void {
                 assert(false);
             }
         }
-        case .exception {
+        .exception => {
             assert(false);
         }
     }
@@ -6235,7 +6220,7 @@ fn assert_double_result(result: FrameResult, expected: f64): void {
 
 fn assert_null_ref_result(result: FrameResult): void {
     switch result {
-        case .return_value(value) {
+        .return_value(value) => {
             if value is actual {
                 const reference = expect_ref(actual);
                 assert(reference.is_null());
@@ -6243,7 +6228,7 @@ fn assert_null_ref_result(result: FrameResult): void {
                 assert(false);
             }
         }
-        case .exception {
+        .exception => {
             assert(false);
         }
     }
@@ -6251,10 +6236,10 @@ fn assert_null_ref_result(result: FrameResult): void {
 
 fn assert_void_result(result: FrameResult): void {
     switch result {
-        case .return_value(value) {
+        .return_value(value) => {
             assert(value == none);
         }
-        case .exception {
+        .exception => {
             assert(false);
         }
     }
@@ -6262,10 +6247,10 @@ fn assert_void_result(result: FrameResult): void {
 
 fn assert_exception_result(result: FrameResult, expected: Reference): void {
     switch result {
-        case .return_value {
+        .return_value => {
             assert(false);
         }
-        case .exception(reference) {
+        .exception(reference) => {
             assert(reference.equals(expected));
         }
     }
@@ -6274,7 +6259,7 @@ fn assert_exception_result(result: FrameResult, expected: Reference): void {
 fn seed_test_vm(vm: &VM, classes: []Class): void {
     var index: usize = 0;
     while index < classes.len() {
-        vm.method_area.classes.push(copy classes[index]);
+        vm.method_area.classes.push(classes[index].clone());
         index = index + 1;
     }
 }

@@ -25,10 +25,9 @@ struct InitializationRequest {
 pub struct ClassInitializers {
     storage: ConcurrentList<ClassInitialization>;
 
-    @syntax.copy
-    pub fn clone(self: &const ClassInitializers): ClassInitializers {
+    pub fn alias_handle(self: &const ClassInitializers): ClassInitializers {
         return ClassInitializers {
-            storage: copy self.storage
+            storage: self.storage
         };
     }
 
@@ -37,7 +36,7 @@ pub struct ClassInitializers {
             index: index,
             owner: thread.current_id()
         };
-        switch self.storage.with_result<InitializationRequest, InitializationDecision>(request, fn (entries: &List<ClassInitialization>, actual: InitializationRequest): InitializationDecision {
+        return self.storage.with_result<InitializationRequest, InitializationDecision>(request, fn (entries: &List<ClassInitialization>, actual: InitializationRequest): InitializationDecision {
             var index: usize = 0;
             while index < entries.len() {
                 const state = entries[index];
@@ -62,15 +61,10 @@ pub struct ClassInitializers {
                 failed: false
             });
             return InitializationDecision.run_initializer;
-        }) {
-            case .ok(decision) {
-                return decision;
-            }
-            case .err {
-                assert(false);
-            }
-        }
-        return InitializationDecision.failed;
+        }) catch (problem) {
+            assert(false);
+            return InitializationDecision.failed;
+        };
     }
 
     pub fn finish(self: &const ClassInitializers, index: usize, succeeded: bool): void {

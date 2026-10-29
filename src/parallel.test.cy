@@ -63,12 +63,10 @@ fn install_parallel_method(vm: &VM, ignored: i32): void {
 fn run_parallel_frame(vm: &VM, request: ParallelRequest): void {
     var frame = new_frame(0, 0, 2, 3);
     frame.store(0, .ref_value(request.array));
-    switch execute_method_frame_with_runtime(copy request.runtime, vm, 0, 0, frame, vm.method_area.classes[0].constant_pool[..]) {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
-    }
+    const ignored_result = execute_method_frame_with_runtime(request.runtime.alias_handles(), vm, 0, 0, frame, vm.method_area.classes[0].constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
 }
 
 fn parallel_worker(request: ParallelRequest): void {
@@ -78,9 +76,10 @@ fn parallel_worker(request: ParallelRequest): void {
 fn parallel_flag(runtime: &const Runtime, array: Reference, index: usize): i32 {
     if runtime.arrays.get(array, index) is value {
         switch value {
-            case .int_value(actual) {
+            .int_value(actual) => {
                 return actual;
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -96,12 +95,10 @@ fn await_parallel_completion(vm: &VM, pair: ParallelPair): void {
     while !done and attempts < 5000 {
         done = parallel_flag(&pair.runtime, pair.first, 2) == 42 and parallel_flag(&pair.runtime, pair.second, 2) == 42;
         if !done {
-            switch sleep_ms(1) {
-                case .ok {}
-                case .err {
-                    assert(false);
-                }
-            }
+            sleep_ms(1) catch (problem) {
+                assert(false);
+                return;
+            };
         }
         attempts = attempts + 1;
     }
@@ -114,27 +111,21 @@ test "Java workers execute arithmetic and arrays while metadata is locked" {
     var arrays: List<Reference> = [];
     var index: usize = 0;
     while index < 2 {
-        switch runtime.state.with_result<i32, Reference>(0, fn (vm: &VM, ignored: i32): Reference {
+        const reference = runtime.state.with_result<i32, Reference>(0, fn (vm: &VM, ignored: i32): Reference {
             return vm.heap.allocate_array(0, "I".bytes(), 3);
-        }) {
-            case .ok(reference) {
-                arrays.push(reference);
-            }
-            case .err {
-                assert(false);
-            }
-        }
-        switch thread.spawn(parallel_worker, ParallelRequest {
-            runtime: copy runtime,
+        }) catch (problem) {
+            assert(false);
+            return;
+        };
+        arrays.push(reference);
+        const worker = thread.spawn(parallel_worker, ParallelRequest {
+            runtime: runtime.alias_handles(),
             array: arrays[index]
-        }) {
-            case .ok(worker) {
-                runtime.track(worker);
-            }
-            case .err {
-                assert(false);
-            }
-        }
+        }) catch (problem) {
+            assert(false);
+            return;
+        };
+        runtime.track(worker);
         index = index + 1;
     }
     var ready = false;
@@ -142,18 +133,16 @@ test "Java workers execute arithmetic and arrays while metadata is locked" {
     while !ready and attempts < 5000 {
         ready = parallel_flag(&runtime, arrays[0], 0) == 1 and parallel_flag(&runtime, arrays[1], 0) == 1;
         if !ready {
-            switch sleep_ms(1) {
-                case .ok {}
-                case .err {
-                    assert(false);
-                }
-            }
+            sleep_ms(1) catch (problem) {
+                assert(false);
+                return;
+            };
         }
         attempts = attempts + 1;
     }
     assert(ready);
     assert(runtime.state.with<ParallelPair>(ParallelPair {
-        runtime: copy runtime,
+        runtime: runtime.alias_handles(),
         first: arrays[0],
         second: arrays[1]
     }, await_parallel_completion) == SyncStatus.ok);

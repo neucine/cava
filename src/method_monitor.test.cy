@@ -70,49 +70,42 @@ test "synchronized interpreted methods release monitors on every completion path
     while method_index < 3 {
         var frame = new_frame(0, method_index, 1, 2);
         frame.store(0, .ref_value(receiver));
-        const execution = execute_method_frame_with_vm(&vm, 0, method_index, frame, pool[..]);
-        switch execution {
-            case .ok(completion) {
-                if method_index == 0 {
-                    switch completion {
-                        case .return_value {}
-                        case .exception {
-                            assert(false);
-                        }
-                    }
-                } else {
-                    assert(method_index == 1);
-                    switch completion {
-                        case .exception(reference) {
-                            assert(reference.equals(receiver));
-                        }
-                        case .return_value {
-                            assert(false);
-                        }
-                    }
+        const completion = execute_method_frame_with_vm(&vm, 0, method_index, frame, pool[..]) catch (problem) {
+            assert(method_index == 2);
+            assert(!vm.heap.monitor_held_by_current_thread(receiver));
+            method_index = method_index + 1;
+            continue;
+        };
+        if method_index == 0 {
+            switch completion {
+                .return_value => {}
+                .exception => {
+                    assert(false);
                 }
             }
-            case .err {
-                assert(method_index == 2);
+        } else {
+            assert(method_index == 1);
+            switch completion {
+                .exception(reference) => {
+                    assert(reference.equals(receiver));
+                }
+                .return_value => {
+                    assert(false);
+                }
             }
         }
         assert(!vm.heap.monitor_held_by_current_thread(receiver));
         method_index = method_index + 1;
     }
     assert(vm.heap.monitor_enter(receiver));
-    switch enter_method_monitor(none, &vm, 0, 0, receiver) {
-        case .ok(monitor) {
-            switch exit_method_monitor(&vm, monitor) {
-                case .ok {}
-                case .err {
-                    assert(false);
-                }
-            }
-        }
-        case .err {
-            assert(false);
-        }
-    }
+    const monitor = enter_method_monitor(none, &vm, 0, 0, receiver) catch (problem) {
+        assert(false);
+        return;
+    };
+    exit_method_monitor(&vm, monitor) catch (problem) {
+        assert(false);
+        return;
+    };
     assert(vm.heap.monitor_held_by_current_thread(receiver));
     assert(vm.heap.monitor_exit(receiver));
     assert(!vm.heap.monitor_held_by_current_thread(receiver));
@@ -140,33 +133,29 @@ test "synchronized native methods use receiver or declaring class mirror and rel
             expected = mirror;
         }
         const arguments: List<Value> = [.ref_value(expected)];
-        switch execute_native_method(&context, &vm, 0, method_index, receiver, arguments) {
-            case .ok(value) {
-                if value is actual {
-                    switch actual {
-                        case .boolean_value(held) {
-                            assert(held == 1);
-                        } else {
-                            assert(false);
-                        }
-                    }
-                } else {
+        const value = execute_native_method(&context, &vm, 0, method_index, receiver, arguments) catch (problem) {
+            assert(false);
+            return;
+        };
+        if value is actual {
+            switch actual {
+                .boolean_value(held) => {
+                    assert(held == 1);
+                }
+                _ => {
                     assert(false);
                 }
             }
-            case .err {
-                assert(false);
-            }
+        } else {
+            assert(false);
         }
         assert(!vm.heap.monitor_held_by_current_thread(expected));
         method_index = method_index + 1;
     }
-    switch execute_native_method(&context, &vm, 0, 5, receiver, []) {
-        case .ok {
-            assert(false);
-        }
-        case .err {}
-    }
-    assert(!vm.heap.monitor_held_by_current_thread(receiver));
-    vm.destroy();
+    const unexpected = execute_native_method(&context, &vm, 0, 5, receiver, []) catch (problem) {
+        assert(!vm.heap.monitor_held_by_current_thread(receiver));
+        vm.destroy();
+        return;
+    };
+    assert(false);
 }

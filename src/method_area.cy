@@ -102,7 +102,7 @@ pub fn class_matches(classes: []Class, actual_index: usize, expected_index: usiz
             interface_index = interface_index + 1;
         }
 
-        if find_loaded_class_index(class_view, copy class.super_class) is super_index {
+        if find_loaded_class_index(class_view, class.super_class.clone()) is super_index {
             current = super_index;
         } else {
             return false;
@@ -137,7 +137,7 @@ pub fn reference_assignable_to(classes: []Class, actual_index: usize, expected_i
         var interface_index: usize = 0;
         while interface_index < interfaces.len() {
             const interface_name = &interfaces[interface_index];
-            if find_loaded_class_index(class_view, copy interface_name) is actual_interface_index {
+            if find_loaded_class_index(class_view, interface_name.clone()) is actual_interface_index {
                 if reference_assignable_to(classes, actual_interface_index, expected_index) {
                     return true;
                 }
@@ -146,7 +146,7 @@ pub fn reference_assignable_to(classes: []Class, actual_index: usize, expected_i
             }
             interface_index = interface_index + 1;
         }
-        if find_loaded_class_index(class_view, copy actual_class.super_class) is super_index {
+        if find_loaded_class_index(class_view, actual_class.super_class.clone()) is super_index {
             return reference_assignable_to(classes, super_index, expected_index);
         }
         return false;
@@ -162,7 +162,7 @@ pub fn reference_assignable_to(classes: []Class, actual_index: usize, expected_i
         return false;
     }
 
-    if find_loaded_class_index(class_view, copy actual_class.super_class) is super_index {
+    if find_loaded_class_index(class_view, actual_class.super_class.clone()) is super_index {
         return reference_assignable_to(classes, super_index, expected_index);
     }
     return false;
@@ -294,22 +294,19 @@ pub struct MethodArea {
         return self.find_class_index(name) != none;
     }
 
-    pub fn resolve_class(self: &MethodArea, class_name: string): result<usize, MethodAreaError> {
+    pub fn resolve_class(self: &MethodArea, class_name: string): usize ! MethodAreaError {
         const class_name_bytes = class_name.bytes();
         if class_name_bytes.len() > 0 and class_name_bytes[0] == '[' {
-            return .ok(self.define_array_class(copy class_name));
+            return self.define_array_class(class_name.clone());
         }
-        if self.find_class_index(copy class_name) is existing {
-            return .ok(existing);
+        if self.find_class_index(class_name.clone()) is existing {
+            return existing;
         }
 
-        switch self.load_class_from_path(copy self.application_class_root, copy class_name) {
-            case .ok(index) {
-                return .ok(index);
-            }
-            case .err {}
-        }
-        return self.load_class_from_path(copy self.jdk_class_root, copy class_name);
+        const index = self.load_class_from_path(self.application_class_root.clone(), class_name.clone()) catch (problem) {
+            return self.load_class_from_path(self.jdk_class_root.clone(), class_name.clone());
+        };
+        return index;
     }
 
     pub fn class_count(self: &MethodArea): usize {
@@ -360,31 +357,31 @@ pub struct MethodArea {
         return self.classes[class_index].methods[method_index].max_stack;
     }
 
-    pub fn resolve_class_ref(self: &MethodArea, classfile: &ClassFile, constant_index: u16): result<usize, ClassfileError> {
+    pub fn resolve_class_ref(self: &MethodArea, classfile: &ClassFile, constant_index: u16): usize ! ClassfileError {
         const name = try classfile.class_name(constant_index);
         var resolved: ?usize = none;
         if name != "" {
             if name.bytes()[0] == '[' {
-                resolved = self.define_array_class(copy name);
+                resolved = self.define_array_class(name.clone());
             }
         }
         if resolved == none {
-            if self.find_class_index(copy name) is existing {
+            if self.find_class_index(name.clone()) is existing {
                 resolved = existing;
             }
         }
         drop name;
         if resolved is found {
-            return .ok(found);
+            return found;
         }
-        return .err(ClassfileError.invalid_constant_index);
+        throw ClassfileError.invalid_constant_index;
     }
 
-    pub fn resolve_field_ref(self: &MethodArea, classfile: &ClassFile, constant_index: u16): result<ResolvedFieldRef, ClassfileError> {
+    pub fn resolve_field_ref(self: &MethodArea, classfile: &ClassFile, constant_index: u16): ResolvedFieldRef ! ClassfileError {
         const member = try classfile.member_ref(constant_index);
         var resolved: ?ResolvedFieldRef = none;
-        if self.find_class_index(copy member.class_name) is class_index {
-            if self.field_index(class_index, copy member.name, copy member.descriptor) is field_index {
+        if self.find_class_index(member.class_name.clone()) is class_index {
+            if self.field_index(class_index, member.name.clone(), member.descriptor.clone()) is field_index {
                 resolved = ResolvedFieldRef {
                     class_index: class_index,
                     field_index: field_index,
@@ -393,16 +390,16 @@ pub struct MethodArea {
         }
         drop member;
         if resolved is out {
-            return .ok(out);
+            return out;
         }
-        return .err(ClassfileError.invalid_constant_index);
+        throw ClassfileError.invalid_constant_index;
     }
 
-    pub fn resolve_method_ref(self: &MethodArea, classfile: &ClassFile, constant_index: u16): result<ResolvedMethodRef, ClassfileError> {
+    pub fn resolve_method_ref(self: &MethodArea, classfile: &ClassFile, constant_index: u16): ResolvedMethodRef ! ClassfileError {
         const member = try classfile.member_ref(constant_index);
         var resolved: ?ResolvedMethodRef = none;
-        if self.find_class_index(copy member.class_name) is class_index {
-            if self.method_index(class_index, copy member.name, copy member.descriptor) is method_index_value {
+        if self.find_class_index(member.class_name.clone()) is class_index {
+            if self.method_index(class_index, member.name.clone(), member.descriptor.clone()) is method_index_value {
                 resolved = ResolvedMethodRef {
                     class_index: class_index,
                     method_index: method_index_value,
@@ -411,14 +408,14 @@ pub struct MethodArea {
         }
         drop member;
         if resolved is out {
-            return .ok(out);
+            return out;
         }
-        return .err(ClassfileError.invalid_constant_index);
+        throw ClassfileError.invalid_constant_index;
     }
 
     pub fn define_array_class(self: &MethodArea, name: string): usize {
         const name_bytes = name.bytes();
-        if self.find_class_index(copy name) is existing {
+        if self.find_class_index(name.clone()) is existing {
             drop name;
             return existing;
         }
@@ -426,17 +423,17 @@ pub struct MethodArea {
         self.symbols.add(name_bytes);
         var class = derive_array_class(name);
         drop name;
-        self.classes.push(copy class);
+        self.classes.push(class.clone());
         const index = self.classes.len() - 1;
         class.clear();
         drop class;
         return index;
     }
 
-    pub fn define_class(self: &MethodArea, classfile: &ClassFile): result<usize, ClassfileError> {
+    pub fn define_class(self: &MethodArea, classfile: &ClassFile): usize ! ClassfileError {
         const name = try classfile.class_name(classfile.this_class);
-        if self.find_class_index(copy name) is existing {
-            return .ok(existing);
+        if self.find_class_index(name.clone()) is existing {
+            return existing;
         }
 
         self.symbols.add(name.bytes());
@@ -445,20 +442,20 @@ pub struct MethodArea {
         class.constant_pool = classfile.clone_constant_pool();
         self.classes.push(class);
         const index = self.classes.len() - 1;
-        return .ok(index);
+        return index;
     }
 
-    pub fn load_class_from_bytes(self: &MethodArea, data: []const u8): result<usize, ClassfileError> {
+    pub fn load_class_from_bytes(self: &MethodArea, data: []const u8): usize ! ClassfileError {
         return self.load_class_from_source(string.from(data));
     }
 
-    pub fn load_class_from_source(self: &MethodArea, source: string): result<usize, ClassfileError> {
+    pub fn load_class_from_source(self: &MethodArea, source: string): usize ! ClassfileError {
         var classfile = new_classfile();
-        const source_copy = string.from(source.bytes());
+        const source_copy = source;
         try parse_classfile(source_copy, &classfile);
         drop source_copy;
         const name = try classfile.class_name(classfile.this_class);
-        if self.find_class_index(copy name) is existing {
+        if self.find_class_index(name.clone()) is existing {
             return duplicate_loaded_class(existing, source, classfile, name);
         }
 
@@ -469,61 +466,41 @@ pub struct MethodArea {
         self.classes.push(class);
         const index = self.classes.len() - 1;
         drop source;
-        return .ok(index);
+        return index;
     }
 
-    pub fn load_class_from_path(self: &MethodArea, root: string, class_name: string): result<usize, MethodAreaError> {
-        if self.find_class_index(copy class_name) is existing {
-            return .ok(existing);
+    pub fn load_class_from_path(self: &MethodArea, root: string, class_name: string): usize ! MethodAreaError {
+        if self.find_class_index(class_name.clone()) is existing {
+            return existing;
         }
 
         var path = class_file_path(root, class_name);
-        const read_result = read_file(path);
+        const source = read_file(path) catch (err) {
+            drop path;
+            throw method_area_error_from_fs(err);
+        };
         drop path;
-
-        switch read_result {
-            case .ok(source) {
-                const loaded = self.load_class_from_source(source);
-                switch loaded {
-                    case .ok(index) {
-                        self.load_super_classes(root, index);
-                        self.define_array_references_for_class(index);
-                        self.define_descriptor_array_references_for_class(index);
-                        return .ok(index);
-                    }
-                    case .err {
-                        return .err(MethodAreaError.classfile);
-                    }
-                }
-            }
-            case .err(err) {
-                return .err(method_area_error_from_fs(err));
-            }
-        }
+        const index = self.load_class_from_source(source) catch (err) {
+            throw MethodAreaError.classfile;
+        };
+        self.load_super_classes(root, index);
+        self.define_array_references_for_class(index);
+        self.define_descriptor_array_references_for_class(index);
+        return index;
     }
 
-    pub fn load_class_file(self: &MethodArea, path: string): result<usize, MethodAreaError> {
+    pub fn load_class_file(self: &MethodArea, path: string): usize ! MethodAreaError {
         self.update_roots_from_class_path(path);
-        const read_result = read_file(path);
-        switch read_result {
-            case .ok(source) {
-                const loaded = self.load_class_from_source(source);
-                switch loaded {
-                    case .ok(index) {
-                        self.load_super_classes(copy self.jdk_class_root, index);
-                        self.define_array_references_for_class(index);
-                        self.define_descriptor_array_references_for_class(index);
-                        return .ok(index);
-                    }
-                    case .err {
-                        return .err(MethodAreaError.classfile);
-                    }
-                }
-            }
-            case .err(err) {
-                return .err(method_area_error_from_fs(err));
-            }
-        }
+        const source = read_file(path) catch (err) {
+            throw method_area_error_from_fs(err);
+        };
+        const index = self.load_class_from_source(source) catch (err) {
+            throw MethodAreaError.classfile;
+        };
+        self.load_super_classes(self.jdk_class_root.clone(), index);
+        self.define_array_references_for_class(index);
+        self.define_descriptor_array_references_for_class(index);
+        return index;
     }
 
     fn update_roots_from_class_path(self: &MethodArea, path: string): void {
@@ -538,18 +515,24 @@ pub struct MethodArea {
         if class_index >= self.classes.len() {
             return;
         }
-        const super_class = copy self.classes[class_index].super_class;
+        const class = &self.classes[class_index];
+        const super_class = class.super_class.clone();
         self.define_descriptor_array_references_for_class(class_index);
         if super_class == "" {
             drop super_class;
             return;
         }
-        const loaded = self.load_class_from_path(root, copy super_class);
+        const ignored_loaded = self.load_class_from_path(root, super_class.clone()) catch (err) {
+            return;
+        };
         drop super_class;
-        switch loaded {
-            case .ok {}
-            case .err {}
-        }
+    }
+
+    fn load_class_from_path_optional(self: &MethodArea, root: string, class_name: string): ?usize {
+        const index = self.load_class_from_path(root, class_name) catch (err) {
+            return none;
+        };
+        return index;
     }
 
     pub fn define_builtin_class(self: &MethodArea, name: string): usize {
@@ -570,11 +553,11 @@ pub struct MethodArea {
     }
 
     pub fn load_bootstrap_jdk_classes(self: &MethodArea): void {
-        self.load_required_class(copy self.jdk_class_root, "java/lang/Object");
-        self.load_required_class(copy self.jdk_class_root, "java/lang/Class");
-        self.load_required_class(copy self.jdk_class_root, "java/lang/String");
-        self.load_required_class(copy self.jdk_class_root, "java/io/PrintStream");
-        self.load_required_class(copy self.jdk_class_root, "java/lang/System");
+        self.load_required_class(self.jdk_class_root.clone(), "java/lang/Object");
+        self.load_required_class(self.jdk_class_root.clone(), "java/lang/Class");
+        self.load_required_class(self.jdk_class_root.clone(), "java/lang/String");
+        self.load_required_class(self.jdk_class_root.clone(), "java/io/PrintStream");
+        self.load_required_class(self.jdk_class_root.clone(), "java/lang/System");
     }
 
     pub fn load_constant_references_for_class(self: &MethodArea, root: string, class_index: usize): void {
@@ -596,43 +579,39 @@ pub struct MethodArea {
         var constant_index: usize = 0;
         while constant_index < self.classes[class_index].constant_pool.len() {
             switch self.classes[class_index].constant_pool[constant_index] {
-                case .class_ref(name_index) {
+                .class_ref(name_index) => {
                     if (name_index as usize) < self.classes[class_index].constant_pool.len() {
                         switch self.classes[class_index].constant_pool[name_index] {
-                            case .utf8(name) {
+                            .utf8(name) => {
                                 const name_bytes = name.bytes();
                                 if name_bytes.len() > 0 {
                                     if name_bytes[0] == '[' {
                                         const ignored_array = self.define_array_class(string.from(name_bytes));
                                     } else {
-                                        const array_name = array_descriptor_from_class_name(copy name);
+                                        const array_name = array_descriptor_from_class_name(name.clone());
                                         const ignored_array = self.define_array_class(array_name);
                                         const class_name = string.from(name_bytes);
-                                        const loaded = self.load_class_from_path(root, class_name);
+                                        const loaded = self.load_class_from_path_optional(root, class_name);
                                         drop class_name;
-                                        switch loaded {
-                                            case .ok(loaded_index) {
-                                                self.load_constant_references_for_class_visited(root, loaded_index, visited);
-                                            }
-                                            case .err {}
+                                        if loaded is loaded_index {
+                                            self.load_constant_references_for_class_visited(root, loaded_index, visited);
                                         }
                                     }
                                 }
-                            } else {}
+                            }
+                            _ => {}
                         }
                     }
-                } else {}
+                }
+                _ => {}
             }
             constant_index = constant_index + 1;
         }
     }
 
     fn load_required_class(self: &MethodArea, root: string, class_name: string): void {
-        switch self.load_class_from_path(root, class_name) {
-            case .ok(index) {
-                self.define_array_references_for_class(index);
-            }
-            case .err {}
+        if self.load_class_from_path_optional(root, class_name) is index {
+            self.define_array_references_for_class(index);
         }
     }
 
@@ -643,23 +622,25 @@ pub struct MethodArea {
         var constant_index: usize = 0;
         while constant_index < self.classes[class_index].constant_pool.len() {
             switch self.classes[class_index].constant_pool[constant_index] {
-                case .class_ref(name_index) {
+                .class_ref(name_index) => {
                     if (name_index as usize) < self.classes[class_index].constant_pool.len() {
                         switch self.classes[class_index].constant_pool[name_index] {
-                            case .utf8(name) {
+                            .utf8(name) => {
                                 const name_bytes = name.bytes();
                                 if name_bytes.len() > 0 {
                                     if name_bytes[0] == '[' {
                                         const ignored_array = self.define_array_class(string.from(name_bytes));
                                     } else {
-                                        const array_name = array_descriptor_from_class_name(copy name);
+                                        const array_name = array_descriptor_from_class_name(name.clone());
                                         const ignored_array = self.define_array_class(array_name);
                                     }
                                 }
-                            } else {}
+                            }
+                            _ => {}
                         }
                     }
-                } else {}
+                }
+                _ => {}
             }
             constant_index = constant_index + 1;
         }
@@ -672,12 +653,14 @@ pub struct MethodArea {
         var descriptors: List<string> = [];
         var field_index: usize = 0;
         while field_index < self.classes[class_index].fields.len() {
-            descriptors.push(copy self.classes[class_index].fields[field_index].descriptor);
+            const field = &self.classes[class_index].fields[field_index];
+            descriptors.push(field.descriptor.clone());
             field_index = field_index + 1;
         }
         var method_index: usize = 0;
         while method_index < self.classes[class_index].methods.len() {
-            descriptors.push(copy self.classes[class_index].methods[method_index].descriptor);
+            const method = &self.classes[class_index].methods[method_index];
+            descriptors.push(method.descriptor.clone());
             method_index = method_index + 1;
         }
         while descriptors.len() > 0 {
@@ -711,11 +694,11 @@ pub struct MethodArea {
 
 }
 
-fn duplicate_loaded_class(existing: usize, source: string, classfile: ClassFile, name: string): result<usize, ClassfileError> {
+fn duplicate_loaded_class(existing: usize, source: string, classfile: ClassFile, name: string): usize ! ClassfileError {
     drop name;
     drop classfile;
     drop source;
-    return .ok(existing);
+    return existing;
 }
 
 pub fn new_method_area(): MethodArea {
@@ -869,7 +852,7 @@ fn builtin_string_builder_class(): Class {
 
 fn builtin_class(name: string): Class {
     return Class {
-        name: string.from(name.bytes()),
+        name: name,
         descriptor: class_descriptor_from_name(name),
         access_flags: class_access_flags(0x0021),
         super_class: owned_text("java/lang/Object".bytes()),
@@ -1089,7 +1072,7 @@ fn empty_code_info(): CodeInfo {
     };
 }
 
-fn apply_code_attribute_info(classfile: &ClassFile, name_index: u16, raw: []const u8, info: &CodeInfo): result<void, ClassfileError> {
+fn apply_code_attribute_info(classfile: &ClassFile, name_index: u16, raw: []const u8, info: &CodeInfo): void ! ClassfileError {
     const name = try classfile.utf8(name_index);
     var reader = ByteReader.init(raw);
     const is_line_number_table = name == "LineNumberTable";
@@ -1105,16 +1088,16 @@ fn apply_code_attribute_info(classfile: &ClassFile, name_index: u16, raw: []cons
     }
     drop reader;
     drop name;
-    return .ok();
+    return;
 }
 
-fn code_info_from_attribute(classfile: &ClassFile, name_index: u16, raw: []const u8): result<CodeInfo, ClassfileError> {
+fn code_info_from_attribute(classfile: &ClassFile, name_index: u16, raw: []const u8): CodeInfo ! ClassfileError {
     const name = try classfile.utf8(name_index);
     const is_code = name == "Code";
     drop name;
     if !is_code {
         const out = empty_code_info();
-        return .ok(out);
+        return out;
     }
 
     var reader = ByteReader.init(raw);
@@ -1157,56 +1140,58 @@ fn code_info_from_attribute(classfile: &ClassFile, name_index: u16, raw: []const
         index = index + 1;
     }
     drop reader;
-    return .ok(out);
+    return out;
 }
 
-fn member_code_info(classfile: &ClassFile, attributes: []AttributeInfo): result<CodeInfo, ClassfileError> {
+fn member_code_info(classfile: &ClassFile, attributes: []AttributeInfo): CodeInfo ! ClassfileError {
     var out = empty_code_info();
     var index: usize = 0;
     while index < attributes.len() {
         const current = try code_info_from_attribute(classfile, attributes[index].name_index, attributes[index].raw[..]);
         if current.code_len != 0 or current.max_stack != 0 or current.max_locals != 0 {
             drop out;
-            return .ok(current);
+            return current;
         }
         drop current;
         index = index + 1;
     }
-    return .ok(out);
+    return out;
 }
 
-fn derive_interfaces_into(classfile: &ClassFile, interfaces: &List<string>): result<void, ClassfileError> {
+fn derive_interfaces_into(classfile: &ClassFile, interfaces: &List<string>): void ! ClassfileError {
     const raw_interfaces = classfile.interfaces[..];
     var index: usize = 0;
     while index < raw_interfaces.len() {
         const class_ref_index = raw_interfaces[index] as usize;
         if class_ref_index >= classfile.constant_pool.len() {
-            return .err(ClassfileError.invalid_constant_index);
+            throw ClassfileError.invalid_constant_index;
         }
         switch classfile.constant_pool[class_ref_index] {
-            case .class_ref(name_index) {
+            .class_ref(name_index) => {
                 if name_index as usize >= classfile.constant_pool.len() {
-                    return .err(ClassfileError.invalid_constant_index);
+                    throw ClassfileError.invalid_constant_index;
                 }
                 switch classfile.constant_pool[name_index] {
-                    case .utf8(name) {
-                        var interface_name = string.from(name.bytes());
+                    .utf8(name) => {
+                        var interface_name = name;
                         interfaces.push(interface_name);
                         interface_name = "";
-                    } else {
-                        return .err(ClassfileError.invalid_constant_kind);
+                    }
+                    _ => {
+                        throw ClassfileError.invalid_constant_kind;
                     }
                 }
-            } else {
-                return .err(ClassfileError.invalid_constant_kind);
+            }
+            _ => {
+                throw ClassfileError.invalid_constant_kind;
             }
         }
         index = index + 1;
     }
-    return .ok();
+    return;
 }
 
-fn derive_fields(classfile: &ClassFile, class_name: string): result<List<Field>, ClassfileError> {
+fn derive_fields(classfile: &ClassFile, class_name: string): List<Field>!ClassfileError {
     var fields: List<Field> = [];
     var static_slot: u16 = 0;
     var instance_slot: u16 = 0;
@@ -1224,7 +1209,7 @@ fn derive_fields(classfile: &ClassFile, class_name: string): result<List<Field>,
             instance_slot = instance_slot + 1;
         }
         fields.push(Field {
-            class_name: string.from(class_name.bytes()),
+            class_name: class_name,
             access_flags: field_access_flags(access_flags),
             name: try classfile.utf8(field_infos[index].name_index),
             descriptor: descriptor,
@@ -1233,7 +1218,7 @@ fn derive_fields(classfile: &ClassFile, class_name: string): result<List<Field>,
         });
         index = index + 1;
     }
-    return .ok(fields);
+    return fields;
 }
 
 fn derive_static_vars(fields: &List<Field>): List<Value> {
@@ -1262,7 +1247,7 @@ fn instance_var_count(fields: &List<Field>): u16 {
     return count;
 }
 
-fn derive_source_file(classfile: &ClassFile): result<string, ClassfileError> {
+fn derive_source_file(classfile: &ClassFile): string ! ClassfileError {
     const attributes = classfile.attributes[..];
     var index: usize = 0;
     while index < attributes.len() {
@@ -1273,15 +1258,15 @@ fn derive_source_file(classfile: &ClassFile): result<string, ClassfileError> {
             const out = try classfile.utf8(source_file_index);
             drop reader;
             drop name;
-            return .ok(out);
+            return out;
         }
         drop name;
         index = index + 1;
     }
-    return .ok("");
+    return "";
 }
 
-fn derive_methods(classfile: &ClassFile, class_name: string): result<List<Method>, ClassfileError> {
+fn derive_methods(classfile: &ClassFile, class_name: string): List<Method>!ClassfileError {
     var methods: List<Method> = [];
     const method_infos = classfile.methods[..];
     var index: usize = 0;
@@ -1293,10 +1278,10 @@ fn derive_methods(classfile: &ClassFile, class_name: string): result<List<Method
         const method_code = byte_buffer(code.code[..]);
         var exception_handlers: List<ExceptionHandler> = [];
         if code.exception_count != 0 {
-            exception_handlers = copy code.exception_handlers;
+            exception_handlers = code.exception_handlers.clone();
         }
         methods.push(Method {
-            class_name: string.from(class_name.bytes()),
+            class_name: class_name,
             access_flags: method_access_flags(method_infos[index].access_flags),
             name: try classfile.utf8(method_infos[index].name_index),
             descriptor: descriptor,
@@ -1314,10 +1299,10 @@ fn derive_methods(classfile: &ClassFile, class_name: string): result<List<Method
         drop code;
         index = index + 1;
     }
-    return .ok(methods);
+    return methods;
 }
 
-pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
+pub fn derive_class(classfile: &ClassFile): Class ! ClassfileError {
     const class_name = try classfile.class_name(classfile.this_class);
     var fields = try derive_fields(classfile, class_name);
     var methods = try derive_methods(classfile, class_name);
@@ -1330,7 +1315,7 @@ pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
     const instance_vars = instance_var_count(&fields);
     const static_vars = derive_static_vars(&fields);
     var out = Class {
-        name: string.from(class_name.bytes()),
+        name: class_name,
         descriptor: class_descriptor_from_name(class_name),
         access_flags: class_access_flags(classfile.access_flags),
         super_class: super_class,
@@ -1350,5 +1335,5 @@ pub fn derive_class(classfile: &ClassFile): result<Class, ClassfileError> {
         class_object: null_ref,
     };
     drop class_name;
-    return .ok(out);
+    return out;
 }

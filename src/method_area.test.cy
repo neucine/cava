@@ -146,8 +146,14 @@ test "method area defines parsed classes once" {
     };
 
     var area = new_method_area();
-    const first = try area.define_class(&classfile);
-    const second = try area.define_class(&classfile);
+    const first = area.define_class(&classfile) catch (problem) {
+        assert(false);
+        return;
+    };
+    const second = area.define_class(&classfile) catch (problem) {
+        assert(false);
+        return;
+    };
 
     assert(first == 0);
     assert(second == 0);
@@ -165,7 +171,8 @@ test "method area synthesizes array classes once" {
     assert(second == 0);
     assert(area.classes.len() == 1);
     assert(area.classes[0].is_array);
-    const component_type = area.classes[0].component_type.bytes();
+    const array_class = &area.classes[0];
+    const component_type = array_class.component_type.bytes();
     assert(component_type[0] == 'I');
     assert(area.has_class("[I"));
 }
@@ -187,7 +194,10 @@ test "method area loads class from bytes" {
     ];
 
     var area = new_method_area();
-    const index = try area.load_class_from_bytes(data[..]);
+    const index = area.load_class_from_bytes(data[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert(index == 0);
     assert(area.has_class("Main"));
     assert(area.classes[0].descriptor.len() == 6);
@@ -242,10 +252,22 @@ test "method area resolves class field and method refs" {
     };
 
     var area = new_method_area();
-    const class_index = try area.define_class(&classfile);
-    const resolved_class = try area.resolve_class_ref(&classfile, 2);
-    const resolved_field = try area.resolve_field_ref(&classfile, 6);
-    const resolved_method = try area.resolve_method_ref(&classfile, 10);
+    const class_index = area.define_class(&classfile) catch (problem) {
+        assert(false);
+        return;
+    };
+    const resolved_class = area.resolve_class_ref(&classfile, 2) catch (problem) {
+        assert(false);
+        return;
+    };
+    const resolved_field = area.resolve_field_ref(&classfile, 6) catch (problem) {
+        assert(false);
+        return;
+    };
+    const resolved_method = area.resolve_method_ref(&classfile, 10) catch (problem) {
+        assert(false);
+        return;
+    };
 
     assert(class_index == 0);
     assert(resolved_class == 0);
@@ -349,7 +371,10 @@ test "method area derives class metadata from classfile" {
         }],
     };
 
-    var class = try derive_class(&classfile);
+    var class = derive_class(&classfile) catch (problem) {
+        assert(false);
+        return;
+    };
     assert(class.name.bytes()[0] == 77);
     assert(class.descriptor.len() == 6);
     assert(class.descriptor.bytes()[0] == 'L');
@@ -357,7 +382,10 @@ test "method area derives class metadata from classfile" {
     assert(class.source_file.bytes()[0] == 77);
     assert(class.source_file.bytes().len() == 9);
     assert(class.interfaces.len() == 1);
-    assert(class.interfaces[0].bytes()[0] == 82);
+    if true {
+        const first_interface = &class.interfaces[0];
+        assert(first_interface.bytes()[0] == 82);
+    }
     assert(class.fields.len() == 2);
     assert(class.fields[0].is_static());
     assert(class.fields[0].slot == 0);
@@ -366,34 +394,34 @@ test "method area derives class metadata from classfile" {
     assert(class.instance_vars == 1);
     assert(class.static_vars.len() == 1);
     switch class.static_vars[0] {
-        case .int_value(value) {
+        .int_value(value) => {
             assert(value == 0);
         }
-        case .byte_value {
+        .byte_value => {
             assert(false);
         }
-        case .short_value {
+        .short_value => {
             assert(false);
         }
-        case .char_value {
+        .char_value => {
             assert(false);
         }
-        case .long_value {
+        .long_value => {
             assert(false);
         }
-        case .float_value {
+        .float_value => {
             assert(false);
         }
-        case .double_value {
+        .double_value => {
             assert(false);
         }
-        case .boolean_value {
+        .boolean_value => {
             assert(false);
         }
-        case .return_address_value {
+        .return_address_value => {
             assert(false);
         }
-        case .ref_value {
+        .ref_value => {
             assert(false);
         }
     }
@@ -406,7 +434,10 @@ test "method area derives class metadata from classfile" {
     assert(class.methods[0].line_number_count == 1);
     assert(class.methods[0].local_var_count == 1);
     assert(class.methods[0].parameter_count == 0);
-    assert(class.methods[0].return_descriptor.bytes()[0] == 'I');
+    if true {
+        const first_method = &class.methods[0];
+        assert(first_method.return_descriptor.bytes()[0] == 'I');
+    }
     class.clear();
     drop class;
     classfile.clear();

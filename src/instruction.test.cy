@@ -338,20 +338,16 @@ import {
 
 fn check_parallel_narrow_array(runtime: Runtime, descriptor: string, store_opcode: u8, load_opcode: u8, input: i32, expected: i32): void {
     var reference = null_ref;
-    switch runtime.state.with_result<string, Reference>(descriptor, fn (vm: &VM, actual: string): Reference {
+    reference = runtime.state.with_result<string, Reference>(descriptor, fn (vm: &VM, actual: string): Reference {
         return vm.heap.allocate_array(0, actual.bytes(), 1);
-    }) {
-        case .ok(actual) {
-            reference = actual;
-        }
-        case .err {
-            assert(false);
-        }
-    }
+    }) catch (problem) {
+        assert(false);
+        return;
+    };
     const code: [2]u8 = [store_opcode, load_opcode];
     const pool: List<Constant> = [];
     var context = Context {
-        runtime: copy runtime,
+        runtime: runtime.alias_handles(),
         class_index: 0,
         method_index: 0,
         frame: new_frame(0, 0, 0, 3),
@@ -361,33 +357,27 @@ fn check_parallel_narrow_array(runtime: Runtime, descriptor: string, store_opcod
     context.frame.push(.ref_value(reference));
     push_int(&context, 0);
     push_int(&context, input);
-    switch execute_array_next(&context, "Array", "store") {
-        case .ok(handled) {
-            assert(handled);
-        }
-        case .err {
-            assert(false);
-        }
-    }
+    const stored = execute_array_next(&context, "Array", "store") catch (problem) {
+        assert(false);
+        return;
+    };
+    assert(stored);
     context.frame.push(.ref_value(reference));
     push_int(&context, 0);
-    switch execute_array_next(&context, "Array", "load") {
-        case .ok(handled) {
-            assert(handled);
-        }
-        case .err {
-            assert(false);
-        }
-    }
+    const loaded = execute_array_next(&context, "Array", "load") catch (problem) {
+        assert(false);
+        return;
+    };
+    assert(loaded);
     assert(expect_int(context.frame.pop()) == expected);
 }
 
 test "parallel array bytecodes preserve narrow primitive conversions" {
     const runtime = new_runtime();
-    check_parallel_narrow_array(copy runtime, "Z", 84, 51, 3, 1);
-    check_parallel_narrow_array(copy runtime, "B", 84, 51, 255, 0 - 1);
-    check_parallel_narrow_array(copy runtime, "C", 85, 52, 65537, 1);
-    check_parallel_narrow_array(copy runtime, "S", 86, 53, 65535, 0 - 1);
+    check_parallel_narrow_array(runtime.alias_handles(), "Z", 84, 51, 3, 1);
+    check_parallel_narrow_array(runtime.alias_handles(), "B", 84, 51, 255, 0 - 1);
+    check_parallel_narrow_array(runtime.alias_handles(), "C", 85, 52, 65537, 1);
+    check_parallel_narrow_array(runtime.alias_handles(), "S", 86, 53, 65535, 0 - 1);
     runtime.finish();
 }
 
@@ -410,7 +400,10 @@ test "instruction executes iconst and ireturn" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 1);
     drop method;
 }
@@ -451,8 +444,14 @@ test "instruction executes bipush sipush and ireturn" {
         return_descriptor: "I",
     };
 
-    const byte_result = try execute_method(&byte_method);
-    const short_result = try execute_method(&short_method);
+    const byte_result = execute_method(&byte_method) catch (problem) {
+        assert(false);
+        return;
+    };
+    const short_result = execute_method(&short_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(byte_result, 0 - 2);
     assert_int_result(short_result, 258);
     drop byte_method;
@@ -495,13 +494,10 @@ test "instruction executes ldc numeric constants" {
 
     var step: usize = 0;
     while step < 5 {
-        const step_result = execute_next(&context, &vm);
-        switch step_result {
-            case .ok {}
-            case .err {
-                assert(false);
-            }
-        }
+        execute_next(&context, &vm) catch (problem) {
+            assert(false);
+            return;
+        };
         step = step + 1;
     }
 
@@ -524,7 +520,7 @@ test "instruction caches ldc class constants" {
         .class_ref(1),
     ];
     var example_class = Class {
-        name: string.from("Example".bytes()),
+        name: "Example",
         descriptor: "LExample;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -544,7 +540,7 @@ test "instruction caches ldc class constants" {
         class_object: null_ref,
     };
     var class_class = Class {
-        name: string.from("java/lang/Class".bytes()),
+        name: "java/lang/Class",
         descriptor: "Ljava/lang/Class;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -577,13 +573,10 @@ test "instruction caches ldc class constants" {
 
     var step: usize = 0;
     while step < 2 {
-        const step_result = execute_next(&context, &vm);
-        switch step_result {
-            case .ok {}
-            case .err {
-                assert(false);
-            }
-        }
+        execute_next(&context, &vm) catch (problem) {
+            assert(false);
+            return;
+        };
         step = step + 1;
     }
 
@@ -612,7 +605,7 @@ test "instruction interns ldc string constants" {
         .string_ref(1),
     ];
     var main_class = Class {
-        name: string.from("Main".bytes()),
+        name: "Main",
         descriptor: "LMain;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -632,7 +625,7 @@ test "instruction interns ldc string constants" {
         class_object: null_ref,
     };
     var string_class = Class {
-        name: string.from("java/lang/String".bytes()),
+        name: "java/lang/String",
         descriptor: "Ljava/lang/String;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -665,13 +658,10 @@ test "instruction interns ldc string constants" {
 
     var step: usize = 0;
     while step < 2 {
-        const step_result = execute_next(&context, &vm);
-        switch step_result {
-            case .ok {}
-            case .err {
-                assert(false);
-            }
-        }
+        execute_next(&context, &vm) catch (problem) {
+            assert(false);
+            return;
+        };
         step = step + 1;
     }
 
@@ -701,7 +691,7 @@ test "instruction interns ldc method type constants" {
         .method_type(1),
     ];
     var main_class = Class {
-        name: string.from("Main".bytes()),
+        name: "Main",
         descriptor: "LMain;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -721,7 +711,7 @@ test "instruction interns ldc method type constants" {
         class_object: null_ref,
     };
     var method_type_class = Class {
-        name: string.from("java/lang/invoke/MethodType".bytes()),
+        name: "java/lang/invoke/MethodType",
         descriptor: "Ljava/lang/invoke/MethodType;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -754,13 +744,10 @@ test "instruction interns ldc method type constants" {
 
     var step: usize = 0;
     while step < 2 {
-        const step_result = execute_next(&context, &vm);
-        switch step_result {
-            case .ok {}
-            case .err {
-                assert(false);
-            }
-        }
+        execute_next(&context, &vm) catch (problem) {
+            assert(false);
+            return;
+        };
         step = step + 1;
     }
 
@@ -804,7 +791,7 @@ test "instruction interns ldc method handle constants" {
         }),
     ];
     var main_class = Class {
-        name: string.from("Main".bytes()),
+        name: "Main",
         descriptor: "LMain;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -824,7 +811,7 @@ test "instruction interns ldc method handle constants" {
         class_object: null_ref,
     };
     var method_handle_class = Class {
-        name: string.from("java/lang/invoke/MethodHandle".bytes()),
+        name: "java/lang/invoke/MethodHandle",
         descriptor: "Ljava/lang/invoke/MethodHandle;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -857,13 +844,10 @@ test "instruction interns ldc method handle constants" {
 
     var step: usize = 0;
     while step < 2 {
-        const step_result = execute_next(&context, &vm);
-        switch step_result {
-            case .ok {}
-            case .err {
-                assert(false);
-            }
-        }
+        execute_next(&context, &vm) catch (problem) {
+            assert(false);
+            return;
+        };
         step = step + 1;
     }
 
@@ -931,7 +915,7 @@ test "instruction executes field access ops" {
         slot: 0,
     };
     var class = Class {
-        name: string.from("Example".bytes()),
+        name: "Example",
         descriptor: "LExample;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",
@@ -965,40 +949,28 @@ test "instruction executes field access ops" {
     const reference = vm.heap.allocate_object(0, &context_classes[0]);
 
     context.frame.push(.int_value(41));
-    const put_static = execute_next(&context, &vm);
-    switch put_static {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
-    }
+    execute_next(&context, &vm) catch (problem) {
+        assert(false);
+        return;
+    };
 
-    const get_static = execute_next(&context, &vm);
-    switch get_static {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
-    }
+    execute_next(&context, &vm) catch (problem) {
+        assert(false);
+        return;
+    };
 
     context.frame.push(.ref_value(reference));
     context.frame.push(.int_value(1));
-    const put_instance = execute_next(&context, &vm);
-    switch put_instance {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
-    }
+    execute_next(&context, &vm) catch (problem) {
+        assert(false);
+        return;
+    };
 
     context.frame.push(.ref_value(reference));
-    const get_instance = execute_next(&context, &vm);
-    switch get_instance {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
-    }
+    execute_next(&context, &vm) catch (problem) {
+        assert(false);
+        return;
+    };
 
     assert_int_result(.return_value(context.frame.pop()), 1);
     assert_int_result(.return_value(context.frame.pop()), 41);
@@ -1035,7 +1007,7 @@ test "instruction executes invokestatic int method" {
     ];
     var classes: [1]Class = [
         Class {
-            name: string.from("Example".bytes()),
+            name: "Example",
             descriptor: "LExample;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -1091,7 +1063,10 @@ test "instruction executes invokestatic int method" {
 
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 2), constant_pool[..]);
+    const result = execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 2), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 5);
     drop classes;
 }
@@ -1120,7 +1095,7 @@ test "instruction executes registerNatives native no-op" {
     const native_code: [0]u8 = [];
     var classes: [1]Class = [
         Class {
-            name: string.from("java/lang/System".bytes()),
+            name: "java/lang/System",
             descriptor: "Ljava/lang/System;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -1176,7 +1151,10 @@ test "instruction executes registerNatives native no-op" {
 
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 1), constant_pool[..]);
+    const result = execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 1), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 5);
     drop classes;
 }
@@ -1205,7 +1183,7 @@ test "instruction executes System.initProperties native" {
     const native_code: [0]u8 = [];
     var classes: [1]Class = [
         Class {
-            name: string.from("java/lang/System".bytes()),
+            name: "java/lang/System",
             descriptor: "Ljava/lang/System;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -1261,7 +1239,10 @@ test "instruction executes System.initProperties native" {
 
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 1), constant_pool[..]);
+    const result = execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 1), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_null_ref_result(result);
     drop classes;
 }
@@ -1423,19 +1404,23 @@ test "instruction executes native AccessController.doPrivileged callback" {
 
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 3), constant_pool[..]);
+    const result: FrameResult = execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 3), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     switch result {
-        case .return_value(value) {
+        .return_value(value) => {
             if value is actual {
                 switch actual {
-                    case .ref_value(reference) {
+                    .ref_value(reference) => {
                         assert(reference.non_null());
                         if vm.heap.object_class_index(reference) is class_index {
                             assert(class_index == 1);
                         } else {
                             assert(false);
                         }
-                    } else {
+                    }
+                    _ => {
                         assert(false);
                     }
                 }
@@ -1443,7 +1428,7 @@ test "instruction executes native AccessController.doPrivileged callback" {
                 assert(false);
             }
         }
-        case .exception {
+        .exception => {
             assert(false);
         }
     }
@@ -1454,7 +1439,7 @@ test "instruction executes System.arraycopy native" {
     const native_code: [0]u8 = [];
     var classes: [1]Class = [
         Class {
-            name: string.from("java/lang/System".bytes()),
+            name: "java/lang/System",
             descriptor: "Ljava/lang/System;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -1514,7 +1499,10 @@ test "instruction executes System.arraycopy native" {
     arguments.push(.int_value(0));
     arguments.push(.int_value(2));
 
-    const result = try execute_native_method(&context, &vm, 0, 0, none, arguments);
+    const result = execute_native_method(&context, &vm, 0, 0, none, arguments) catch (problem) {
+        assert(false);
+        return;
+    };
     assert(result == none);
     if vm.heap.get_element(dest, 0) is first {
         assert_int_result(.return_value(first), 8);
@@ -1535,7 +1523,7 @@ test "instruction executes float and double raw bit natives" {
     const native_code: [0]u8 = [];
     var classes: [2]Class = [
         Class {
-            name: string.from("java/lang/Float".bytes()),
+            name: "java/lang/Float",
             descriptor: "Ljava/lang/Float;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -1588,7 +1576,7 @@ test "instruction executes float and double raw bit natives" {
             class_object: null_ref,
         },
         Class {
-            name: string.from("java/lang/Double".bytes()),
+            name: "java/lang/Double",
             descriptor: "Ljava/lang/Double;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -1638,17 +1626,26 @@ test "instruction executes float and double raw bit natives" {
     };
     var float_args: List<Value> = [];
     float_args.push(.float_value(1.0));
-    const float_bits = try execute_native_method(&context, &vm, 0, 0, none, float_args);
+    const float_bits = execute_native_method(&context, &vm, 0, 0, none, float_args) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(.return_value(float_bits), 1065353216);
 
     var int_args: List<Value> = [];
     int_args.push(.int_value(1073741824));
-    const float_value = try execute_native_method(&context, &vm, 0, 1, none, int_args);
+    const float_value = execute_native_method(&context, &vm, 0, 1, none, int_args) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_float_result(.return_value(float_value), 2.0);
 
     var long_args: List<Value> = [];
     long_args.push(.long_value(4611686018427387904));
-    const double_value = try execute_native_method(&context, &vm, 1, 0, none, long_args);
+    const double_value = execute_native_method(&context, &vm, 1, 0, none, long_args) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_double_result(.return_value(double_value), 2.0);
     drop context;
     drop classes;
@@ -1674,7 +1671,7 @@ test "instruction executes new object allocation" {
     };
     var classes: [1]Class = [
         Class {
-            name: string.from("Example".bytes()),
+            name: "Example",
             descriptor: "LExample;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -1705,13 +1702,10 @@ test "instruction executes new object allocation" {
         constant_pool: constant_pool[..]
     };
 
-    const execute_result = execute_next(&context, &vm);
-    switch execute_result {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
-    }
+    execute_next(&context, &vm) catch (problem) {
+        assert(false);
+        return;
+    };
     const reference = expect_ref(context.frame.pop());
     assert(vm.heap.has_object(reference));
     if vm.heap.get_field(reference, 0) is value {
@@ -1771,7 +1765,7 @@ test "instruction executes invokespecial constructor initialization" {
     };
     var classes: [1]Class = [
         Class {
-            name: string.from("Example".bytes()),
+            name: "Example",
             descriptor: "LExample;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -1826,9 +1820,12 @@ test "instruction executes invokespecial constructor initialization" {
     ];
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 3), constant_pool[..]);
+    const result: FrameResult = execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 3), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     switch result {
-        case .return_value(value) {
+        .return_value(value) => {
             if value is actual {
                 const reference = expect_ref(actual);
                 if vm.heap.get_field(reference, 0) is field_value {
@@ -1840,7 +1837,7 @@ test "instruction executes invokespecial constructor initialization" {
                 assert(false);
             }
         }
-        case .exception {
+        .exception => {
             assert(false);
         }
     }
@@ -1880,7 +1877,7 @@ test "instruction executes invokevirtual override dispatch" {
     ];
     var classes: [2]Class = [
         Class {
-            name: string.from("Base".bytes()),
+            name: "Base",
             descriptor: "LBase;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -1933,7 +1930,7 @@ test "instruction executes invokevirtual override dispatch" {
             class_object: null_ref,
         },
         Class {
-            name: string.from("Child".bytes()),
+            name: "Child",
             descriptor: "LChild;",
             access_flags: class_access_flags(0x0021),
             super_class: "Base",
@@ -1972,7 +1969,10 @@ test "instruction executes invokevirtual override dispatch" {
     ];
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 1), constant_pool[..]);
+    const result = execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, 0, 1), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 2);
     drop classes;
 }
@@ -2007,7 +2007,7 @@ test "instruction executes invokeinterface implementation dispatch" {
     const interface_code: [0]u8 = [];
     var classes: [2]Class = [
         Class {
-            name: string.from("Iface".bytes()),
+            name: "Iface",
             descriptor: "LIface;",
             access_flags: class_access_flags(0x0601),
             super_class: "java/lang/Object",
@@ -2044,7 +2044,7 @@ test "instruction executes invokeinterface implementation dispatch" {
             class_object: null_ref,
         },
         Class {
-            name: string.from("Impl".bytes()),
+            name: "Impl",
             descriptor: "LImpl;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -2099,7 +2099,10 @@ test "instruction executes invokeinterface implementation dispatch" {
     ];
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
-    const result = try execute_method_frame_with_vm(&vm, 1, 0, new_frame(1, 0, 0, 1), constant_pool[..]);
+    const result = execute_method_frame_with_vm(&vm, 1, 0, new_frame(1, 0, 0, 1), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 3);
     drop classes;
 }
@@ -2132,7 +2135,10 @@ test "instruction executes int local shorthand load store and add" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 42);
     drop method;
 }
@@ -2165,7 +2171,10 @@ test "instruction executes int local operand load store and add" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 42);
     drop method;
 }
@@ -2198,7 +2207,10 @@ test "instruction executes int subtract multiply and negate" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 42);
     drop method;
 }
@@ -2237,7 +2249,10 @@ test "instruction executes float load store arithmetic and return" {
         return_descriptor: "F",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_float_result(result, 5.0);
     drop method;
 }
@@ -2278,7 +2293,10 @@ test "instruction executes double load store arithmetic and return" {
         return_descriptor: "D",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_double_result(result, 2.0);
     drop method;
 }
@@ -2313,7 +2331,10 @@ test "instruction executes integer division and remainder normal paths" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 32);
     drop method;
 }
@@ -2350,7 +2371,10 @@ test "instruction executes long division and remainder normal paths" {
         return_descriptor: "J",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_long_result(result, 22);
     drop method;
 }
@@ -2381,7 +2405,10 @@ test "instruction executes stack manipulation ops" {
         return_descriptor: "I",
     };
 
-    const first_result = try execute_method(&first_method);
+    const first_result = execute_method(&first_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(first_result, 42);
     drop first_method;
 
@@ -2414,7 +2441,10 @@ test "instruction executes stack manipulation ops" {
         return_descriptor: "I",
     };
 
-    const second_result = try execute_method(&second_method);
+    const second_result = execute_method(&second_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(second_result, 42);
     drop second_method;
 
@@ -2442,7 +2472,10 @@ test "instruction executes stack manipulation ops" {
         return_descriptor: "I",
     };
 
-    const third_result = try execute_method(&third_method);
+    const third_result = execute_method(&third_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(third_result, 42);
     drop third_method;
 
@@ -2472,7 +2505,10 @@ test "instruction executes stack manipulation ops" {
         return_descriptor: "I",
     };
 
-    const fourth_result = try execute_method(&fourth_method);
+    const fourth_result = execute_method(&fourth_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(fourth_result, 42);
     drop fourth_method;
 
@@ -2502,7 +2538,10 @@ test "instruction executes stack manipulation ops" {
         return_descriptor: "I",
     };
 
-    const fifth_result = try execute_method(&fifth_method);
+    const fifth_result = execute_method(&fifth_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(fifth_result, 84);
     drop fifth_method;
 
@@ -2534,7 +2573,10 @@ test "instruction executes stack manipulation ops" {
         return_descriptor: "I",
     };
 
-    const sixth_result = try execute_method(&sixth_method);
+    const sixth_result = execute_method(&sixth_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(sixth_result, 42);
     drop sixth_method;
 
@@ -2566,7 +2608,10 @@ test "instruction executes stack manipulation ops" {
         return_descriptor: "I",
     };
 
-    const seventh_result = try execute_method(&seventh_method);
+    const seventh_result = execute_method(&seventh_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(seventh_result, 42);
     drop seventh_method;
 }
@@ -2608,7 +2653,10 @@ test "instruction executes iinc shifts and bitwise int ops" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 42);
     drop method;
 }
@@ -2638,7 +2686,10 @@ test "instruction executes wide local access and iinc" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 42);
     drop method;
 }
@@ -2667,7 +2718,10 @@ test "instruction executes logical right shifts" {
         return_descriptor: "I",
     };
 
-    const int_result = try execute_method(&int_method);
+    const int_result = execute_method(&int_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(int_result, 2147483647);
     drop int_method;
 
@@ -2696,7 +2750,10 @@ test "instruction executes logical right shifts" {
         return_descriptor: "J",
     };
 
-    const long_result = try execute_method(&long_method);
+    const long_result = execute_method(&long_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_long_result(long_result, 1);
     drop long_method;
 }
@@ -2724,7 +2781,10 @@ test "instruction executes int and long conversions" {
         return_descriptor: "J",
     };
 
-    const int_to_long_result = try execute_method(&int_to_long_method);
+    const int_to_long_result = execute_method(&int_to_long_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_long_result(int_to_long_result, 0 - 1);
     drop int_to_long_method;
 
@@ -2754,7 +2814,10 @@ test "instruction executes int and long conversions" {
         return_descriptor: "I",
     };
 
-    const long_to_int_result = try execute_method(&long_to_int_method);
+    const long_to_int_result = execute_method(&long_to_int_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(long_to_int_result, 1);
     drop long_to_int_method;
 }
@@ -2782,7 +2845,10 @@ test "instruction executes integer to float and double conversions" {
         return_descriptor: "F",
     };
 
-    const int_to_float_result = try execute_method(&int_to_float_method);
+    const int_to_float_result = execute_method(&int_to_float_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_float_result(int_to_float_result, 42.0);
     drop int_to_float_method;
 
@@ -2808,7 +2874,10 @@ test "instruction executes integer to float and double conversions" {
         return_descriptor: "D",
     };
 
-    const int_to_double_result = try execute_method(&int_to_double_method);
+    const int_to_double_result = execute_method(&int_to_double_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_double_result(int_to_double_result, 42.0);
     drop int_to_double_method;
 
@@ -2835,7 +2904,10 @@ test "instruction executes integer to float and double conversions" {
         return_descriptor: "F",
     };
 
-    const long_to_float_result = try execute_method(&long_to_float_method);
+    const long_to_float_result = execute_method(&long_to_float_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_float_result(long_to_float_result, 42.0);
     drop long_to_float_method;
 
@@ -2862,7 +2934,10 @@ test "instruction executes integer to float and double conversions" {
         return_descriptor: "D",
     };
 
-    const long_to_double_result = try execute_method(&long_to_double_method);
+    const long_to_double_result = execute_method(&long_to_double_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_double_result(long_to_double_result, 42.0);
     drop long_to_double_method;
 }
@@ -2890,7 +2965,10 @@ test "instruction executes float and double conversions" {
         return_descriptor: "I",
     };
 
-    const float_to_int_result = try execute_method(&float_to_int_method);
+    const float_to_int_result = execute_method(&float_to_int_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(float_to_int_result, 2);
     drop float_to_int_method;
 
@@ -2916,7 +2994,10 @@ test "instruction executes float and double conversions" {
         return_descriptor: "J",
     };
 
-    const float_to_long_result = try execute_method(&float_to_long_method);
+    const float_to_long_result = execute_method(&float_to_long_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_long_result(float_to_long_result, 2);
     drop float_to_long_method;
 
@@ -2942,7 +3023,10 @@ test "instruction executes float and double conversions" {
         return_descriptor: "D",
     };
 
-    const float_to_double_result = try execute_method(&float_to_double_method);
+    const float_to_double_result = execute_method(&float_to_double_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_double_result(float_to_double_result, 2.0);
     drop float_to_double_method;
 
@@ -2968,7 +3052,10 @@ test "instruction executes float and double conversions" {
         return_descriptor: "I",
     };
 
-    const double_to_int_result = try execute_method(&double_to_int_method);
+    const double_to_int_result = execute_method(&double_to_int_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(double_to_int_result, 1);
     drop double_to_int_method;
 
@@ -2994,7 +3081,10 @@ test "instruction executes float and double conversions" {
         return_descriptor: "J",
     };
 
-    const double_to_long_result = try execute_method(&double_to_long_method);
+    const double_to_long_result = execute_method(&double_to_long_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_long_result(double_to_long_result, 1);
     drop double_to_long_method;
 
@@ -3020,7 +3110,10 @@ test "instruction executes float and double conversions" {
         return_descriptor: "F",
     };
 
-    const double_to_float_result = try execute_method(&double_to_float_method);
+    const double_to_float_result = execute_method(&double_to_float_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_float_result(double_to_float_result, 1.0);
     drop double_to_float_method;
 }
@@ -3048,7 +3141,10 @@ test "instruction executes int byte char and short conversions" {
         return_descriptor: "I",
     };
 
-    const byte_result = try execute_method(&byte_method);
+    const byte_result = execute_method(&byte_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(byte_result, 0 - 128);
     drop byte_method;
 
@@ -3074,7 +3170,10 @@ test "instruction executes int byte char and short conversions" {
         return_descriptor: "I",
     };
 
-    const char_result = try execute_method(&char_method);
+    const char_result = execute_method(&char_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(char_result, 65535);
     drop char_method;
 
@@ -3102,7 +3201,10 @@ test "instruction executes int byte char and short conversions" {
         return_descriptor: "I",
     };
 
-    const short_result = try execute_method(&short_method);
+    const short_result = execute_method(&short_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(short_result, 0 - 32768);
     drop short_method;
 }
@@ -3153,7 +3255,10 @@ test "instruction executes unary int branches" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 42);
     drop method;
 }
@@ -3198,7 +3303,10 @@ test "instruction executes int compare branches and goto loop" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 42);
     drop method;
 }
@@ -3236,7 +3344,10 @@ test "instruction executes table and lookup switches" {
         return_descriptor: "I",
     };
 
-    const table_result = try execute_method(&table_method);
+    const table_result = execute_method(&table_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(table_result, 42);
     drop table_method;
 
@@ -3271,7 +3382,10 @@ test "instruction executes table and lookup switches" {
         return_descriptor: "I",
     };
 
-    const lookup_result = try execute_method(&lookup_method);
+    const lookup_result = execute_method(&lookup_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(lookup_result, 42);
     drop lookup_method;
 }
@@ -3301,7 +3415,10 @@ test "instruction executes jsr ret and jsr_w subroutines" {
         return_descriptor: "I",
     };
 
-    const jsr_result = try execute_method(&jsr_method);
+    const jsr_result = execute_method(&jsr_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(jsr_result, 42);
     drop jsr_method;
 
@@ -3329,7 +3446,10 @@ test "instruction executes jsr ret and jsr_w subroutines" {
         return_descriptor: "I",
     };
 
-    const wide_ret_result = try execute_method(&wide_ret_method);
+    const wide_ret_result = execute_method(&wide_ret_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(wide_ret_result, 42);
     drop wide_ret_method;
 
@@ -3357,7 +3477,10 @@ test "instruction executes jsr ret and jsr_w subroutines" {
         return_descriptor: "I",
     };
 
-    const jsr_w_result = try execute_method(&jsr_w_method);
+    const jsr_w_result = execute_method(&jsr_w_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(jsr_w_result, 42);
     drop jsr_w_method;
 }
@@ -3388,7 +3511,10 @@ test "instruction executes nop and goto_w" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 42);
     drop method;
 }
@@ -3417,7 +3543,10 @@ test "instruction executes reference load store and returns" {
         return_descriptor: "Ljava/lang/Object;",
     };
 
-    const ref_result = try execute_method(&ref_method);
+    const ref_result = execute_method(&ref_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_null_ref_result(ref_result);
     drop ref_method;
 
@@ -3441,7 +3570,10 @@ test "instruction executes reference load store and returns" {
         return_descriptor: "V",
     };
 
-    const void_result = try execute_method(&void_method);
+    const void_result = execute_method(&void_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_void_result(void_result);
     drop void_method;
 }
@@ -3465,13 +3597,10 @@ test "instruction executes athrow with existing exception reference" {
     };
     context.frame.push(.ref_value(exception));
 
-    const execute_result = execute_next(&context, &vm);
-    switch execute_result {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
-    }
+    execute_next(&context, &vm) catch (problem) {
+        assert(false);
+        return;
+    };
 
     if context.frame.result is result {
         assert_exception_result(result, exception);
@@ -3498,7 +3627,7 @@ test "instruction dispatches local exception handler" {
     };
     var classes: [2]Class = [
         Class {
-            name: string.from("Main".bytes()),
+            name: "Main",
             descriptor: "LMain;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -3535,7 +3664,7 @@ test "instruction dispatches local exception handler" {
             class_object: null_ref,
         },
         Class {
-            name: string.from("Throwable".bytes()),
+            name: "Throwable",
             descriptor: "LThrowable;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -3565,7 +3694,10 @@ test "instruction dispatches local exception handler" {
     };
     frame.store(0, .ref_value(exception));
 
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, frame, constant_pool[..]);
+    const result = execute_method_frame_with_vm(&vm, 0, 0, frame, constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 5);
     drop classes;
 }
@@ -3605,7 +3737,7 @@ test "instruction dispatches propagated call exception handler" {
     };
     var classes: [3]Class = [
         Class {
-            name: string.from("Main".bytes()),
+            name: "Main",
             descriptor: "LMain;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -3642,7 +3774,7 @@ test "instruction dispatches propagated call exception handler" {
             class_object: null_ref,
         },
         Class {
-            name: string.from("Helper".bytes()),
+            name: "Helper",
             descriptor: "LHelper;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -3679,7 +3811,7 @@ test "instruction dispatches propagated call exception handler" {
             class_object: null_ref,
         },
         Class {
-            name: string.from("Throwable".bytes()),
+            name: "Throwable",
             descriptor: "LThrowable;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -3709,7 +3841,10 @@ test "instruction dispatches propagated call exception handler" {
     };
     frame.store(0, .ref_value(exception));
 
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, frame, constant_pool[..]);
+    const result = execute_method_frame_with_vm(&vm, 0, 0, frame, constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 3);
     drop classes;
 }
@@ -3750,7 +3885,10 @@ test "instruction executes int array creation load store and length" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 42);
     drop method;
 }
@@ -3771,7 +3909,7 @@ test "instruction executes anewarray reference array creation" {
     ];
     var classes: [1]Class = [
         Class {
-            name: string.from("Main".bytes()),
+            name: "Main",
             descriptor: "LMain;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -3811,7 +3949,10 @@ test "instruction executes anewarray reference array creation" {
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
 
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
+    const result = execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 2);
     if vm.heap.get_element(Reference {
         kind: ReferenceKind.array,
@@ -3819,9 +3960,10 @@ test "instruction executes anewarray reference array creation" {
         generation: 0
     }, 0) is value {
         switch value {
-            case .ref_value(reference) {
+            .ref_value(reference) => {
                 assert(reference.is_null());
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -3862,7 +4004,7 @@ test "instruction executes checkcast and instanceof normal paths" {
     ];
     var classes: [5]Class = [
         Class {
-            name: string.from("Main".bytes()),
+            name: "Main",
             descriptor: "LMain;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -3931,7 +4073,7 @@ test "instruction executes checkcast and instanceof normal paths" {
             class_object: null_ref,
         },
         Class {
-            name: string.from("Base".bytes()),
+            name: "Base",
             descriptor: "LBase;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -3951,7 +4093,7 @@ test "instruction executes checkcast and instanceof normal paths" {
             class_object: null_ref,
         },
         Class {
-            name: string.from("Child".bytes()),
+            name: "Child",
             descriptor: "LChild;",
             access_flags: class_access_flags(0x0021),
             super_class: "Base",
@@ -3971,7 +4113,7 @@ test "instruction executes checkcast and instanceof normal paths" {
             class_object: null_ref,
         },
         Class {
-            name: string.from("Iface".bytes()),
+            name: "Iface",
             descriptor: "LIface;",
             access_flags: class_access_flags(0x0601),
             super_class: "java/lang/Object",
@@ -3991,7 +4133,7 @@ test "instruction executes checkcast and instanceof normal paths" {
             class_object: null_ref,
         },
         Class {
-            name: string.from("Other".bytes()),
+            name: "Other",
             descriptor: "LOther;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -4014,9 +4156,18 @@ test "instruction executes checkcast and instanceof normal paths" {
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
 
-    const pass_result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
-    const null_result = try execute_method_frame_with_vm(&vm, 0, 1, new_frame(0, 1, classes[0].methods[1].max_locals, classes[0].methods[1].max_stack), constant_pool[..]);
-    const miss_result = try execute_method_frame_with_vm(&vm, 0, 2, new_frame(0, 2, classes[0].methods[2].max_locals, classes[0].methods[2].max_stack), constant_pool[..]);
+    const pass_result = execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
+    const null_result = execute_method_frame_with_vm(&vm, 0, 1, new_frame(0, 1, classes[0].methods[1].max_locals, classes[0].methods[1].max_stack), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
+    const miss_result = execute_method_frame_with_vm(&vm, 0, 2, new_frame(0, 2, classes[0].methods[2].max_locals, classes[0].methods[2].max_stack), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(pass_result, 1);
     assert_int_result(null_result, 0);
     assert_int_result(miss_result, 0);
@@ -4039,7 +4190,7 @@ test "instruction executes monitorenter and monitorexit normal paths" {
     ];
     var classes: [1]Class = [
         Class {
-            name: string.from("Main".bytes()),
+            name: "Main",
             descriptor: "LMain;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -4079,7 +4230,10 @@ test "instruction executes monitorenter and monitorexit normal paths" {
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
 
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
+    const result = execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 1);
     assert(vm.heap.object_count() == 1);
     drop classes;
@@ -4100,7 +4254,7 @@ test "instruction executes multianewarray normal path" {
     ];
     var classes: [1]Class = [
         Class {
-            name: string.from("Main".bytes()),
+            name: "Main",
             descriptor: "LMain;",
             access_flags: class_access_flags(0x0021),
             super_class: "java/lang/Object",
@@ -4140,7 +4294,10 @@ test "instruction executes multianewarray normal path" {
     var vm = new_vm();
     seed_test_vm(&vm, classes[..]);
 
-    const result = try execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]);
+    const result = execute_method_frame_with_vm(&vm, 0, 0, new_frame(0, 0, classes[0].methods[0].max_locals, classes[0].methods[0].max_stack), constant_pool[..]) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 2);
     assert(vm.heap.array_count() == 3);
     if vm.heap.get_element(Reference {
@@ -4149,13 +4306,14 @@ test "instruction executes multianewarray normal path" {
         generation: 0
     }, 0) is value {
         switch value {
-            case .ref_value(reference) {
+            .ref_value(reference) => {
                 if vm.heap.array_length(reference) is length {
                     assert(length == 3);
                 } else {
                     assert(false);
                 }
-            } else {
+            }
+            _ => {
                 assert(false);
             }
         }
@@ -4197,7 +4355,10 @@ test "instruction executes wide and floating array load store ops" {
         return_descriptor: "J",
     };
 
-    const long_result = try execute_method(&long_method);
+    const long_result = execute_method(&long_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_long_result(long_result, 42);
     drop long_method;
 
@@ -4231,7 +4392,10 @@ test "instruction executes wide and floating array load store ops" {
         return_descriptor: "F",
     };
 
-    const float_result = try execute_method(&float_method);
+    const float_result = execute_method(&float_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_float_result(float_result, 2.0);
     drop float_method;
 
@@ -4265,7 +4429,10 @@ test "instruction executes wide and floating array load store ops" {
         return_descriptor: "D",
     };
 
-    const double_result = try execute_method(&double_method);
+    const double_result = execute_method(&double_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_double_result(double_result, 1.0);
     drop double_method;
 }
@@ -4301,7 +4468,10 @@ test "instruction executes narrow array load store ops" {
         return_descriptor: "I",
     };
 
-    const byte_result = try execute_method(&byte_method);
+    const byte_result = execute_method(&byte_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(byte_result, 0 - 1);
     drop byte_method;
 
@@ -4335,7 +4505,10 @@ test "instruction executes narrow array load store ops" {
         return_descriptor: "I",
     };
 
-    const char_result = try execute_method(&char_method);
+    const char_result = execute_method(&char_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(char_result, 255);
     drop char_method;
 
@@ -4369,7 +4542,10 @@ test "instruction executes narrow array load store ops" {
         return_descriptor: "I",
     };
 
-    const short_result = try execute_method(&short_method);
+    const short_result = execute_method(&short_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(short_result, 0 - 32768);
     drop short_method;
 
@@ -4403,7 +4579,10 @@ test "instruction executes narrow array load store ops" {
         return_descriptor: "I",
     };
 
-    const boolean_result = try execute_method(&boolean_method);
+    const boolean_result = execute_method(&boolean_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(boolean_result, 1);
     drop boolean_method;
 }
@@ -4425,13 +4604,10 @@ test "instruction executes reference array load store ops" {
     context.frame.push(.ref_value(reference));
     push_int(&context, 0);
     context.frame.push(.ref_value(null_ref));
-    const store_result = execute_next(&context, &vm);
-    switch store_result {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
-    }
+    execute_next(&context, &vm) catch (problem) {
+        assert(false);
+        return;
+    };
 
     const load_code: [1]u8 = [50];
     context.frame.clear();
@@ -4440,13 +4616,10 @@ test "instruction executes reference array load store ops" {
     context.code = load_code[..];
     context.frame.push(.ref_value(reference));
     push_int(&context, 0);
-    const load_result = execute_next(&context, &vm);
-    switch load_result {
-        case .ok {}
-        case .err {
-            assert(false);
-        }
-    }
+    execute_next(&context, &vm) catch (problem) {
+        assert(false);
+        return;
+    };
 
     const loaded = expect_ref(context.frame.pop());
     assert(loaded.is_null());
@@ -4493,7 +4666,10 @@ test "instruction executes reference comparison and null branches" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 42);
     drop method;
 }
@@ -4530,7 +4706,10 @@ test "instruction executes long local arithmetic and return" {
         return_descriptor: "J",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_long_result(result, 1);
     drop method;
 }
@@ -4561,7 +4740,10 @@ test "instruction executes long shifts and bitwise ops" {
         return_descriptor: "J",
     };
 
-    const shift_result = try execute_method(&shift_method);
+    const shift_result = execute_method(&shift_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_long_result(shift_result, 32);
     drop shift_method;
 
@@ -4594,7 +4776,10 @@ test "instruction executes long shifts and bitwise ops" {
         return_descriptor: "J",
     };
 
-    const bitwise_result = try execute_method(&bitwise_method);
+    const bitwise_result = execute_method(&bitwise_method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_long_result(bitwise_result, 1);
     drop bitwise_method;
 }
@@ -4631,7 +4816,10 @@ test "instruction executes long operand load store and compare" {
         return_descriptor: "I",
     };
 
-    const result = try execute_method(&method);
+    const result = execute_method(&method) catch (problem) {
+        assert(false);
+        return;
+    };
     assert_int_result(result, 0 - 1);
     drop method;
 }

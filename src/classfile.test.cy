@@ -38,8 +38,9 @@ import {
     parse_classfile,
     sample_header_bytes
 } from .classfile;
+import { TestError } from std.testing;
 
-test "copy duplicates nested member attribute storage" {
+test "clone duplicates nested member attribute storage" {
     const original = MemberInfo {
         access_flags: 1,
         name_index: 2,
@@ -50,7 +51,7 @@ test "copy duplicates nested member attribute storage" {
             raw: [7, 8]
         }],
     };
-    var duplicated = copy original;
+    var duplicated = original.clone();
     duplicated.attributes[0].raw[0] = 42;
     assert(original.attributes[0].raw[0] == 7);
     assert(duplicated.attributes[0].raw[0] == 42);
@@ -61,16 +62,28 @@ test "byte reader reads big endian primitives" {
     var data: [:]u8 = [0xCA, 0xFE, 0xBA, 0xBE, 0, 52, 7];
 
     var reader = ByteReader.init(data[..]);
-    assert(try reader.read_u1() == 0xCA);
-    assert(try reader.read_u2() == 0xFEBA);
-    assert(try reader.read_u4() == 0xBE003407);
+    assert((reader.read_u1() catch (problem) {
+        assert(false);
+        return;
+    }) == 0xCA);
+    assert((reader.read_u2() catch (problem) {
+        assert(false);
+        return;
+    }) == 0xFEBA);
+    assert((reader.read_u4() catch (problem) {
+        assert(false);
+        return;
+    }) == 0xBE003407);
     assert(reader.remaining() == 0);
 }
 
 test "classfile header parser reads magic version and constant pool count" {
     const data = sample_header_bytes();
     var reader = ByteReader.init(data[..]);
-    const header = try read_class_header(&reader);
+    const header = (read_class_header(&reader) catch (problem) {
+        assert(false);
+        return;
+    });
     assert(header.minor_version == 0);
     assert(header.major_version == 52);
     assert(header.constant_pool_count == 3);
@@ -80,20 +93,28 @@ test "classfile header parser reads magic version and constant pool count" {
 test "classfile header parser rejects invalid magic" {
     var data = sample_header_bytes();
     data[0] = 0;
-    switch parse_class_header(data[..]) {
-        case .ok(header) {
-            assert(false);
-        }
-        case .err(err) {
+    if true {
+        const _ = parse_class_header(data[..]) catch (err) {
             assert(err == ClassfileError.invalid_magic);
-        }
+            return;
+        };
+        assert(false);
     }
 }
 
 test "constant pool tags decode raw JVM tags" {
-    assert(try parse_constant_tag(1) == ConstantTag.utf8);
-    assert(try parse_constant_tag(10) == ConstantTag.method_ref);
-    assert(try parse_constant_tag(18) == ConstantTag.invoke_dynamic);
+    assert((parse_constant_tag(1) catch (problem) {
+        assert(false);
+        return;
+    }) == ConstantTag.utf8);
+    assert((parse_constant_tag(10) catch (problem) {
+        assert(false);
+        return;
+    }) == ConstantTag.method_ref);
+    assert((parse_constant_tag(18) catch (problem) {
+        assert(false);
+        return;
+    }) == ConstantTag.invoke_dynamic);
     assert(constant_tag_slot_width(ConstantTag.long) == 2);
     assert(constant_tag_slot_width(ConstantTag.double) == 2);
     assert(constant_tag_slot_width(ConstantTag.utf8) == 1);
@@ -118,61 +139,65 @@ test "constant reader parses utf8 class and member refs" {
 
     var reader = ByteReader.init(data[..]);
     var first: Constant = .unusable(0);
-    switch read_constant(&reader, &first) {
-        case .ok {}
-        case .err(err) {
+    if true {
+        read_constant(&reader, &first) catch (err) {
             assert(false);
-        }
+            return;
+        };
     }
     switch first {
-        case .utf8 {} else {
+        .utf8 => {}
+        _ => {
             assert(false);
         }
     }
 
     var second: Constant = .unusable(0);
-    switch read_constant(&reader, &second) {
-        case .ok {}
-        case .err(err) {
+    if true {
+        read_constant(&reader, &second) catch (err) {
             assert(false);
-        }
+            return;
+        };
     }
     switch second {
-        case .class_ref(name_index) {
+        .class_ref(name_index) => {
             assert(name_index == 1);
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
 
     var third: Constant = .unusable(0);
-    switch read_constant(&reader, &third) {
-        case .ok {}
-        case .err(err) {
+    if true {
+        read_constant(&reader, &third) catch (err) {
             assert(false);
-        }
+            return;
+        };
     }
     switch third {
-        case .name_and_type(pair) {
+        .name_and_type(pair) => {
             assert(pair.name_index == 1);
             assert(pair.descriptor_index == 1);
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
 
     var fourth: Constant = .unusable(0);
-    switch read_constant(&reader, &fourth) {
-        case .ok {}
-        case .err(err) {
+    if true {
+        read_constant(&reader, &fourth) catch (err) {
             assert(false);
-        }
+            return;
+        };
     }
     switch fourth {
-        case .method_ref(member) {
+        .method_ref(member) => {
             assert(member.class_index == 2);
             assert(member.name_and_type_index == 3);
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
@@ -189,39 +214,43 @@ test "constant pool preserves raw JVM indexes and wide unusable slots" {
 
     var reader = ByteReader.init(data[..]);
     var constants: List<Constant> = [];
-    switch read_constant_pool(&reader, 5, &constants) {
-        case .ok {}
-        case .err(err) {
+    if true {
+        read_constant_pool(&reader, 5, &constants) catch (err) {
             assert(false);
-        }
+            return;
+        };
     }
     assert(constants.len() == 5);
 
     switch constants[0] {
-        case .unusable {} else {
+        .unusable => {}
+        _ => {
             assert(false);
         }
     }
 
     switch constants[2] {
-        case .long(value) {
+        .long(value) => {
             assert(value.high_bytes == 0);
             assert(value.low_bytes == 42);
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
 
     switch constants[3] {
-        case .unusable {} else {
+        .unusable => {}
+        _ => {
             assert(false);
         }
     }
 
     switch constants[4] {
-        case .class_ref(name_index) {
+        .class_ref(name_index) => {
             assert(name_index == 1);
-        } else {
+        }
+        _ => {
             assert(false);
         }
     }
@@ -265,11 +294,11 @@ test "classfile parser reads class identity members and raw attributes" {
 
     var reader = ByteReader.init(data[..]);
     var classfile = new_classfile();
-    switch read_classfile(&reader, &classfile) {
-        case .ok {}
-        case .err(err) {
+    if true {
+        read_classfile(&reader, &classfile) catch (err) {
             assert(false);
-        }
+            return;
+        };
     }
     assert(classfile.major_version == 52);
     assert(classfile.constant_pool.len() == 5);
@@ -323,19 +352,25 @@ test "classfile resolves constant pool symbolic references" {
 
     var reader = ByteReader.init(data[..]);
     var classfile = new_classfile();
-    switch read_classfile(&reader, &classfile) {
-        case .ok {}
-        case .err(err) {
+    if true {
+        read_classfile(&reader, &classfile) catch (err) {
             assert(false);
-        }
+            return;
+        };
     }
-    const class_name = try classfile.class_name(2);
+    const class_name = (classfile.class_name(2) catch (problem) {
+        assert(false);
+        return;
+    });
     assert(class_name.bytes().len() == 4);
     assert(class_name.bytes()[0] == 77);
     assert(class_name.bytes()[3] == 110);
     drop class_name;
 
-    const pair = try classfile.name_and_type(5);
+    const pair = (classfile.name_and_type(5) catch (problem) {
+        assert(false);
+        return;
+    });
     assert(pair.name.bytes().len() == 6);
     assert(pair.name.bytes()[0] == 97);
     assert(pair.name.bytes()[5] == 114);
@@ -343,21 +378,24 @@ test "classfile resolves constant pool symbolic references" {
     assert(pair.descriptor.bytes()[0] == 'I');
     drop pair;
 
-    const member = try classfile.member_ref(6);
+    const member = (classfile.member_ref(6) catch (problem) {
+        assert(false);
+        return;
+    });
     assert(member.class_name.bytes()[0] == 77);
     assert(member.name.bytes()[0] == 97);
     assert(member.descriptor.bytes()[0] == 'I');
     drop member;
 
-    switch classfile.utf8(2) {
-        case .ok(value) {
-            drop value;
-            assert(false);
-        }
-        case .err(err) {
-            assert(err == ClassfileError.invalid_constant_kind);
-        }
-    }
+    const value = classfile.utf8(2) catch (err) {
+        assert(err == ClassfileError.invalid_constant_kind);
+        drop classfile;
+        drop reader;
+        drop data;
+        return;
+    };
+    drop value;
+    assert(false);
 
     drop classfile;
     drop reader;
@@ -386,53 +424,49 @@ test "classfile resolved constants compare with string equality" {
 
     var reader = ByteReader.init(data[..]);
     var classfile = new_classfile();
-    switch read_classfile(&reader, &classfile) {
-        case .ok {}
-        case .err {
+    if true {
+        read_classfile(&reader, &classfile) catch (problem) {
             assert(false);
-        }
+            return;
+        };
     }
 
-    switch classfile.class_name(2) {
-        case .ok(value) {
-            assert(value == "Main");
-            drop value;
-        }
-        case .err {
+    if true {
+        const value = classfile.class_name(2) catch (problem) {
             assert(false);
-        }
+            return;
+        };
+        assert(value == "Main");
+        drop value;
     }
-    switch classfile.name_and_type(5) {
-        case .ok(value) {
-            assert(value.name == "answer");
-            assert(value.descriptor == "I");
-            drop value;
-        }
-        case .err {
+    if true {
+        const value = classfile.name_and_type(5) catch (problem) {
             assert(false);
-        }
+            return;
+        };
+        assert(value.name == "answer");
+        assert(value.descriptor == "I");
+        drop value;
     }
-    switch classfile.member_ref(6) {
-        case .ok(value) {
-            assert(value.class_name == "Main");
-            assert(value.name == "answer");
-            assert(value.descriptor == "I");
-            drop value;
-        }
-        case .err {
+    if true {
+        const value = classfile.member_ref(6) catch (problem) {
             assert(false);
-        }
+            return;
+        };
+        assert(value.class_name == "Main");
+        assert(value.name == "answer");
+        assert(value.descriptor == "I");
+        drop value;
     }
-    switch classfile.member_ref(6) {
-        case .ok(value) {
-            assert(value.class_name != "Other");
-            assert(value.name == "answer");
-            assert(value.descriptor == "I");
-            drop value;
-        }
-        case .err {
+    if true {
+        const value = classfile.member_ref(6) catch (problem) {
             assert(false);
-        }
+            return;
+        };
+        assert(value.class_name != "Other");
+        assert(value.name == "answer");
+        assert(value.descriptor == "I");
+        drop value;
     }
 
     drop classfile;

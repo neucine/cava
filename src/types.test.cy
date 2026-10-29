@@ -52,7 +52,7 @@ import {
     fail_unexpected_value
 } from .types;
 
-test "copy duplicates method bytecode and handler storage" {
+test "clone duplicates method bytecode and handler storage" {
     const original = Method {
         class_name: "Example",
         access_flags: method_access_flags(0x0001),
@@ -69,7 +69,7 @@ test "copy duplicates method bytecode and handler storage" {
         parameter_count: 0,
         return_descriptor: "V",
     };
-    var duplicated = copy original;
+    var duplicated = original.clone();
     duplicated.code[0] = 0;
     assert(original.code[0] == 0xb1);
     assert(duplicated.code[0] == 0);
@@ -95,67 +95,67 @@ test "null reference equality" {
 
 test "primitive descriptor defaults" {
     switch default_value("I".bytes()) {
-        case .int_value(value) {
+        .int_value(value) => {
             assert(value == 0);
         }
-        case .byte_value(value) {
+        .byte_value(value) => {
             fail_unexpected_value(.byte_value(value));
         }
-        case .short_value(value) {
+        .short_value(value) => {
             fail_unexpected_value(.short_value(value));
         }
-        case .char_value(value) {
+        .char_value(value) => {
             fail_unexpected_value(.char_value(value));
         }
-        case .long_value(value) {
+        .long_value(value) => {
             fail_unexpected_value(.long_value(value));
         }
-        case .float_value(value) {
+        .float_value(value) => {
             fail_unexpected_value(.float_value(value));
         }
-        case .double_value(value) {
+        .double_value(value) => {
             fail_unexpected_value(.double_value(value));
         }
-        case .boolean_value(value) {
+        .boolean_value(value) => {
             fail_unexpected_value(.boolean_value(value));
         }
-        case .return_address_value(value) {
+        .return_address_value(value) => {
             fail_unexpected_value(.return_address_value(value));
         }
-        case .ref_value(value) {
+        .ref_value(value) => {
             fail_unexpected_value(.ref_value(value));
         }
     }
 
     switch default_value("Z".bytes()) {
-        case .boolean_value(value) {
+        .boolean_value(value) => {
             assert(value == false_value);
         }
-        case .byte_value(value) {
+        .byte_value(value) => {
             fail_unexpected_value(.byte_value(value));
         }
-        case .short_value(value) {
+        .short_value(value) => {
             fail_unexpected_value(.short_value(value));
         }
-        case .char_value(value) {
+        .char_value(value) => {
             fail_unexpected_value(.char_value(value));
         }
-        case .int_value(value) {
+        .int_value(value) => {
             fail_unexpected_value(.int_value(value));
         }
-        case .long_value(value) {
+        .long_value(value) => {
             fail_unexpected_value(.long_value(value));
         }
-        case .float_value(value) {
+        .float_value(value) => {
             fail_unexpected_value(.float_value(value));
         }
-        case .double_value(value) {
+        .double_value(value) => {
             fail_unexpected_value(.double_value(value));
         }
-        case .return_address_value(value) {
+        .return_address_value(value) => {
             fail_unexpected_value(.return_address_value(value));
         }
-        case .ref_value(value) {
+        .ref_value(value) => {
             fail_unexpected_value(.ref_value(value));
         }
     }
@@ -163,34 +163,34 @@ test "primitive descriptor defaults" {
 
 test "reference descriptor default" {
     switch default_value("Ljava/lang/Object;".bytes()) {
-        case .ref_value(reference) {
+        .ref_value(reference) => {
             assert(reference.is_null());
         }
-        case .byte_value(value) {
+        .byte_value(value) => {
             fail_unexpected_value(.byte_value(value));
         }
-        case .short_value(value) {
+        .short_value(value) => {
             fail_unexpected_value(.short_value(value));
         }
-        case .char_value(value) {
+        .char_value(value) => {
             fail_unexpected_value(.char_value(value));
         }
-        case .int_value(value) {
+        .int_value(value) => {
             fail_unexpected_value(.int_value(value));
         }
-        case .long_value(value) {
+        .long_value(value) => {
             fail_unexpected_value(.long_value(value));
         }
-        case .float_value(value) {
+        .float_value(value) => {
             fail_unexpected_value(.float_value(value));
         }
-        case .double_value(value) {
+        .double_value(value) => {
             fail_unexpected_value(.double_value(value));
         }
-        case .boolean_value(value) {
+        .boolean_value(value) => {
             fail_unexpected_value(.boolean_value(value));
         }
-        case .return_address_value(value) {
+        .return_address_value(value) => {
             fail_unexpected_value(.return_address_value(value));
         }
     }
@@ -249,7 +249,7 @@ test "class metadata supports field and method lookup" {
         return_descriptor: "V",
     };
     const class = Class {
-        name: string.from("Example".bytes()),
+        name: "Example",
         descriptor: "LExample;",
         access_flags: class_access_flags(0x0021),
         super_class: "java/lang/Object",

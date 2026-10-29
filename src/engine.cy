@@ -223,27 +223,27 @@ pub fn print_execution_error(error_value: InstructionError): void {
     }
 }
 
-fn handler_matches(context: &Context, vm: &VM, handler: ExceptionHandler, exception: Reference): result<bool, InstructionError> {
+fn handler_matches(context: &Context, vm: &VM, handler: ExceptionHandler, exception: Reference): bool ! InstructionError {
     if handler.catch_type == 0 {
-        return .ok(true);
+        return true;
     }
     var exception_class_index: usize = 0;
     if vm.heap.object_class_index(exception) is actual_exception_class_index {
         exception_class_index = actual_exception_class_index;
     } else {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     const catch_class_index = try find_class_index_by_constant(context, vm, handler.catch_type);
-    return .ok(class_matches(vm.method_area.classes[..], exception_class_index, catch_class_index));
+    return class_matches(vm.method_area.classes[..], exception_class_index, catch_class_index);
 }
 
-pub fn dispatch_exception(context: &Context, vm: &VM, exception: Reference): result<bool, InstructionError> {
+pub fn dispatch_exception(context: &Context, vm: &VM, exception: Reference): bool ! InstructionError {
     var classes = vm.method_area.classes[..];
     if context.class_index >= classes.len() {
-        return .ok(false);
+        return false;
     }
     if context.method_index >= classes[context.class_index].methods.len() {
-        return .ok(false);
+        return false;
     }
 
     const pc = context.frame.pc as u16;
@@ -257,65 +257,60 @@ pub fn dispatch_exception(context: &Context, vm: &VM, exception: Reference): res
                 context.frame.pc = handler.handle_pc as u32;
                 context.frame.offset = 1;
                 context.frame.result = none;
-                return .ok(true);
+                return true;
             }
         }
         index = index + 1;
     }
-    return .ok(false);
+    return false;
 }
 
-pub fn apply_method_result(context: &Context, vm: &VM, result: FrameResult): result<void, InstructionError> {
+pub fn apply_method_result(context: &Context, vm: &VM, result: FrameResult): void ! InstructionError {
     switch result {
-        case .return_value(value) {
+        .return_value(value) => {
             if value is actual {
                 context.frame.push(actual);
             }
         }
-        case .exception(reference) {
+        .exception(reference) => {
             if !(try dispatch_exception(context, vm, reference)) {
                 context.frame.throw_exception(reference);
             }
         }
     }
-    return .ok();
+    return;
 }
 
-fn execute_shared_step(vm: &VM, context: &Context): result<void, InstructionError> {
-    const result = execute_next(context, vm);
-    switch result {
-        case .ok {}
-        case .err(problem) {
-            print_instruction_error_context(context, vm, problem);
-        }
-    }
-    return result;
+fn execute_shared_step(vm: &VM, context: &Context): ?InstructionError {
+    execute_next(context, vm) catch (problem) {
+        print_instruction_error_context(context, vm, problem);
+        return problem;
+    };
+    return none;
 }
 
-fn execute_parallel_context(context: &Context, runtime: &const Runtime, class_name: string, method_name: string): result<FrameResult, InstructionError> {
+fn execute_parallel_context(context: &Context, runtime: &const Runtime, class_name: string, method_name: string): FrameResult ! InstructionError {
     while context.frame.pc < context.code.len() as u32 {
         var handled = try execute_frame_next(context, class_name, method_name);
         if !handled {
             handled = try execute_array_next(context, class_name, method_name);
         }
         if !handled {
-            switch runtime.state.with_result<&Context, result<void, InstructionError>>(context, execute_shared_step) {
-                case .ok(step) {
-                    try step;
-                }
-                case .err {
-                    return .err(InstructionError.invalid_constant);
-                }
+            const step = runtime.state.with_result<&Context, ?InstructionError>(context, execute_shared_step) catch (status) {
+                throw InstructionError.invalid_constant;
+            };
+            if step is problem {
+                throw problem;
             }
         }
         if context.frame.result is result {
-            return .ok(result);
+            return result;
         }
     }
-    return .err(InstructionError.missing_return);
+    throw InstructionError.missing_return;
 }
 
-fn execute_method_frame_with_context(runtime: ?Runtime, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
+fn execute_method_frame_with_context(runtime: ?Runtime, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): FrameResult ! InstructionError {
     var active_frame = frame;
     const method = &vm.method_area.classes[class_index].methods[method_index];
     var receiver: ?Reference = none;
@@ -328,7 +323,7 @@ fn execute_method_frame_with_context(runtime: ?Runtime, vm: &VM, class_index: us
     return result;
 }
 
-fn execute_method_frame_body(runtime: ?Runtime, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
+fn execute_method_frame_body(runtime: ?Runtime, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): FrameResult ! InstructionError {
     var runtime_pool = constant_pool;
     var vm_classes = vm.method_area.classes[..];
     var class_view = vm_classes;
@@ -341,12 +336,14 @@ fn execute_method_frame_body(runtime: ?Runtime, vm: &VM, class_index: usize, met
     if class.name == "java/lang/Class$Atomic" {
         if method.name == "<clinit>" and method.descriptor == "()V" {
             frame.clear_all();
-            return .ok(.return_value(none));
+            const completed_1: FrameResult = .return_value(none);
+            return completed_1;
         }
         if method.name == "casReflectionData" or method.name == "casAnnotationType" or method.name == "casAnnotationData" {
             frame.clear_all();
             const value: Value = .boolean_value(1);
-            return .ok(.return_value(value));
+            const completed_2: FrameResult = .return_value(value);
+            return completed_2;
         }
     }
 
@@ -358,7 +355,8 @@ fn execute_method_frame_body(runtime: ?Runtime, vm: &VM, class_index: usize, met
         }
         frame.clear_all();
         const value: Value = .ref_value(reference);
-        return .ok(.return_value(value));
+        const completed_3: FrameResult = .return_value(value);
+        return completed_3;
     }
 
     if class.name == "java/io/PrintStream" {
@@ -368,16 +366,18 @@ fn execute_method_frame_body(runtime: ?Runtime, vm: &VM, class_index: usize, met
             const value = frame.load(1);
             try vm.print_java_string(expect_ref_for_engine(value), false);
             frame.clear_all();
-            return .ok(.return_value(none));
+            const completed_4: FrameResult = .return_value(none);
+            return completed_4;
         }
         if method_name == "newLine" and descriptor == "()V" {
             println("");
             frame.clear_all();
-            return .ok(.return_value(none));
+            const completed_5: FrameResult = .return_value(none);
+            return completed_5;
         }
     }
 
-    const code_snapshot = copy method.code;
+    const code_snapshot = method.code.clone();
     var pool_snapshot: List<Constant> = [];
     var pool_index: usize = 0;
     while pool_index < runtime_pool.len() {
@@ -394,39 +394,35 @@ fn execute_method_frame_body(runtime: ?Runtime, vm: &VM, class_index: usize, met
     };
 
     if context.runtime is active_runtime {
-        const class_name = copy class.name;
-        const method_name = copy method.name;
+        const class_name = class.name.clone();
+        const method_name = method.name.clone();
         assert(active_runtime.state.unlock() == SyncStatus.ok);
         const result = execute_parallel_context(&context, &active_runtime, class_name, method_name);
         assert(active_runtime.state.lock() == SyncStatus.ok);
         return result;
     }
     while context.frame.pc < context.code.len() as u32 {
-        const step_result = execute_next(&context, vm);
-        switch step_result {
-            case .ok {}
-            case .err(error_value) {
-                print_instruction_error_context(&context, vm, error_value);
-                return .err(error_value);
-            }
-        }
+        execute_next(&context, vm) catch (error_value) {
+            print_instruction_error_context(&context, vm, error_value);
+            throw error_value;
+        };
         if context.frame.result is result {
             const out = result;
-            return .ok(out);
+            return out;
         }
     }
-    return .err(InstructionError.missing_return);
+    throw InstructionError.missing_return;
 }
 
-pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
+pub fn execute_method_frame_with_vm(vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): FrameResult ! InstructionError {
     return execute_method_frame_with_context(none, vm, class_index, method_index, frame, constant_pool);
 }
 
-pub fn execute_method_frame_with_runtime(runtime: Runtime, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): result<FrameResult, InstructionError> {
-    return execute_method_frame_with_context(copy runtime, vm, class_index, method_index, frame, constant_pool);
+pub fn execute_method_frame_with_runtime(runtime: Runtime, vm: &VM, class_index: usize, method_index: usize, frame: Frame, constant_pool: []const Constant): FrameResult ! InstructionError {
+    return execute_method_frame_with_context(runtime.alias_handles(), vm, class_index, method_index, frame, constant_pool);
 }
 
-pub fn execute_method_area_with_vm(vm: &VM, class_index: usize, method_index: usize, constant_pool: []const Constant, java_args: []const string): result<FrameResult, InstructionError> {
+pub fn execute_method_area_with_vm(vm: &VM, class_index: usize, method_index: usize, constant_pool: []const Constant, java_args: []const string): FrameResult ! InstructionError {
     const max_locals = vm.method_area.method_max_locals(class_index, method_index);
     const max_stack = vm.method_area.method_max_stack(class_index, method_index);
     var frame = new_frame(class_index, method_index, max_locals, max_stack);
@@ -444,7 +440,7 @@ pub fn execute_method_area_with_vm(vm: &VM, class_index: usize, method_index: us
     return execute_method_frame_with_vm(vm, class_index, method_index, frame, constant_pool);
 }
 
-pub fn execute_method_area_with_runtime(runtime: Runtime, vm: &VM, class_index: usize, method_index: usize, constant_pool: []const Constant, java_args: []const string): result<FrameResult, InstructionError> {
+pub fn execute_method_area_with_runtime(runtime: Runtime, vm: &VM, class_index: usize, method_index: usize, constant_pool: []const Constant, java_args: []const string): FrameResult ! InstructionError {
     const max_locals = vm.method_area.method_max_locals(class_index, method_index);
     const max_stack = vm.method_area.method_max_stack(class_index, method_index);
     var frame = new_frame(class_index, method_index, max_locals, max_stack);
@@ -462,15 +458,16 @@ pub fn execute_method_area_with_runtime(runtime: Runtime, vm: &VM, class_index: 
     return execute_method_frame_with_runtime(runtime, vm, class_index, method_index, frame, constant_pool);
 }
 
-pub fn execute_classfile_method_area_with_vm(vm: &VM, class_index: usize, method_index: usize, classfile: &ClassFile, java_args: []const string): result<FrameResult, InstructionError> {
+pub fn execute_classfile_method_area_with_vm(vm: &VM, class_index: usize, method_index: usize, classfile: &ClassFile, java_args: []const string): FrameResult ! InstructionError {
     return execute_method_area_with_vm(vm, class_index, method_index, classfile.constant_pool[..], java_args);
 }
 
 fn expect_ref_for_engine(value: Value): Reference {
     switch value {
-        case .ref_value(actual) {
+        .ref_value(actual) => {
             return actual;
-        } else {
+        }
+        _ => {
             return Reference.init_null();
         }
     }
@@ -478,34 +475,34 @@ fn expect_ref_for_engine(value: Value): Reference {
 
 fn assert_int_value(value: Value, expected: i32): void {
     switch value {
-        case .int_value(actual) {
+        .int_value(actual) => {
             assert(actual == expected);
         }
-        case .byte_value {
+        .byte_value => {
             assert(false);
         }
-        case .short_value {
+        .short_value => {
             assert(false);
         }
-        case .char_value {
+        .char_value => {
             assert(false);
         }
-        case .long_value {
+        .long_value => {
             assert(false);
         }
-        case .float_value {
+        .float_value => {
             assert(false);
         }
-        case .double_value {
+        .double_value => {
             assert(false);
         }
-        case .boolean_value {
+        .boolean_value => {
             assert(false);
         }
-        case .return_address_value {
+        .return_address_value => {
             assert(false);
         }
-        case .ref_value {
+        .ref_value => {
             assert(false);
         }
     }

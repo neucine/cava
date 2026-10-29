@@ -2,9 +2,9 @@ import { Runtime } from .runtime;
 import { VM } from .vm;
 import { InstructionError, MethodAccessFlags, Reference } from .types;
 
-pub fn enter_monitor(runtime: ?Runtime, vm: &VM, reference: Reference): result<void, InstructionError> {
+pub fn enter_monitor(runtime: ?Runtime, vm: &VM, reference: Reference): void ! InstructionError {
     if reference.is_null() {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
     if runtime is active_runtime {
         var acquired = false;
@@ -12,24 +12,24 @@ pub fn enter_monitor(runtime: ?Runtime, vm: &VM, reference: Reference): result<v
             if vm.heap.monitor_try_enter(reference) is actual {
                 acquired = actual;
             } else {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
             if !acquired and !active_runtime.pause(1) {
-                return .err(InstructionError.invalid_constant);
+                throw InstructionError.invalid_constant;
             }
         }
-        return .ok();
+        return;
     }
     if !vm.heap.monitor_enter(reference) {
-        return .err(InstructionError.invalid_constant);
+        throw InstructionError.invalid_constant;
     }
-    return .ok();
+    return;
 }
 
-pub fn enter_method_monitor(runtime: ?Runtime, vm: &VM, class_index: usize, method_index: usize, receiver: ?Reference): result<?Reference, InstructionError> {
+pub fn enter_method_monitor(runtime: ?Runtime, vm: &VM, class_index: usize, method_index: usize, receiver: ?Reference): ?Reference ! InstructionError {
     const access = vm.method_area.classes[class_index].methods[method_index].access_flags;
     if !(MethodAccessFlags.synchronized in access) {
-        return .ok(none);
+        return none;
     }
     var reference = Reference.init_null();
     if MethodAccessFlags.static_flag in access {
@@ -45,18 +45,20 @@ pub fn enter_method_monitor(runtime: ?Runtime, vm: &VM, class_index: usize, meth
         if receiver is actual {
             reference = actual;
         } else {
-            return .err(InstructionError.invalid_constant);
+            throw InstructionError.invalid_constant;
         }
     }
     try enter_monitor(runtime, vm, reference);
-    return .ok(reference);
+    const held: ?Reference = reference;
+    const _cava_optional_243: ?Reference = held;
+    return _cava_optional_243;
 }
 
-pub fn exit_method_monitor(vm: &VM, monitor: ?Reference): result<void, InstructionError> {
+pub fn exit_method_monitor(vm: &VM, monitor: ?Reference): void ! InstructionError {
     if monitor is reference {
         if !vm.heap.monitor_exit(reference) {
-            return .err(InstructionError.invalid_constant);
+            throw InstructionError.invalid_constant;
         }
     }
-    return .ok();
+    return;
 }

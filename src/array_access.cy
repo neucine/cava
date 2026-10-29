@@ -15,10 +15,9 @@ struct ArrayUpdate {
 pub struct ArrayAccess {
     pub storage: ConcurrentSlotMap<ArrayObject>;
 
-    @syntax.copy
-    pub fn clone(self: &const ArrayAccess): ArrayAccess {
+    pub fn alias_handle(self: &const ArrayAccess): ArrayAccess {
         return ArrayAccess {
-            storage: copy self.storage
+            storage: self.storage
         };
     }
 
@@ -31,19 +30,16 @@ pub struct ArrayAccess {
                 index: slot,
                 generation: reference.generation
             };
-            switch self.storage.with_result<SlotMapKey, ?usize>(key, fn (arrays: &SlotMap<ArrayObject>, actual: SlotMapKey): ?usize {
+            return self.storage.with_result<SlotMapKey, ?usize>(key, fn (arrays: &SlotMap<ArrayObject>, actual: SlotMapKey): ?usize {
                 if arrays.contains(actual) {
                     if &arrays.slots[actual.index] is array {
                         return array.elements.len();
                     }
                 }
                 return none;
-            }) {
-                case .ok(value) {
-                    return value;
-                }
-                case .err {}
-            }
+            }) catch (problem) {
+                return none;
+            };
         }
         return none;
     }
@@ -60,7 +56,7 @@ pub struct ArrayAccess {
                 },
                 index: index
             };
-            switch self.storage.with_result<ArrayLookup, ?Value>(lookup, fn (arrays: &SlotMap<ArrayObject>, actual: ArrayLookup): ?Value {
+            return self.storage.with_result<ArrayLookup, ?Value>(lookup, fn (arrays: &SlotMap<ArrayObject>, actual: ArrayLookup): ?Value {
                 if arrays.contains(actual.key) {
                     if &arrays.slots[actual.key.index] is array {
                         if actual.index < array.elements.len() {
@@ -69,12 +65,9 @@ pub struct ArrayAccess {
                     }
                 }
                 return none;
-            }) {
-                case .ok(value) {
-                    return value;
-                }
-                case .err {}
-            }
+            }) catch (problem) {
+                return none;
+            };
         }
         return none;
     }
@@ -94,7 +87,7 @@ pub struct ArrayAccess {
                 },
                 value: value
             };
-            switch self.storage.with_result<ArrayUpdate, bool>(update, fn (arrays: &SlotMap<ArrayObject>, actual: ArrayUpdate): bool {
+            return self.storage.with_result<ArrayUpdate, bool>(update, fn (arrays: &SlotMap<ArrayObject>, actual: ArrayUpdate): bool {
                 if arrays.contains(actual.lookup.key) {
                     if take arrays.slots[actual.lookup.key.index] is taken_array {
                         var array = taken_array;
@@ -108,12 +101,9 @@ pub struct ArrayAccess {
                     }
                 }
                 return false;
-            }) {
-                case .ok(updated) {
-                    return updated;
-                }
-                case .err {}
-            }
+            }) catch (problem) {
+                return false;
+            };
         }
         return false;
     }
