@@ -323,8 +323,8 @@ fn find_field_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         const field_index: ?usize = find_field_index_by_constants(class, context, name_index, descriptor_index) catch (problem) => none;
-        if field_index is found {
-            return class.fields[found];
+        if field_index {
+            return class.fields[field_index];
         }
         if class.super_class == "" {
             throw InstructionError.invalid_constant;
@@ -396,10 +396,10 @@ fn find_static_method_index_in_hierarchy(context: &Context, vm: &VM, class_index
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         const method_index: ?usize = find_static_method_index_by_constants(class, context, name_index, descriptor_index) catch (problem) => none;
-        if method_index is found {
+        if method_index {
             return ResolvedMethod {
                 class_index: current_index,
-                method_index: found
+                method_index: method_index
             };
         }
         if class.super_class == "" {
@@ -416,10 +416,10 @@ fn find_instance_method_index_in_hierarchy(context: &Context, vm: &VM, class_ind
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
         const method_index: ?usize = find_instance_method_index_by_constants(class, context, name_index, descriptor_index) catch (problem) => none;
-        if method_index is found {
+        if method_index {
             return ResolvedMethod {
                 class_index: current_index,
-                method_index: found
+                method_index: method_index
             };
         }
         if class.super_class == "" {
@@ -436,20 +436,20 @@ fn find_interface_method_index_in_hierarchy(context: &Context, vm: &VM, class_in
     }
     var classes = vm.method_area.classes[..];
     const method_index: ?usize = find_instance_method_index_by_constants(&classes[class_index], context, name_index, descriptor_index) catch (problem) => none;
-    if method_index is found {
+    if method_index {
         return ResolvedMethod {
             class_index: class_index,
-            method_index: found
+            method_index: method_index
         };
     }
 
     var interface_index: usize = 0;
     while interface_index < classes[class_index].interfaces.len() {
         const parent_index: ?usize = vm.resolve_class_index(classes[class_index].interfaces[interface_index].clone()) catch (problem) => none;
-        if parent_index is parent {
-            const method: ?ResolvedMethod = find_interface_method_index_in_hierarchy(context, vm, parent, name_index, descriptor_index) catch (problem) => none;
-            if method is found {
-                return found;
+        if parent_index {
+            const method: ?ResolvedMethod = find_interface_method_index_in_hierarchy(context, vm, parent_index, name_index, descriptor_index) catch (problem) => none;
+            if method {
+                return method;
             }
         }
         interface_index = interface_index + 1;
