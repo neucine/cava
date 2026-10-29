@@ -79,9 +79,7 @@ test "synchronized interpreted methods release monitors on every completion path
         if method_index == 0 {
             switch completion {
                 .return_value => {}
-                .exception => {
-                    assert(false);
-                }
+                .exception => unreachable;
             }
         } else {
             assert(method_index == 1);
@@ -89,9 +87,7 @@ test "synchronized interpreted methods release monitors on every completion path
                 .exception(reference) => {
                     assert(reference.equals(receiver));
                 }
-                .return_value => {
-                    assert(false);
-                }
+                .return_value => unreachable;
             }
         }
         assert(!vm.heap.monitor_held_by_current_thread(receiver));
@@ -142,9 +138,7 @@ test "synchronized native methods use receiver or declaring class mirror and rel
                 .boolean_value(held) => {
                     assert(held == 1);
                 }
-                _ => {
-                    assert(false);
-                }
+                _ => unreachable;
             }
         } else {
             assert(false);

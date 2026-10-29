@@ -1420,17 +1420,13 @@ test "instruction executes native AccessController.doPrivileged callback" {
                             assert(false);
                         }
                     }
-                    _ => {
-                        assert(false);
-                    }
+                    _ => unreachable;
                 }
             } else {
                 assert(false);
             }
         }
-        .exception => {
-            assert(false);
-        }
+        .exception => unreachable;
     }
     drop classes;
 }
@@ -1837,9 +1833,7 @@ test "instruction executes invokespecial constructor initialization" {
                 assert(false);
             }
         }
-        .exception => {
-            assert(false);
-        }
+        .exception => unreachable;
     }
     drop classes;
 }
@@ -3963,9 +3957,7 @@ test "instruction executes anewarray reference array creation" {
             .ref_value(reference) => {
                 assert(reference.is_null());
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);
@@ -4313,9 +4305,7 @@ test "instruction executes multianewarray normal path" {
                     assert(false);
                 }
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);

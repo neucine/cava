@@ -471,9 +471,7 @@ fn java_string_bytes(context: &Context, vm: &VM, reference: Reference): [:]u8 ! 
                 return out;
             }
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
     throw InstructionError.invalid_constant;
 }
@@ -1685,16 +1683,12 @@ struct SunMiscUnsafe {
                             }
                             throw InstructionError.invalid_constant;
                         }
-                        _ => {
-                            throw InstructionError.invalid_constant;
-                        }
+                        _ => throw InstructionError.invalid_constant;
                     }
                 }
                 throw InstructionError.invalid_constant;
             }
-            _ => {
-                throw InstructionError.invalid_constant;
-            }
+            _ => throw InstructionError.invalid_constant;
         }
     }
 

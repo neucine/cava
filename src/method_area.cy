@@ -1174,14 +1174,10 @@ fn derive_interfaces_into(classfile: &ClassFile, interfaces: &List<string>): voi
                         interfaces.push(interface_name);
                         interface_name = "";
                     }
-                    _ => {
-                        throw ClassfileError.invalid_constant_kind;
-                    }
+                    _ => throw ClassfileError.invalid_constant_kind;
                 }
             }
-            _ => {
-                throw ClassfileError.invalid_constant_kind;
-            }
+            _ => throw ClassfileError.invalid_constant_kind;
         }
         index = index + 1;
     }

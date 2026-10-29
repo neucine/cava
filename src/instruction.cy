@@ -229,12 +229,8 @@ pub fn constant_utf8(context: &Context, index: u16): string ! InstructionError {
         throw InstructionError.invalid_constant;
     }
     switch context.constant_pool[index as usize] {
-        .utf8(value) => {
-            return value;
-        }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        .utf8(value) => return value;
+        _ => throw InstructionError.invalid_constant;
     }
 }
 
@@ -243,12 +239,8 @@ pub fn constant_class_name(context: &Context, index: u16): string ! InstructionE
         throw InstructionError.invalid_constant;
     }
     switch context.constant_pool[index as usize] {
-        .class_ref(name_index) => {
-            return constant_utf8(context, name_index);
-        }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        .class_ref(name_index) => return constant_utf8(context, name_index);
+        _ => throw InstructionError.invalid_constant;
     }
 }
 
@@ -257,12 +249,8 @@ fn constant_utf8_equals(context: &Context, index: u16, expected: string): bool !
         throw InstructionError.invalid_constant;
     }
     switch context.constant_pool[index as usize] {
-        .utf8(value) => {
-            return value == expected;
-        }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        .utf8(value) => return value == expected;
+        _ => throw InstructionError.invalid_constant;
     }
 }
 
@@ -275,20 +263,14 @@ pub fn find_class_index_by_constant(context: &Context, vm: &VM, index: u16): usi
         .class_ref(actual) => {
             name_index = actual;
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
     if name_index as usize >= context.constant_pool.len() {
         throw InstructionError.invalid_constant;
     }
     switch context.constant_pool[name_index as usize] {
-        .utf8(name) => {
-            return vm.resolve_class_index(name.clone());
-        }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        .utf8(name) => return vm.resolve_class_index(name.clone());
+        _ => throw InstructionError.invalid_constant;
     }
 }
 
@@ -488,9 +470,7 @@ pub fn resolve_field(context: &Context, vm: &VM, index: u16): Field ! Instructio
             class_index = member.class_index;
             name_and_type_index = member.name_and_type_index;
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
@@ -503,9 +483,7 @@ pub fn resolve_field(context: &Context, vm: &VM, index: u16): Field ! Instructio
             name_index = pair.name_index;
             descriptor_index = pair.descriptor_index;
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 
     const actual_class_index = try find_class_index_by_constant(context, vm, class_index);
@@ -524,9 +502,7 @@ pub fn resolve_static_method(context: &Context, vm: &VM, index: u16): ResolvedMe
             class_index = member.class_index;
             name_and_type_index = member.name_and_type_index;
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
@@ -539,9 +515,7 @@ pub fn resolve_static_method(context: &Context, vm: &VM, index: u16): ResolvedMe
             name_index = pair.name_index;
             descriptor_index = pair.descriptor_index;
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 
     const actual_class_index = try find_class_index_by_constant(context, vm, class_index);
@@ -560,9 +534,7 @@ pub fn resolve_instance_method(context: &Context, vm: &VM, index: u16): Resolved
             class_index = member.class_index;
             name_and_type_index = member.name_and_type_index;
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
@@ -575,9 +547,7 @@ pub fn resolve_instance_method(context: &Context, vm: &VM, index: u16): Resolved
             name_index = pair.name_index;
             descriptor_index = pair.descriptor_index;
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 
     const actual_class_index = try find_class_index_by_constant(context, vm, class_index);
@@ -596,9 +566,7 @@ pub fn resolve_interface_method(context: &Context, vm: &VM, index: u16): Resolve
             class_index = member.class_index;
             name_and_type_index = member.name_and_type_index;
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 
     if name_and_type_index as usize >= context.constant_pool.len() {
@@ -611,9 +579,7 @@ pub fn resolve_interface_method(context: &Context, vm: &VM, index: u16): Resolve
             name_index = pair.name_index;
             descriptor_index = pair.descriptor_index;
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 
     const actual_class_index = try find_class_index_by_constant(context, vm, class_index);
@@ -626,84 +592,52 @@ fn push_int(context: &Context, value: i32): void {
 
 fn expect_int(value: Value): i32 {
     switch value {
-        .int_value(actual) => {
-            return actual;
-        }
-        .boolean_value(actual) => {
-            return actual as i32;
-        }
-        .byte_value(actual) => {
-            return actual as i32;
-        }
-        .short_value(actual) => {
-            return actual as i32;
-        }
-        .char_value(actual) => {
-            return actual as i32;
-        }
-        _ => {
-            assert(false);
-        }
+        .int_value(actual) => return actual;
+        .boolean_value(actual) => return actual as i32;
+        .byte_value(actual) => return actual as i32;
+        .short_value(actual) => return actual as i32;
+        .char_value(actual) => return actual as i32;
+        _ => unreachable;
     }
     return 0;
 }
 
 fn expect_ref(value: Value): Reference {
     switch value {
-        .ref_value(actual) => {
-            return actual;
-        }
-        _ => {
-            assert(false);
-        }
+        .ref_value(actual) => return actual;
+        _ => unreachable;
     }
     return null_ref;
 }
 
 fn expect_long(value: Value): i64 {
     switch value {
-        .long_value(actual) => {
-            return actual;
-        }
-        _ => {
-            assert(false);
-        }
+        .long_value(actual) => return actual;
+        _ => unreachable;
     }
     return 0;
 }
 
 fn expect_float(value: Value): f32 {
     switch value {
-        .float_value(actual) => {
-            return actual;
-        }
-        _ => {
-            assert(false);
-        }
+        .float_value(actual) => return actual;
+        _ => unreachable;
     }
     return 0.0;
 }
 
 fn expect_double(value: Value): f64 {
     switch value {
-        .double_value(actual) => {
-            return actual;
-        }
-        _ => {
-            assert(false);
-        }
+        .double_value(actual) => return actual;
+        _ => unreachable;
     }
     return 0.0;
 }
 
 fn expect_return_address(value: Value): u32 {
     switch value {
-        .return_address_value(actual) => {
-            return actual;
-        }
-        _ => {
-            assert(false);
-        }
+        .return_address_value(actual) => return actual;
+        _ => unreachable;
     }
     return 0;
 }
@@ -778,9 +712,7 @@ fn store_ref_like(context: &Context, index: u16): void {
         .return_address_value(address) => {
             context.frame.store(index, .return_address_value(address));
         }
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
 }
 
@@ -862,9 +794,7 @@ fn load_constant(context: &Context, vm: &VM, index: u16, wide: bool): void ! Ins
             }
             return load_method_handle_constant(context, vm, handle);
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 }
 
@@ -892,9 +822,7 @@ fn load_string_constant(context: &Context, vm: &VM, utf8_index: u16): void ! Ins
         .utf8(actual) => {
             value = actual.bytes();
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 
     const ignored_class = vm.method_area.resolve_class("java/lang/String") catch (problem) {
@@ -915,9 +843,7 @@ fn load_method_type_constant(context: &Context, vm: &VM, descriptor_index: u16):
         .utf8(actual) => {
             descriptor = actual.bytes();
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
 
     const method_type_class_index = try vm.resolve_class_index("java/lang/invoke/MethodType");
@@ -1331,9 +1257,7 @@ fn baload(context: &Context, vm: &VM): void ! InstructionError {
         .boolean_value(actual) => {
             push_int(context, actual as i32);
         }
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
     return;
 }
@@ -1344,9 +1268,7 @@ fn caload(context: &Context, vm: &VM): void ! InstructionError {
         .char_value(actual) => {
             push_int(context, actual as i32);
         }
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
     return;
 }
@@ -1357,9 +1279,7 @@ fn saload(context: &Context, vm: &VM): void ! InstructionError {
         .short_value(actual) => {
             push_int(context, actual as i32);
         }
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
     return;
 }
@@ -1571,9 +1491,7 @@ fn bastore(context: &Context, vm: &VM): void ! InstructionError {
                     return;
                 }
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     }
     assert(false);
@@ -2389,9 +2307,7 @@ pub fn invoke_privileged_action(context: &Context, vm: &VM, action: Reference): 
             const _cava_optional_4: ?Value = value;
             return _cava_optional_4;
         }
-        .exception => {
-            throw InstructionError.invalid_constant;
-        }
+        .exception => throw InstructionError.invalid_constant;
     }
 }
 
@@ -2432,9 +2348,7 @@ fn invoke_instance_method_direct(context: &Context, vm: &VM, receiver: Reference
             const _cava_optional_3: ?Value = value;
             return _cava_optional_3;
         }
-        .exception => {
-            throw InstructionError.invalid_constant;
-        }
+        .exception => throw InstructionError.invalid_constant;
     }
 }
 
@@ -2483,9 +2397,7 @@ fn java_string_bytes_instruction(context: &Context, vm: &VM, reference: Referenc
                             .byte_value(ch) => {
                                 bytes.push(ch as u8);
                             }
-                            _ => {
-                                throw InstructionError.invalid_constant;
-                            }
+                            _ => throw InstructionError.invalid_constant;
                         }
                     } else {
                         throw InstructionError.invalid_constant;
@@ -2496,9 +2408,7 @@ fn java_string_bytes_instruction(context: &Context, vm: &VM, reference: Referenc
                 return out;
             }
         }
-        _ => {
-            throw InstructionError.invalid_constant;
-        }
+        _ => throw InstructionError.invalid_constant;
     }
     throw InstructionError.invalid_constant;
 }
@@ -2548,9 +2458,7 @@ pub fn invoke_reflect_constructor(context: &Context, vm: &VM, constructor: Refer
             const _cava_optional_2: ?Value = out;
             return _cava_optional_2;
         }
-        .exception => {
-            throw InstructionError.invalid_constant;
-        }
+        .exception => throw InstructionError.invalid_constant;
     }
 }
 
@@ -2970,9 +2878,7 @@ fn initialize_static_class_body(context: &Context, vm: &VM, class_index: usize):
         const result = try execute_child_method_frame(context, vm, class_index, clinit_index, frame, active_class.constant_pool[..]);
         switch result {
             .return_value => {}
-            .exception => {
-                throw InstructionError.invalid_constant;
-            }
+            .exception => throw InstructionError.invalid_constant;
         }
     }
     if class_name == "java/lang/System" {
@@ -3030,9 +2936,7 @@ fn initialize_vm_static_fields(context: &Context, vm: &VM, vm_index: usize): voi
                     }
                 }
             }
-            _ => {
-                return;
-            }
+            _ => return;
         }
     }
     return;
@@ -5256,9 +5160,7 @@ pub fn execute_array_next(context: &Context, class_name: string, method_name: st
                             .boolean_value(value) => {
                                 push_int(context, value as i32);
                             }
-                            _ => {
-                                assert(false);
-                            }
+                            _ => unreachable;
                         }
                     }
                     if opcode == 52 {
@@ -5266,9 +5168,7 @@ pub fn execute_array_next(context: &Context, class_name: string, method_name: st
                             .char_value(value) => {
                                 push_int(context, value as i32);
                             }
-                            _ => {
-                                assert(false);
-                            }
+                            _ => unreachable;
                         }
                     }
                     if opcode == 53 {
@@ -5276,9 +5176,7 @@ pub fn execute_array_next(context: &Context, class_name: string, method_name: st
                             .short_value(value) => {
                                 push_int(context, value as i32);
                             }
-                            _ => {
-                                assert(false);
-                            }
+                            _ => unreachable;
                         }
                     }
                 } else {
@@ -5310,9 +5208,7 @@ pub fn execute_array_next(context: &Context, class_name: string, method_name: st
                             .byte_value => {
                                 value = .byte_value(((raw & 255) as u8) as! i8);
                             }
-                            _ => {
-                                assert(false);
-                            }
+                            _ => unreachable;
                         }
                     } else {
                         assert(false);
@@ -5699,17 +5595,13 @@ fn assert_int_result(result: FrameResult, expected: i32): void {
                     .int_value(int_value) => {
                         assert(int_value == expected);
                     }
-                    _ => {
-                        assert(false);
-                    }
+                    _ => unreachable;
                 }
             } else {
                 assert(false);
             }
         }
-        .exception => {
-            assert(false);
-        }
+        .exception => unreachable;
     }
 }
 
@@ -5721,17 +5613,13 @@ fn assert_long_result(result: FrameResult, expected: i64): void {
                     .long_value(long_value) => {
                         assert(long_value == expected);
                     }
-                    _ => {
-                        assert(false);
-                    }
+                    _ => unreachable;
                 }
             } else {
                 assert(false);
             }
         }
-        .exception => {
-            assert(false);
-        }
+        .exception => unreachable;
     }
 }
 
@@ -5743,17 +5631,13 @@ fn assert_float_result(result: FrameResult, expected: f32): void {
                     .float_value(float_value) => {
                         assert(float_value == expected);
                     }
-                    _ => {
-                        assert(false);
-                    }
+                    _ => unreachable;
                 }
             } else {
                 assert(false);
             }
         }
-        .exception => {
-            assert(false);
-        }
+        .exception => unreachable;
     }
 }
 
@@ -5765,17 +5649,13 @@ fn assert_double_result(result: FrameResult, expected: f64): void {
                     .double_value(double_value) => {
                         assert(double_value == expected);
                     }
-                    _ => {
-                        assert(false);
-                    }
+                    _ => unreachable;
                 }
             } else {
                 assert(false);
             }
         }
-        .exception => {
-            assert(false);
-        }
+        .exception => unreachable;
     }
 }
 
@@ -5789,9 +5669,7 @@ fn assert_null_ref_result(result: FrameResult): void {
                 assert(false);
             }
         }
-        .exception => {
-            assert(false);
-        }
+        .exception => unreachable;
     }
 }
 
@@ -5800,17 +5678,13 @@ fn assert_void_result(result: FrameResult): void {
         .return_value(value) => {
             assert(value == none);
         }
-        .exception => {
-            assert(false);
-        }
+        .exception => unreachable;
     }
 }
 
 fn assert_exception_result(result: FrameResult, expected: Reference): void {
     switch result {
-        .return_value => {
-            assert(false);
-        }
+        .return_value => unreachable;
         .exception(reference) => {
             assert(reference.equals(expected));
         }

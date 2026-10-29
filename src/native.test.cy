@@ -170,9 +170,7 @@ test "native Object.clone copies instance fields" {
                         .int_value(actual) => {
                             assert(actual == 42);
                         }
-                        _ => {
-                            assert(false);
-                        }
+                        _ => unreachable;
                     }
                 } else {
                     assert(false);
@@ -183,17 +181,13 @@ test "native Object.clone copies instance fields" {
                         .int_value(actual) => {
                             assert(actual == 42);
                         }
-                        _ => {
-                            assert(false);
-                        }
+                        _ => unreachable;
                     }
                 } else {
                     assert(false);
                 }
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);
@@ -298,9 +292,7 @@ test "native Class metadata reads represented class" {
             .int_value(actual) => {
                 assert(actual == 0x0021);
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);
@@ -315,9 +307,7 @@ test "native Class metadata reads represented class" {
             .ref_value(actual) => {
                 assert(actual.equals(classes[1].class_object));
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);
@@ -332,9 +322,7 @@ test "native Class metadata reads represented class" {
             .ref_value(actual) => {
                 assert(actual.is_null());
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);
@@ -399,9 +387,7 @@ test "native bootstrap helpers return conservative values" {
             .long_value(actual) => {
                 assert(actual > 0);
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);
@@ -416,9 +402,7 @@ test "native bootstrap helpers return conservative values" {
             .int_value(actual) => {
                 assert(actual == 0x0421);
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);
@@ -438,9 +422,7 @@ test "native bootstrap helpers return conservative values" {
             .ref_value(actual) => {
                 assert(actual.equals(path));
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);
@@ -455,9 +437,7 @@ test "native bootstrap helpers return conservative values" {
             .boolean_value(actual) => {
                 assert(actual == 0);
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);
@@ -599,9 +579,7 @@ test "native Thread.currentThread creates stable java thread object" {
                         .ref_value(second_ref) => {
                             assert(first_ref.equals(second_ref));
                         }
-                        _ => {
-                            assert(false);
-                        }
+                        _ => unreachable;
                     }
                 } else {
                     assert(false);
@@ -611,9 +589,7 @@ test "native Thread.currentThread creates stable java thread object" {
                         .long_value(actual) => {
                             assert(actual == 1);
                         }
-                        _ => {
-                            assert(false);
-                        }
+                        _ => unreachable;
                     }
                 } else {
                     assert(false);
@@ -623,9 +599,7 @@ test "native Thread.currentThread creates stable java thread object" {
                         .int_value(actual) => {
                             assert(actual == 1);
                         }
-                        _ => {
-                            assert(false);
-                        }
+                        _ => unreachable;
                     }
                 } else {
                     assert(false);
@@ -635,9 +609,7 @@ test "native Thread.currentThread creates stable java thread object" {
                         .ref_value(name_ref) => {
                             assert(name_ref.equals(vm.heap.strings[0].reference));
                         }
-                        _ => {
-                            assert(false);
-                        }
+                        _ => unreachable;
                     }
                 } else {
                     assert(false);
@@ -651,25 +623,19 @@ test "native Thread.currentThread creates stable java thread object" {
                                     .ref_value(group_name_ref) => {
                                         assert(group_name_ref.equals(vm.heap.strings[0].reference));
                                     }
-                                    _ => {
-                                        assert(false);
-                                    }
+                                    _ => unreachable;
                                 }
                             } else {
                                 assert(false);
                             }
                         }
-                        _ => {
-                            assert(false);
-                        }
+                        _ => unreachable;
                     }
                 } else {
                     assert(false);
                 }
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);

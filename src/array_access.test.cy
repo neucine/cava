@@ -17,9 +17,7 @@ test "parallel array access rejects stale and out of bounds references" {
             .int_value(actual) => {
                 assert(actual == 42);
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);

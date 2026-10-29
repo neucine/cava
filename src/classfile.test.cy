@@ -147,9 +147,7 @@ test "constant reader parses utf8 class and member refs" {
     }
     switch first {
         .utf8 => {}
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
 
     var second: Constant = .unusable(0);
@@ -163,9 +161,7 @@ test "constant reader parses utf8 class and member refs" {
         .class_ref(name_index) => {
             assert(name_index == 1);
         }
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
 
     var third: Constant = .unusable(0);
@@ -180,9 +176,7 @@ test "constant reader parses utf8 class and member refs" {
             assert(pair.name_index == 1);
             assert(pair.descriptor_index == 1);
         }
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
 
     var fourth: Constant = .unusable(0);
@@ -197,9 +191,7 @@ test "constant reader parses utf8 class and member refs" {
             assert(member.class_index == 2);
             assert(member.name_and_type_index == 3);
         }
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
 
     assert(reader.remaining() == 0);
@@ -224,9 +216,7 @@ test "constant pool preserves raw JVM indexes and wide unusable slots" {
 
     switch constants[0] {
         .unusable => {}
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
 
     switch constants[2] {
@@ -234,25 +224,19 @@ test "constant pool preserves raw JVM indexes and wide unusable slots" {
             assert(value.high_bytes == 0);
             assert(value.low_bytes == 42);
         }
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
 
     switch constants[3] {
         .unusable => {}
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
 
     switch constants[4] {
         .class_ref(name_index) => {
             assert(name_index == 1);
         }
-        _ => {
-            assert(false);
-        }
+        _ => unreachable;
     }
 }
 

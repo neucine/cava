@@ -228,9 +228,7 @@ test "heap allocates reference arrays with null elements" {
             .ref_value(actual) => {
                 assert(actual.is_null());
             }
-            _ => {
-                assert(false);
-            }
+            _ => unreachable;
         }
     } else {
         assert(false);

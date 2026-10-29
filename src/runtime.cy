@@ -57,9 +57,7 @@ pub struct Runtime {
             if worker is actual {
                 switch actual.handle.join() {
                     .settled => {}
-                    .retry => {
-                        assert(false);
-                    }
+                    .retry => unreachable;
                 }
             } else {
                 draining = false;

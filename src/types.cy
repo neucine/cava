@@ -569,35 +569,15 @@ pub struct Class {
 
 fn fail_unexpected_value(value: Value): void {
     switch value {
-        .byte_value => {
-            assert(false);
-        }
-        .short_value => {
-            assert(false);
-        }
-        .char_value => {
-            assert(false);
-        }
-        .int_value => {
-            assert(false);
-        }
-        .long_value => {
-            assert(false);
-        }
-        .float_value => {
-            assert(false);
-        }
-        .double_value => {
-            assert(false);
-        }
-        .boolean_value => {
-            assert(false);
-        }
-        .return_address_value => {
-            assert(false);
-        }
-        .ref_value => {
-            assert(false);
-        }
+        .byte_value => unreachable;
+        .short_value => unreachable;
+        .char_value => unreachable;
+        .int_value => unreachable;
+        .long_value => unreachable;
+        .float_value => unreachable;
+        .double_value => unreachable;
+        .boolean_value => unreachable;
+        .return_address_value => unreachable;
+        .ref_value => unreachable;
     }
 }

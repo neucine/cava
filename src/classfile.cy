@@ -92,84 +92,56 @@ pub enum ConstantTag: i32 {
 }
 
 pub fn parse_constant_tag(raw: u8): ConstantTag ! ClassfileError {
-    if raw == 1 {
-        return ConstantTag.utf8;
+    switch raw {
+        1 => return ConstantTag.utf8;
+        3 => return ConstantTag.integer;
+        4 => return ConstantTag.float;
+        5 => return ConstantTag.long;
+        6 => return ConstantTag.double;
+        7 => return ConstantTag.class_ref;
+        8 => return ConstantTag.string_ref;
+        9 => return ConstantTag.field_ref;
+        10 => return ConstantTag.method_ref;
+        11 => return ConstantTag.interface_method_ref;
+        12 => return ConstantTag.name_and_type;
+        15 => return ConstantTag.method_handle;
+        16 => return ConstantTag.method_type;
+        17 => return ConstantTag.dynamic;
+        18 => return ConstantTag.invoke_dynamic;
+        19 => return ConstantTag.module_ref;
+        20 => return ConstantTag.package_ref;
+        _ => throw ClassfileError.invalid_constant_tag;
     }
-    if raw == 3 {
-        return ConstantTag.integer;
-    }
-    if raw == 4 {
-        return ConstantTag.float;
-    }
-    if raw == 5 {
-        return ConstantTag.long;
-    }
-    if raw == 6 {
-        return ConstantTag.double;
-    }
-    if raw == 7 {
-        return ConstantTag.class_ref;
-    }
-    if raw == 8 {
-        return ConstantTag.string_ref;
-    }
-    if raw == 9 {
-        return ConstantTag.field_ref;
-    }
-    if raw == 10 {
-        return ConstantTag.method_ref;
-    }
-    if raw == 11 {
-        return ConstantTag.interface_method_ref;
-    }
-    if raw == 12 {
-        return ConstantTag.name_and_type;
-    }
-    if raw == 15 {
-        return ConstantTag.method_handle;
-    }
-    if raw == 16 {
-        return ConstantTag.method_type;
-    }
-    if raw == 17 {
-        return ConstantTag.dynamic;
-    }
-    if raw == 18 {
-        return ConstantTag.invoke_dynamic;
-    }
-    if raw == 19 {
-        return ConstantTag.module_ref;
-    }
-    if raw == 20 {
-        return ConstantTag.package_ref;
-    }
-    throw ClassfileError.invalid_constant_tag;
 }
 
 pub fn constant_tag_slot_width(tag: ConstantTag): u8 {
-    if tag == ConstantTag.long or tag == ConstantTag.double {
-        return 2;
-    }
-    return 1;
+    return switch tag {
+        ConstantTag.long => 2;
+        ConstantTag.double => 2;
+        _ => 1;
+    };
 }
 
 pub fn fixed_constant_payload_len(tag: ConstantTag): ?u16 {
-    if tag == ConstantTag.integer or tag == ConstantTag.float {
-        return 4;
-    }
-    if tag == ConstantTag.long or tag == ConstantTag.double {
-        return 8;
-    }
-    if tag == ConstantTag.class_ref or tag == ConstantTag.string_ref or tag == ConstantTag.method_type or tag == ConstantTag.module_ref or tag == ConstantTag.package_ref {
-        return 2;
-    }
-    if tag == ConstantTag.field_ref or tag == ConstantTag.method_ref or tag == ConstantTag.interface_method_ref or tag == ConstantTag.name_and_type or tag == ConstantTag.dynamic or tag == ConstantTag.invoke_dynamic {
-        return 4;
-    }
-    if tag == ConstantTag.method_handle {
-        return 3;
-    }
-    return none;
+    return switch tag {
+        ConstantTag.utf8 => none;
+        ConstantTag.integer => 4;
+        ConstantTag.float => 4;
+        ConstantTag.long => 8;
+        ConstantTag.double => 8;
+        ConstantTag.class_ref => 2;
+        ConstantTag.string_ref => 2;
+        ConstantTag.field_ref => 4;
+        ConstantTag.method_ref => 4;
+        ConstantTag.interface_method_ref => 4;
+        ConstantTag.name_and_type => 4;
+        ConstantTag.method_handle => 3;
+        ConstantTag.method_type => 2;
+        ConstantTag.dynamic => 4;
+        ConstantTag.invoke_dynamic => 4;
+        ConstantTag.module_ref => 2;
+        ConstantTag.package_ref => 2;
+    };
 }
 
 fn byte_buffer(source: []const u8): [:]u8 {
@@ -570,9 +542,7 @@ pub struct ClassFile {
 
         return switch self.constant_pool[index] {
             .utf8(value) => value;
-            _ => {
-                throw ClassfileError.invalid_constant_kind;
-            }
+            _ => throw ClassfileError.invalid_constant_kind;
         };
     }
 
@@ -583,9 +553,7 @@ pub struct ClassFile {
 
         return switch self.constant_pool[index] {
             .class_ref(name_index) => try self.utf8(name_index);
-            _ => {
-                throw ClassfileError.invalid_constant_kind;
-            }
+            _ => throw ClassfileError.invalid_constant_kind;
         };
     }
 
@@ -599,9 +567,7 @@ pub struct ClassFile {
                 name: try self.utf8(pair.name_index),
                 descriptor: try self.utf8(pair.descriptor_index),
             };
-            _ => {
-                throw ClassfileError.invalid_constant_kind;
-            }
+            _ => throw ClassfileError.invalid_constant_kind;
         };
     }
 
@@ -614,9 +580,7 @@ pub struct ClassFile {
             .field_ref(member) => member;
             .method_ref(member) => member;
             .interface_method_ref(member) => member;
-            _ => {
-                throw ClassfileError.invalid_constant_kind;
-            }
+            _ => throw ClassfileError.invalid_constant_kind;
         };
 
         if !self.valid_constant_index(raw.name_and_type_index) {
@@ -625,9 +589,7 @@ pub struct ClassFile {
 
         const pair = switch self.constant_pool[raw.name_and_type_index] {
             .name_and_type(actual) => actual;
-            _ => {
-                throw ClassfileError.invalid_constant_kind;
-            }
+            _ => throw ClassfileError.invalid_constant_kind;
         };
 
         const class_name = try self.class_name(raw.class_index);

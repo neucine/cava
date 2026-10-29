@@ -60,9 +60,7 @@ test "frame manages locals operand stack and pc" {
                     assert(false);
                 }
             }
-            .exception => {
-                assert(false);
-            }
+            .exception => unreachable;
         }
     } else {
         assert(false);
