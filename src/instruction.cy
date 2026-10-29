@@ -5202,7 +5202,6 @@ pub fn print_instruction_error_context(context: &Context, vm: &VM, error_value: 
 fn instruction_trace_enabled(): bool {
     if env_get("CAVA_TRACE") is value {
         const enabled = value != "" and value != "0";
-        drop value;
         return enabled;
     }
     return false;

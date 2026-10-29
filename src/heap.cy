@@ -189,7 +189,6 @@ pub struct Heap {
         while index < self.strings.len() {
             if self.strings[index].value[..] == bytes[..] {
                 const existing = self.strings[index].reference;
-                drop bytes;
                 return existing;
             }
             index = index + 1;

@@ -407,7 +407,6 @@ pub struct MethodArea {
     pub fn define_array_class(self: &MethodArea, name: string): usize {
         const name_bytes = name.bytes();
         if self.find_class_index(name.clone()) is existing {
-            drop name;
             return existing;
         }
 
@@ -649,7 +648,6 @@ pub struct MethodArea {
         while descriptors.len() > 0 {
             var descriptor = descriptors.pop();
             self.define_descriptor_array_references(descriptor.bytes());
-            drop descriptor;
         }
     }
 
