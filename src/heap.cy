@@ -77,7 +77,6 @@ pub struct Heap {
     pub fn clear(self: &Heap): void {
         while self.strings.len() > 0 {
             var value = self.strings.pop();
-            drop value;
         }
         while self.monitors.len() > 0 {
             const monitor = self.monitors.pop();

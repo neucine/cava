@@ -483,7 +483,6 @@ pub struct Class {
         self.super_class = "";
         while self.interfaces.len() > 0 {
             var interface_name = self.interfaces.pop();
-            drop interface_name;
         }
 
         var field_index: usize = 0;
