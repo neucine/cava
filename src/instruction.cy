@@ -5461,607 +5461,209 @@ fn instruction_trace_enabled(): bool {
 }
 
 fn opcode_name(opcode: Opcode): string {
-    if opcode == Opcode.nop {
-        return "nop";
-    }
-    if opcode == Opcode.aconst_null {
-        return "aconst_null";
-    }
-    if opcode == Opcode.iconst_m1 {
-        return "iconst_m1";
-    }
-    if opcode == Opcode.iconst_0 {
-        return "iconst_0";
-    }
-    if opcode == Opcode.iconst_1 {
-        return "iconst_1";
-    }
-    if opcode == Opcode.iconst_2 {
-        return "iconst_2";
-    }
-    if opcode == Opcode.iconst_3 {
-        return "iconst_3";
-    }
-    if opcode == Opcode.iconst_4 {
-        return "iconst_4";
-    }
-    if opcode == Opcode.iconst_5 {
-        return "iconst_5";
-    }
-    if opcode == Opcode.lconst_0 {
-        return "lconst_0";
-    }
-    if opcode == Opcode.lconst_1 {
-        return "lconst_1";
-    }
-    if opcode == Opcode.fconst_0 {
-        return "fconst_0";
-    }
-    if opcode == Opcode.fconst_1 {
-        return "fconst_1";
-    }
-    if opcode == Opcode.fconst_2 {
-        return "fconst_2";
-    }
-    if opcode == Opcode.dconst_0 {
-        return "dconst_0";
-    }
-    if opcode == Opcode.dconst_1 {
-        return "dconst_1";
-    }
-    if opcode == Opcode.bipush {
-        return "bipush";
-    }
-    if opcode == Opcode.sipush {
-        return "sipush";
-    }
-    if opcode == Opcode.ldc {
-        return "ldc";
-    }
-    if opcode == Opcode.ldc_w {
-        return "ldc_w";
-    }
-    if opcode == Opcode.ldc2_w {
-        return "ldc2_w";
-    }
-    if opcode == Opcode.iload {
-        return "iload";
-    }
-    if opcode == Opcode.lload {
-        return "lload";
-    }
-    if opcode == Opcode.fload {
-        return "fload";
-    }
-    if opcode == Opcode.dload {
-        return "dload";
-    }
-    if opcode == Opcode.aload {
-        return "aload";
-    }
-    if opcode == Opcode.iload_0 {
-        return "iload_0";
-    }
-    if opcode == Opcode.iload_1 {
-        return "iload_1";
-    }
-    if opcode == Opcode.iload_2 {
-        return "iload_2";
-    }
-    if opcode == Opcode.iload_3 {
-        return "iload_3";
-    }
-    if opcode == Opcode.lload_0 {
-        return "lload_0";
-    }
-    if opcode == Opcode.lload_1 {
-        return "lload_1";
-    }
-    if opcode == Opcode.lload_2 {
-        return "lload_2";
-    }
-    if opcode == Opcode.lload_3 {
-        return "lload_3";
-    }
-    if opcode == Opcode.fload_0 {
-        return "fload_0";
-    }
-    if opcode == Opcode.fload_1 {
-        return "fload_1";
-    }
-    if opcode == Opcode.fload_2 {
-        return "fload_2";
-    }
-    if opcode == Opcode.fload_3 {
-        return "fload_3";
-    }
-    if opcode == Opcode.dload_0 {
-        return "dload_0";
-    }
-    if opcode == Opcode.dload_1 {
-        return "dload_1";
-    }
-    if opcode == Opcode.dload_2 {
-        return "dload_2";
-    }
-    if opcode == Opcode.dload_3 {
-        return "dload_3";
-    }
-    if opcode == Opcode.aload_0 {
-        return "aload_0";
-    }
-    if opcode == Opcode.aload_1 {
-        return "aload_1";
-    }
-    if opcode == Opcode.aload_2 {
-        return "aload_2";
-    }
-    if opcode == Opcode.aload_3 {
-        return "aload_3";
-    }
-    if opcode == Opcode.iaload {
-        return "iaload";
-    }
-    if opcode == Opcode.laload {
-        return "laload";
-    }
-    if opcode == Opcode.faload {
-        return "faload";
-    }
-    if opcode == Opcode.daload {
-        return "daload";
-    }
-    if opcode == Opcode.aaload {
-        return "aaload";
-    }
-    if opcode == Opcode.baload {
-        return "baload";
-    }
-    if opcode == Opcode.caload {
-        return "caload";
-    }
-    if opcode == Opcode.saload {
-        return "saload";
-    }
-    if opcode == Opcode.istore {
-        return "istore";
-    }
-    if opcode == Opcode.lstore {
-        return "lstore";
-    }
-    if opcode == Opcode.fstore {
-        return "fstore";
-    }
-    if opcode == Opcode.dstore {
-        return "dstore";
-    }
-    if opcode == Opcode.astore {
-        return "astore";
-    }
-    if opcode == Opcode.istore_0 {
-        return "istore_0";
-    }
-    if opcode == Opcode.istore_1 {
-        return "istore_1";
-    }
-    if opcode == Opcode.istore_2 {
-        return "istore_2";
-    }
-    if opcode == Opcode.istore_3 {
-        return "istore_3";
-    }
-    if opcode == Opcode.lstore_0 {
-        return "lstore_0";
-    }
-    if opcode == Opcode.lstore_1 {
-        return "lstore_1";
-    }
-    if opcode == Opcode.lstore_2 {
-        return "lstore_2";
-    }
-    if opcode == Opcode.lstore_3 {
-        return "lstore_3";
-    }
-    if opcode == Opcode.fstore_0 {
-        return "fstore_0";
-    }
-    if opcode == Opcode.fstore_1 {
-        return "fstore_1";
-    }
-    if opcode == Opcode.fstore_2 {
-        return "fstore_2";
-    }
-    if opcode == Opcode.fstore_3 {
-        return "fstore_3";
-    }
-    if opcode == Opcode.dstore_0 {
-        return "dstore_0";
-    }
-    if opcode == Opcode.dstore_1 {
-        return "dstore_1";
-    }
-    if opcode == Opcode.dstore_2 {
-        return "dstore_2";
-    }
-    if opcode == Opcode.dstore_3 {
-        return "dstore_3";
-    }
-    if opcode == Opcode.astore_0 {
-        return "astore_0";
-    }
-    if opcode == Opcode.astore_1 {
-        return "astore_1";
-    }
-    if opcode == Opcode.astore_2 {
-        return "astore_2";
-    }
-    if opcode == Opcode.astore_3 {
-        return "astore_3";
-    }
-    if opcode == Opcode.iastore {
-        return "iastore";
-    }
-    if opcode == Opcode.lastore {
-        return "lastore";
-    }
-    if opcode == Opcode.fastore {
-        return "fastore";
-    }
-    if opcode == Opcode.dastore {
-        return "dastore";
-    }
-    if opcode == Opcode.aastore {
-        return "aastore";
-    }
-    if opcode == Opcode.bastore {
-        return "bastore";
-    }
-    if opcode == Opcode.castore {
-        return "castore";
-    }
-    if opcode == Opcode.sastore {
-        return "sastore";
-    }
-    if opcode == Opcode.pop {
-        return "pop";
-    }
-    if opcode == Opcode.pop2 {
-        return "pop2";
-    }
-    if opcode == Opcode.dup {
-        return "dup";
-    }
-    if opcode == Opcode.dup_x1 {
-        return "dup_x1";
-    }
-    if opcode == Opcode.dup_x2 {
-        return "dup_x2";
-    }
-    if opcode == Opcode.dup2 {
-        return "dup2";
-    }
-    if opcode == Opcode.dup2_x1 {
-        return "dup2_x1";
-    }
-    if opcode == Opcode.dup2_x2 {
-        return "dup2_x2";
-    }
-    if opcode == Opcode.swap {
-        return "swap";
-    }
-    if opcode == Opcode.iadd {
-        return "iadd";
-    }
-    if opcode == Opcode.ladd {
-        return "ladd";
-    }
-    if opcode == Opcode.fadd {
-        return "fadd";
-    }
-    if opcode == Opcode.dadd {
-        return "dadd";
-    }
-    if opcode == Opcode.isub {
-        return "isub";
-    }
-    if opcode == Opcode.lsub {
-        return "lsub";
-    }
-    if opcode == Opcode.fsub {
-        return "fsub";
-    }
-    if opcode == Opcode.dsub {
-        return "dsub";
-    }
-    if opcode == Opcode.imul {
-        return "imul";
-    }
-    if opcode == Opcode.lmul {
-        return "lmul";
-    }
-    if opcode == Opcode.fmul {
-        return "fmul";
-    }
-    if opcode == Opcode.dmul {
-        return "dmul";
-    }
-    if opcode == Opcode.idiv {
-        return "idiv";
-    }
-    if opcode == Opcode.ldiv {
-        return "ldiv";
-    }
-    if opcode == Opcode.fdiv {
-        return "fdiv";
-    }
-    if opcode == Opcode.ddiv {
-        return "ddiv";
-    }
-    if opcode == Opcode.irem {
-        return "irem";
-    }
-    if opcode == Opcode.lrem {
-        return "lrem";
-    }
-    if opcode == Opcode.unsupported {
-        return "unsupported";
-    }
-    if opcode == Opcode.ineg {
-        return "ineg";
-    }
-    if opcode == Opcode.lneg {
-        return "lneg";
-    }
-    if opcode == Opcode.fneg {
-        return "fneg";
-    }
-    if opcode == Opcode.dneg {
-        return "dneg";
-    }
-    if opcode == Opcode.ishl {
-        return "ishl";
-    }
-    if opcode == Opcode.lshl {
-        return "lshl";
-    }
-    if opcode == Opcode.ishr {
-        return "ishr";
-    }
-    if opcode == Opcode.lshr {
-        return "lshr";
-    }
-    if opcode == Opcode.iushr {
-        return "iushr";
-    }
-    if opcode == Opcode.lushr {
-        return "lushr";
-    }
-    if opcode == Opcode.iand {
-        return "iand";
-    }
-    if opcode == Opcode.land {
-        return "land";
-    }
-    if opcode == Opcode.ior {
-        return "ior";
-    }
-    if opcode == Opcode.lor {
-        return "lor";
-    }
-    if opcode == Opcode.ixor {
-        return "ixor";
-    }
-    if opcode == Opcode.lxor {
-        return "lxor";
-    }
-    if opcode == Opcode.iinc {
-        return "iinc";
-    }
-    if opcode == Opcode.i2l {
-        return "i2l";
-    }
-    if opcode == Opcode.i2f {
-        return "i2f";
-    }
-    if opcode == Opcode.i2d {
-        return "i2d";
-    }
-    if opcode == Opcode.l2i {
-        return "l2i";
-    }
-    if opcode == Opcode.l2f {
-        return "l2f";
-    }
-    if opcode == Opcode.l2d {
-        return "l2d";
-    }
-    if opcode == Opcode.f2i {
-        return "f2i";
-    }
-    if opcode == Opcode.f2l {
-        return "f2l";
-    }
-    if opcode == Opcode.f2d {
-        return "f2d";
-    }
-    if opcode == Opcode.d2i {
-        return "d2i";
-    }
-    if opcode == Opcode.d2l {
-        return "d2l";
-    }
-    if opcode == Opcode.d2f {
-        return "d2f";
-    }
-    if opcode == Opcode.i2b {
-        return "i2b";
-    }
-    if opcode == Opcode.i2c {
-        return "i2c";
-    }
-    if opcode == Opcode.i2s {
-        return "i2s";
-    }
-    if opcode == Opcode.lcmp {
-        return "lcmp";
-    }
-    if opcode == Opcode.fcmpl {
-        return "fcmpl";
-    }
-    if opcode == Opcode.fcmpg {
-        return "fcmpg";
-    }
-    if opcode == Opcode.dcmpl {
-        return "dcmpl";
-    }
-    if opcode == Opcode.dcmpg {
-        return "dcmpg";
-    }
-    if opcode == Opcode.ifeq {
-        return "ifeq";
-    }
-    if opcode == Opcode.ifne {
-        return "ifne";
-    }
-    if opcode == Opcode.iflt {
-        return "iflt";
-    }
-    if opcode == Opcode.ifge {
-        return "ifge";
-    }
-    if opcode == Opcode.ifgt {
-        return "ifgt";
-    }
-    if opcode == Opcode.ifle {
-        return "ifle";
-    }
-    if opcode == Opcode.if_icmpeq {
-        return "if_icmpeq";
-    }
-    if opcode == Opcode.if_icmpne {
-        return "if_icmpne";
-    }
-    if opcode == Opcode.if_icmplt {
-        return "if_icmplt";
-    }
-    if opcode == Opcode.if_icmpge {
-        return "if_icmpge";
-    }
-    if opcode == Opcode.if_icmpgt {
-        return "if_icmpgt";
-    }
-    if opcode == Opcode.if_icmple {
-        return "if_icmple";
-    }
-    if opcode == Opcode.if_acmpeq {
-        return "if_acmpeq";
-    }
-    if opcode == Opcode.if_acmpne {
-        return "if_acmpne";
-    }
-    if opcode == Opcode.goto_ {
-        return "goto";
-    }
-    if opcode == Opcode.jsr {
-        return "jsr";
-    }
-    if opcode == Opcode.ret {
-        return "ret";
-    }
-    if opcode == Opcode.tableswitch {
-        return "tableswitch";
-    }
-    if opcode == Opcode.lookupswitch {
-        return "lookupswitch";
-    }
-    if opcode == Opcode.ireturn {
-        return "ireturn";
-    }
-    if opcode == Opcode.lreturn {
-        return "lreturn";
-    }
-    if opcode == Opcode.freturn {
-        return "freturn";
-    }
-    if opcode == Opcode.dreturn {
-        return "dreturn";
-    }
-    if opcode == Opcode.areturn {
-        return "areturn";
-    }
-    if opcode == Opcode.return_ {
-        return "return";
-    }
-    if opcode == Opcode.getstatic {
-        return "getstatic";
-    }
-    if opcode == Opcode.putstatic {
-        return "putstatic";
-    }
-    if opcode == Opcode.getfield {
-        return "getfield";
-    }
-    if opcode == Opcode.putfield {
-        return "putfield";
-    }
-    if opcode == Opcode.invoke_virtual {
-        return "invokevirtual";
-    }
-    if opcode == Opcode.invoke_special {
-        return "invokespecial";
-    }
-    if opcode == Opcode.invoke_static {
-        return "invokestatic";
-    }
-    if opcode == Opcode.invoke_interface {
-        return "invokeinterface";
-    }
-    if opcode == Opcode.new_ {
-        return "new";
-    }
-    if opcode == Opcode.newarray {
-        return "newarray";
-    }
-    if opcode == Opcode.anewarray {
-        return "anewarray";
-    }
-    if opcode == Opcode.arraylength {
-        return "arraylength";
-    }
-    if opcode == Opcode.athrow {
-        return "athrow";
-    }
-    if opcode == Opcode.checkcast {
-        return "checkcast";
-    }
-    if opcode == Opcode.instanceof {
-        return "instanceof";
-    }
-    if opcode == Opcode.monitorenter {
-        return "monitorenter";
-    }
-    if opcode == Opcode.monitorexit {
-        return "monitorexit";
-    }
-    if opcode == Opcode.wide {
-        return "wide";
-    }
-    if opcode == Opcode.multianewarray {
-        return "multianewarray";
-    }
-    if opcode == Opcode.ifnull {
-        return "ifnull";
-    }
-    if opcode == Opcode.ifnonnull {
-        return "ifnonnull";
-    }
-    if opcode == Opcode.goto_w {
-        return "goto_w";
-    }
-    if opcode == Opcode.jsr_w {
-        return "jsr_w";
-    }
-    return "unsupported";
+    return switch opcode {
+        Opcode.nop => "nop";
+        Opcode.aconst_null => "aconst_null";
+        Opcode.iconst_m1 => "iconst_m1";
+        Opcode.iconst_0 => "iconst_0";
+        Opcode.iconst_1 => "iconst_1";
+        Opcode.iconst_2 => "iconst_2";
+        Opcode.iconst_3 => "iconst_3";
+        Opcode.iconst_4 => "iconst_4";
+        Opcode.iconst_5 => "iconst_5";
+        Opcode.lconst_0 => "lconst_0";
+        Opcode.lconst_1 => "lconst_1";
+        Opcode.fconst_0 => "fconst_0";
+        Opcode.fconst_1 => "fconst_1";
+        Opcode.fconst_2 => "fconst_2";
+        Opcode.dconst_0 => "dconst_0";
+        Opcode.dconst_1 => "dconst_1";
+        Opcode.bipush => "bipush";
+        Opcode.sipush => "sipush";
+        Opcode.ldc => "ldc";
+        Opcode.ldc_w => "ldc_w";
+        Opcode.ldc2_w => "ldc2_w";
+        Opcode.iload => "iload";
+        Opcode.lload => "lload";
+        Opcode.fload => "fload";
+        Opcode.dload => "dload";
+        Opcode.aload => "aload";
+        Opcode.iload_0 => "iload_0";
+        Opcode.iload_1 => "iload_1";
+        Opcode.iload_2 => "iload_2";
+        Opcode.iload_3 => "iload_3";
+        Opcode.lload_0 => "lload_0";
+        Opcode.lload_1 => "lload_1";
+        Opcode.lload_2 => "lload_2";
+        Opcode.lload_3 => "lload_3";
+        Opcode.fload_0 => "fload_0";
+        Opcode.fload_1 => "fload_1";
+        Opcode.fload_2 => "fload_2";
+        Opcode.fload_3 => "fload_3";
+        Opcode.dload_0 => "dload_0";
+        Opcode.dload_1 => "dload_1";
+        Opcode.dload_2 => "dload_2";
+        Opcode.dload_3 => "dload_3";
+        Opcode.aload_0 => "aload_0";
+        Opcode.aload_1 => "aload_1";
+        Opcode.aload_2 => "aload_2";
+        Opcode.aload_3 => "aload_3";
+        Opcode.iaload => "iaload";
+        Opcode.laload => "laload";
+        Opcode.faload => "faload";
+        Opcode.daload => "daload";
+        Opcode.aaload => "aaload";
+        Opcode.baload => "baload";
+        Opcode.caload => "caload";
+        Opcode.saload => "saload";
+        Opcode.istore => "istore";
+        Opcode.lstore => "lstore";
+        Opcode.fstore => "fstore";
+        Opcode.dstore => "dstore";
+        Opcode.astore => "astore";
+        Opcode.istore_0 => "istore_0";
+        Opcode.istore_1 => "istore_1";
+        Opcode.istore_2 => "istore_2";
+        Opcode.istore_3 => "istore_3";
+        Opcode.lstore_0 => "lstore_0";
+        Opcode.lstore_1 => "lstore_1";
+        Opcode.lstore_2 => "lstore_2";
+        Opcode.lstore_3 => "lstore_3";
+        Opcode.fstore_0 => "fstore_0";
+        Opcode.fstore_1 => "fstore_1";
+        Opcode.fstore_2 => "fstore_2";
+        Opcode.fstore_3 => "fstore_3";
+        Opcode.dstore_0 => "dstore_0";
+        Opcode.dstore_1 => "dstore_1";
+        Opcode.dstore_2 => "dstore_2";
+        Opcode.dstore_3 => "dstore_3";
+        Opcode.astore_0 => "astore_0";
+        Opcode.astore_1 => "astore_1";
+        Opcode.astore_2 => "astore_2";
+        Opcode.astore_3 => "astore_3";
+        Opcode.iastore => "iastore";
+        Opcode.lastore => "lastore";
+        Opcode.fastore => "fastore";
+        Opcode.dastore => "dastore";
+        Opcode.aastore => "aastore";
+        Opcode.bastore => "bastore";
+        Opcode.castore => "castore";
+        Opcode.sastore => "sastore";
+        Opcode.pop => "pop";
+        Opcode.pop2 => "pop2";
+        Opcode.dup => "dup";
+        Opcode.dup_x1 => "dup_x1";
+        Opcode.dup_x2 => "dup_x2";
+        Opcode.dup2 => "dup2";
+        Opcode.dup2_x1 => "dup2_x1";
+        Opcode.dup2_x2 => "dup2_x2";
+        Opcode.swap => "swap";
+        Opcode.iadd => "iadd";
+        Opcode.ladd => "ladd";
+        Opcode.fadd => "fadd";
+        Opcode.dadd => "dadd";
+        Opcode.isub => "isub";
+        Opcode.lsub => "lsub";
+        Opcode.fsub => "fsub";
+        Opcode.dsub => "dsub";
+        Opcode.imul => "imul";
+        Opcode.lmul => "lmul";
+        Opcode.fmul => "fmul";
+        Opcode.dmul => "dmul";
+        Opcode.idiv => "idiv";
+        Opcode.ldiv => "ldiv";
+        Opcode.fdiv => "fdiv";
+        Opcode.ddiv => "ddiv";
+        Opcode.irem => "irem";
+        Opcode.lrem => "lrem";
+        Opcode.unsupported => "unsupported";
+        Opcode.ineg => "ineg";
+        Opcode.lneg => "lneg";
+        Opcode.fneg => "fneg";
+        Opcode.dneg => "dneg";
+        Opcode.ishl => "ishl";
+        Opcode.lshl => "lshl";
+        Opcode.ishr => "ishr";
+        Opcode.lshr => "lshr";
+        Opcode.iushr => "iushr";
+        Opcode.lushr => "lushr";
+        Opcode.iand => "iand";
+        Opcode.land => "land";
+        Opcode.ior => "ior";
+        Opcode.lor => "lor";
+        Opcode.ixor => "ixor";
+        Opcode.lxor => "lxor";
+        Opcode.iinc => "iinc";
+        Opcode.i2l => "i2l";
+        Opcode.i2f => "i2f";
+        Opcode.i2d => "i2d";
+        Opcode.l2i => "l2i";
+        Opcode.l2f => "l2f";
+        Opcode.l2d => "l2d";
+        Opcode.f2i => "f2i";
+        Opcode.f2l => "f2l";
+        Opcode.f2d => "f2d";
+        Opcode.d2i => "d2i";
+        Opcode.d2l => "d2l";
+        Opcode.d2f => "d2f";
+        Opcode.i2b => "i2b";
+        Opcode.i2c => "i2c";
+        Opcode.i2s => "i2s";
+        Opcode.lcmp => "lcmp";
+        Opcode.fcmpl => "fcmpl";
+        Opcode.fcmpg => "fcmpg";
+        Opcode.dcmpl => "dcmpl";
+        Opcode.dcmpg => "dcmpg";
+        Opcode.ifeq => "ifeq";
+        Opcode.ifne => "ifne";
+        Opcode.iflt => "iflt";
+        Opcode.ifge => "ifge";
+        Opcode.ifgt => "ifgt";
+        Opcode.ifle => "ifle";
+        Opcode.if_icmpeq => "if_icmpeq";
+        Opcode.if_icmpne => "if_icmpne";
+        Opcode.if_icmplt => "if_icmplt";
+        Opcode.if_icmpge => "if_icmpge";
+        Opcode.if_icmpgt => "if_icmpgt";
+        Opcode.if_icmple => "if_icmple";
+        Opcode.if_acmpeq => "if_acmpeq";
+        Opcode.if_acmpne => "if_acmpne";
+        Opcode.goto_ => "goto";
+        Opcode.jsr => "jsr";
+        Opcode.ret => "ret";
+        Opcode.tableswitch => "tableswitch";
+        Opcode.lookupswitch => "lookupswitch";
+        Opcode.ireturn => "ireturn";
+        Opcode.lreturn => "lreturn";
+        Opcode.freturn => "freturn";
+        Opcode.dreturn => "dreturn";
+        Opcode.areturn => "areturn";
+        Opcode.return_ => "return";
+        Opcode.getstatic => "getstatic";
+        Opcode.putstatic => "putstatic";
+        Opcode.getfield => "getfield";
+        Opcode.putfield => "putfield";
+        Opcode.invoke_virtual => "invokevirtual";
+        Opcode.invoke_special => "invokespecial";
+        Opcode.invoke_static => "invokestatic";
+        Opcode.invoke_interface => "invokeinterface";
+        Opcode.new_ => "new";
+        Opcode.newarray => "newarray";
+        Opcode.anewarray => "anewarray";
+        Opcode.arraylength => "arraylength";
+        Opcode.athrow => "athrow";
+        Opcode.checkcast => "checkcast";
+        Opcode.instanceof => "instanceof";
+        Opcode.monitorenter => "monitorenter";
+        Opcode.monitorexit => "monitorexit";
+        Opcode.wide => "wide";
+        Opcode.multianewarray => "multianewarray";
+        Opcode.ifnull => "ifnull";
+        Opcode.ifnonnull => "ifnonnull";
+        Opcode.goto_w => "goto_w";
+        Opcode.jsr_w => "jsr_w";
+        Opcode.invoke_dynamic => "unsupported";
+    };
 }
 
 fn trace_instruction(context: &Context, vm: &VM, pc: u32, instruction: Instruction): void {
