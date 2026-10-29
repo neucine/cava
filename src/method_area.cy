@@ -371,8 +371,8 @@ pub struct MethodArea {
             }
         }
         drop name;
-        if resolved is found {
-            return found;
+        if resolved {
+            return resolved;
         }
         throw ClassfileError.invalid_constant_index;
     }
@@ -389,8 +389,8 @@ pub struct MethodArea {
             }
         }
         drop member;
-        if resolved is out {
-            return out;
+        if resolved {
+            return resolved;
         }
         throw ClassfileError.invalid_constant_index;
     }
@@ -407,8 +407,8 @@ pub struct MethodArea {
             }
         }
         drop member;
-        if resolved is out {
-            return out;
+        if resolved {
+            return resolved;
         }
         throw ClassfileError.invalid_constant_index;
     }
