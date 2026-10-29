@@ -5453,19 +5453,11 @@ pub fn execute_method(method: &Method): FrameResult ! InstructionError {
         try execute_next(&context, &vm);
         if context.frame.result is result {
             const out = result;
-            drop context;
-            code.clear();
-            drop code;
             vm.clear();
-            drop vm;
             return out;
         }
     }
-    drop context;
-    code.clear();
-    drop code;
     vm.clear();
-    drop vm;
     throw InstructionError.missing_return;
 }
 
