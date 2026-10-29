@@ -1,30 +1,36 @@
 # Gap Log
 
-This file records Cyna language, runtime, library, and tooling gaps found while porting Zava to Cava.
+Historical porting evidence, closed to new entries. Record every new Cyna
+language, compiler, runtime, library, or tooling gap in the Cyna repository's
+`docs/LANGUAGE_GAPS.md`. Track Cava-specific JVM implementation work in the
+porting plan or ordinary project tasks. The older reports below retain their
+original compiler context and do not claim to describe current Cyna behavior.
 
-## Template
+## Historical reports
 
-```md
-## YYYY-MM-DD: Short Title
+## 2026-10-23: String and Byte-Slice Comparison at Text Boundaries
 
-Module:
+Module: `src/method_area.cy` (`SymbolPool.contains`), `src/heap.cy` (`intern_method_type`).
 
-Zava construct:
+Zava construct: Compare an interned text name or descriptor with a borrowed byte slice without allocating a new string.
 
 Smallest Cyna reproduction:
 
-Expected capability:
-
-Current blocker:
-
-Classification:
-
-Decision:
-
-Status:
+```cyna
+fn same(name: string, bytes: []const u8): bool {
+    return name.bytes() == bytes;
+}
 ```
 
-## Open Gaps
+Expected capability: A named, allocation-free operation such as `string.equals_bytes(bytes: []const u8): bool` should compare UTF-8 string bytes with a borrowed slice. It must not construct a temporary `string` or let the slice escape. Ordinary `string` to `string` equality already works.
+
+Current blocker: The comparison is expressible with `.bytes()`, but repeated text/byte boundary code exposes the representation step at each call site. `string.from(bytes)` would allocate and implies UTF-8 validity, so it is not a suitable equality shortcut for arbitrary JVM bytes. Existing `string.from(existing.bytes())` copies were removed from Cava where ordinary string sharing suffices.
+
+Classification: Cyna standard-library ergonomics; no language expressiveness gap.
+
+Decision: Keep byte parsing and raw byte APIs explicit. Prefer `string` parameters in Cava APIs that operate on text. Consider a named std comparison only if repeated mixed-type comparisons remain after those API changes. Specify byte validation and failure behavior separately for any fallible byte-to-string constructor.
+
+Status: Open proposal; no std API added.
 
 ## 2026-06-30: JVM Constant-Pool Object Constants
 
