@@ -463,14 +463,10 @@ pub fn execute_classfile_method_area_with_vm(vm: &VM, class_index: usize, method
 }
 
 fn expect_ref_for_engine(value: Value): Reference {
-    switch value {
-        .ref_value(actual) => {
-            return actual;
-        }
-        _ => {
-            return Reference.init_null();
-        }
-    }
+    return switch value {
+        .ref_value(actual) => actual;
+        _ => Reference.init_null();
+    };
 }
 
 fn assert_int_value(value: Value, expected: i32): void {

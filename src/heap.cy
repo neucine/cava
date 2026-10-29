@@ -338,9 +338,7 @@ pub struct Heap {
     }
 
     pub fn object_count(self: &Heap): usize {
-        return self.objects.len() catch (problem) {
-            return 0;
-        };
+        return self.objects.len() catch (problem) => 0;
     }
 
     pub fn object_class_index(self: &Heap, reference: Reference): ?usize {
@@ -354,9 +352,7 @@ pub struct Heap {
                     return object.class_index;
                 }
                 return none;
-            }) catch (problem) {
-                return none;
-            };
+            }) catch (problem) => none;
         }
         return none;
     }
@@ -385,9 +381,7 @@ pub struct Heap {
     }
 
     pub fn array_count(self: &Heap): usize {
-        return self.arrays.len() catch (problem) {
-            return 0;
-        };
+        return self.arrays.len() catch (problem) => 0;
     }
 
     pub fn array_length(self: &Heap, reference: Reference): ?usize {
@@ -401,9 +395,7 @@ pub struct Heap {
                     return array.elements.len();
                 }
                 return none;
-            }) catch (problem) {
-                return none;
-            };
+            }) catch (problem) => none;
         }
         return none;
     }
@@ -419,9 +411,7 @@ pub struct Heap {
                     return array.class_index;
                 }
                 return none;
-            }) catch (problem) {
-                return none;
-            };
+            }) catch (problem) => none;
         }
         return none;
     }
@@ -442,9 +432,7 @@ pub struct Heap {
                     }
                 }
                 return none;
-            }) catch (problem) {
-                return none;
-            };
+            }) catch (problem) => none;
         }
         return none;
     }
@@ -470,9 +458,7 @@ pub struct Heap {
                     arrays.slots.insert(actual.key.index, array);
                 }
                 return false;
-            }) catch (problem) {
-                return false;
-            };
+            }) catch (problem) => false;
         }
         return false;
     }
@@ -494,9 +480,7 @@ pub struct Heap {
                     }
                 }
                 return none;
-            }) catch (problem) {
-                return none;
-            };
+            }) catch (problem) => none;
         }
         return none;
     }
@@ -523,9 +507,7 @@ pub struct Heap {
                     objects.slots.insert(actual.key.index, object);
                 }
                 return false;
-            }) catch (problem) {
-                return false;
-            };
+            }) catch (problem) => false;
         }
         return false;
     }

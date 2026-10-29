@@ -785,17 +785,11 @@ fn store_ref_like(context: &Context, index: u16): void {
 }
 
 fn is_category2(value: Value): bool {
-    switch value {
-        .long_value => {
-            return true;
-        }
-        .double_value => {
-            return true;
-        }
-        _ => {
-            return false;
-        }
-    }
+    return switch value {
+        .long_value => true;
+        .double_value => true;
+        _ => false;
+    };
 }
 
 fn sign_extend_u1(value: u8): i32 {

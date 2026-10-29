@@ -37,9 +37,7 @@ pub struct ArrayAccess {
                     }
                 }
                 return none;
-            }) catch (problem) {
-                return none;
-            };
+            }) catch (problem) => none;
         }
         return none;
     }
@@ -65,9 +63,7 @@ pub struct ArrayAccess {
                     }
                 }
                 return none;
-            }) catch (problem) {
-                return none;
-            };
+            }) catch (problem) => none;
         }
         return none;
     }
@@ -101,9 +97,7 @@ pub struct ArrayAccess {
                     }
                 }
                 return false;
-            }) catch (problem) {
-                return false;
-            };
+            }) catch (problem) => false;
         }
         return false;
     }

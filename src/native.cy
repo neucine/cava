@@ -34,59 +34,35 @@ fn value_ref_or_null(value: Value): Reference {
 }
 
 fn int_arg(arguments: &List<Value>, index: usize): i32 {
-    switch arguments[index] {
-        .int_value(actual) => {
-            return actual;
-        }
-        .boolean_value(actual) => {
-            return actual as i32;
-        }
-        .byte_value(actual) => {
-            return actual as i32;
-        }
-        .short_value(actual) => {
-            return actual as i32;
-        }
-        .char_value(actual) => {
-            return actual as i32;
-        }
-        _ => {
-            return 0;
-        }
-    }
+    return switch arguments[index] {
+        .int_value(actual) => actual;
+        .boolean_value(actual) => actual as i32;
+        .byte_value(actual) => actual as i32;
+        .short_value(actual) => actual as i32;
+        .char_value(actual) => actual as i32;
+        _ => 0;
+    };
 }
 
 fn long_arg(arguments: &List<Value>, index: usize): i64 {
-    switch arguments[index] {
-        .long_value(actual) => {
-            return actual;
-        }
-        _ => {
-            return 0;
-        }
-    }
+    return switch arguments[index] {
+        .long_value(actual) => actual;
+        _ => 0;
+    };
 }
 
 fn float_arg(arguments: &List<Value>, index: usize): f32 {
-    switch arguments[index] {
-        .float_value(actual) => {
-            return actual;
-        }
-        _ => {
-            return 0.0;
-        }
-    }
+    return switch arguments[index] {
+        .float_value(actual) => actual;
+        _ => 0.0;
+    };
 }
 
 fn double_arg(arguments: &List<Value>, index: usize): f64 {
-    switch arguments[index] {
-        .double_value(actual) => {
-            return actual;
-        }
-        _ => {
-            return 0.0;
-        }
-    }
+    return switch arguments[index] {
+        .double_value(actual) => actual;
+        _ => 0.0;
+    };
 }
 
 fn receiver_ref(receiver: ?Reference): Reference ! InstructionError {
@@ -155,9 +131,7 @@ fn find_or_load_native_class_index(context: &Context, vm: &VM, name: string): us
 }
 
 fn find_or_load_native_class_index_optional(context: &Context, vm: &VM, name: string): ?usize {
-    return find_or_load_native_class_index(context, vm, name) catch (problem) {
-        return none;
-    };
+    return find_or_load_native_class_index(context, vm, name) catch (problem) => none;
 }
 
 fn find_loaded_class_index(classes: []Class, name: string): ?usize {

@@ -529,10 +529,7 @@ pub struct MethodArea {
     }
 
     fn load_class_from_path_optional(self: &MethodArea, root: string, class_name: string): ?usize {
-        const index = self.load_class_from_path(root, class_name) catch (err) {
-            return none;
-        };
-        return index;
+        return self.load_class_from_path(root, class_name) catch (err) => none;
     }
 
     pub fn define_builtin_class(self: &MethodArea, name: string): usize {
