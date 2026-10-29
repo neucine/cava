@@ -465,10 +465,8 @@ pub struct MethodArea {
 
         var path = class_file_path(root, class_name);
         const source = read_file(path) catch (err) {
-            drop path;
             throw method_area_error_from_fs(err);
         };
-        drop path;
         const index = self.load_class_from_source(source) catch (err) {
             throw MethodAreaError.classfile;
         };

@@ -287,6 +287,24 @@ test "class file path builds classpath-relative paths" {
 
 }
 
+test "method area loads class from a constructed filesystem path" {
+    var area = new_method_area();
+    const index = area.load_class_from_path("examples/classes", "HelloWorld") catch (problem) {
+        assert(false);
+        return;
+    };
+    assert(area.classes[index].name == "HelloWorld");
+}
+
+test "method area reports a missing constructed filesystem path" {
+    var area = new_method_area();
+    const index = area.load_class_from_path("examples/classes", "CavaMissingClass") catch (problem) {
+        assert(problem == MethodAreaError.not_found);
+        return;
+    };
+    assert(false);
+}
+
 test "method area derives class metadata from classfile" {
     var code_raw: [:]u8 = [
         0, 2, // max_stack
