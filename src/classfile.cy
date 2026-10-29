@@ -254,7 +254,6 @@ fn read_constant_payload(reader: &ByteReader, tag: ConstantTag): Constant ! Clas
             const length = try reader.read_u2();
             const bytes = try reader.read_bytes(length as usize);
             const value = string.from(bytes[..]);
-            drop bytes;
             yield .utf8(value);
         }
         ConstantTag.integer => .integer(try reader.read_u4());
@@ -485,9 +484,6 @@ pub struct ClassFile {
             name: name,
             descriptor: descriptor,
         };
-        drop descriptor;
-        drop name;
-        drop class_name;
         return out;
     }
 
@@ -605,7 +601,6 @@ pub fn read_class_header(reader: &ByteReader): ClassHeader ! ClassfileError {
 pub fn parse_class_header(data: []const u8): ClassHeader ! ClassfileError {
     var reader = ByteReader.init(data);
     const header = read_class_header(&reader);
-    drop reader;
     return header;
 }
 
@@ -616,7 +611,6 @@ pub fn read_classfile(reader: &ByteReader, out: &ClassFile): void ! ClassfileErr
 pub fn parse_classfile(data: []const u8, out: &ClassFile): void ! ClassfileError {
     var reader = ByteReader.init(data);
     const parsed = out.read(&reader);
-    drop reader;
     return parsed;
 }
 
