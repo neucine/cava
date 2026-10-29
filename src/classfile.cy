@@ -568,14 +568,12 @@ pub struct ClassFile {
             throw ClassfileError.invalid_constant_index;
         }
 
-        switch self.constant_pool[index] {
-            .utf8(value) => {
-                return value;
-            }
+        return switch self.constant_pool[index] {
+            .utf8(value) => value;
             _ => {
                 throw ClassfileError.invalid_constant_kind;
             }
-        }
+        };
     }
 
     pub fn class_name(self: &const ClassFile, index: u16): string ! ClassfileError {
@@ -583,14 +581,12 @@ pub struct ClassFile {
             throw ClassfileError.invalid_constant_index;
         }
 
-        switch self.constant_pool[index] {
-            .class_ref(name_index) => {
-                return self.utf8(name_index);
-            }
+        return switch self.constant_pool[index] {
+            .class_ref(name_index) => try self.utf8(name_index);
             _ => {
                 throw ClassfileError.invalid_constant_kind;
             }
-        }
+        };
     }
 
     pub fn name_and_type(self: &const ClassFile, index: u16): ResolvedNameAndType ! ClassfileError {
@@ -598,17 +594,15 @@ pub struct ClassFile {
             throw ClassfileError.invalid_constant_index;
         }
 
-        switch self.constant_pool[index] {
-            .name_and_type(pair) => {
-                return ResolvedNameAndType {
-                    name: try self.utf8(pair.name_index),
-                    descriptor: try self.utf8(pair.descriptor_index),
-                };
-            }
+        return switch self.constant_pool[index] {
+            .name_and_type(pair) => ResolvedNameAndType {
+                name: try self.utf8(pair.name_index),
+                descriptor: try self.utf8(pair.descriptor_index),
+            };
             _ => {
                 throw ClassfileError.invalid_constant_kind;
             }
-        }
+        };
     }
 
     pub fn member_ref(self: &const ClassFile, index: u16): ResolvedMemberRef ! ClassfileError {
@@ -616,42 +610,25 @@ pub struct ClassFile {
             throw ClassfileError.invalid_constant_index;
         }
 
-        var raw = ConstantMemberRef {
-            class_index: 0,
-            name_and_type_index: 0,
-        };
-
-        switch self.constant_pool[index] {
-            .field_ref(member) => {
-                raw = member;
-            }
-            .method_ref(member) => {
-                raw = member;
-            }
-            .interface_method_ref(member) => {
-                raw = member;
-            }
+        const raw = switch self.constant_pool[index] {
+            .field_ref(member) => member;
+            .method_ref(member) => member;
+            .interface_method_ref(member) => member;
             _ => {
                 throw ClassfileError.invalid_constant_kind;
             }
-        }
+        };
 
         if !self.valid_constant_index(raw.name_and_type_index) {
             throw ClassfileError.invalid_constant_index;
         }
 
-        var pair = ConstantNameAndType {
-            name_index: 0,
-            descriptor_index: 0,
-        };
-        switch self.constant_pool[raw.name_and_type_index] {
-            .name_and_type(actual) => {
-                pair = actual;
-            }
+        const pair = switch self.constant_pool[raw.name_and_type_index] {
+            .name_and_type(actual) => actual;
             _ => {
                 throw ClassfileError.invalid_constant_kind;
             }
-        }
+        };
 
         const class_name = try self.class_name(raw.class_index);
         const name = try self.utf8(pair.name_index);
