@@ -80,11 +80,8 @@ fn main(): i32 {
             index = index + 1;
         }
         code = run_class_file(class_path, java_args[..]);
-        drop java_args;
-        drop class_path;
     } else {
         println("usage: cava <classfile> [args...]");
     }
-    drop values;
     return code;
 }
