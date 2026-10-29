@@ -192,9 +192,6 @@ test "native Object.clone copies instance fields" {
     } else {
         assert(false);
     }
-    drop context;
-    drop classes;
-    drop constant_pool;
 }
 
 test "native Class metadata reads represented class" {
@@ -327,9 +324,6 @@ test "native Class metadata reads represented class" {
     } else {
         assert(false);
     }
-    drop context;
-    drop classes;
-    drop constant_pool;
 }
 
 test "native bootstrap helpers return conservative values" {
@@ -442,9 +436,6 @@ test "native bootstrap helpers return conservative values" {
     } else {
         assert(false);
     }
-    drop context;
-    drop classes;
-    drop constant_pool;
 }
 
 test "native Thread.currentThread creates stable java thread object" {
@@ -640,7 +631,4 @@ test "native Thread.currentThread creates stable java thread object" {
     } else {
         assert(false);
     }
-    drop context;
-    drop classes;
-    drop constant_pool;
 }

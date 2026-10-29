@@ -95,7 +95,6 @@ test "method descriptor parser extracts parameter count and return type" {
     assert(ret.len() == 18);
     assert(ret.bytes()[0] == 'L');
     assert(ret.bytes()[17] == ';');
-    drop ret;
 }
 
 test "method area parses array class descriptor metadata" {
@@ -124,7 +123,6 @@ test "symbol pool deduplicates byte names" {
     assert(!pool.contains("xyz".bytes()));
     assert(pool.symbols.len() == 1);
     pool.clear();
-    drop pool;
 }
 
 test "method area defines parsed classes once" {
@@ -287,9 +285,6 @@ test "class file path builds classpath-relative paths" {
     var bare = class_file_path("", "Main");
     assert(bare == "Main.class");
 
-    drop relative;
-    drop rooted;
-    drop bare;
 }
 
 test "method area derives class metadata from classfile" {
@@ -423,5 +418,4 @@ test "method area derives class metadata from classfile" {
     class.clear();
     drop class;
     classfile.clear();
-    drop classfile;
 }

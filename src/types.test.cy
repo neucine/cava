@@ -83,7 +83,6 @@ test "types decodes UTF-8 bytes to Java UTF-16 units" {
     assert(units.len() == 2);
     assert(units[0] == 55);
     assert(units[1] == 0x4800);
-    drop units;
 }
 
 test "null reference equality" {

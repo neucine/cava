@@ -405,7 +405,6 @@ test "instruction executes iconst and ireturn" {
         return;
     };
     assert_int_result(result, 1);
-    drop method;
 }
 
 test "instruction executes bipush sipush and ireturn" {
@@ -454,8 +453,6 @@ test "instruction executes bipush sipush and ireturn" {
     };
     assert_int_result(byte_result, 0 - 2);
     assert_int_result(short_result, 258);
-    drop byte_method;
-    drop short_method;
 }
 
 test "instruction executes ldc numeric constants" {
@@ -506,7 +503,6 @@ test "instruction executes ldc numeric constants" {
     assert_long_result(.return_value(context.frame.pop()), 42);
     assert_int_result(.return_value(context.frame.pop()), 67);
     assert_int_result(.return_value(context.frame.pop()), 42);
-    drop context;
 }
 
 test "instruction caches ldc class constants" {
@@ -591,7 +587,6 @@ test "instruction caches ldc class constants" {
     } else {
         assert(false);
     }
-    drop context;
 }
 
 test "instruction interns ldc string constants" {
@@ -677,7 +672,6 @@ test "instruction interns ldc string constants" {
     assert(vm.heap.strings.len() == 1);
     assert(vm.heap.strings[0].value[..] == "hello".bytes());
     assert(vm.heap.strings[0].reference.equals(first));
-    drop context;
 }
 
 test "instruction interns ldc method type constants" {
@@ -763,7 +757,6 @@ test "instruction interns ldc method type constants" {
     assert(vm.heap.method_types.len() == 1);
     assert(vm.heap.method_types[0].descriptor == "(I)V");
     assert(vm.heap.method_types[0].reference.equals(first));
-    drop context;
 }
 
 test "instruction interns ldc method handle constants" {
@@ -864,7 +857,6 @@ test "instruction interns ldc method handle constants" {
     assert(vm.heap.method_handles[0].reference_kind == 6);
     assert(vm.heap.method_handles[0].reference_index == 6);
     assert(vm.heap.method_handles[0].reference.equals(first));
-    drop context;
 }
 
 test "instruction executes field access ops" {
@@ -974,7 +966,6 @@ test "instruction executes field access ops" {
 
     assert_int_result(.return_value(context.frame.pop()), 1);
     assert_int_result(.return_value(context.frame.pop()), 41);
-    drop context;
 }
 
 test "instruction executes invokestatic int method" {
@@ -1068,7 +1059,6 @@ test "instruction executes invokestatic int method" {
         return;
     };
     assert_int_result(result, 5);
-    drop classes;
 }
 
 test "instruction executes registerNatives native no-op" {
@@ -1156,7 +1146,6 @@ test "instruction executes registerNatives native no-op" {
         return;
     };
     assert_int_result(result, 5);
-    drop classes;
 }
 
 test "instruction executes System.initProperties native" {
@@ -1244,7 +1233,6 @@ test "instruction executes System.initProperties native" {
         return;
     };
     assert_null_ref_result(result);
-    drop classes;
 }
 
 test "instruction executes native AccessController.doPrivileged callback" {
@@ -1428,7 +1416,6 @@ test "instruction executes native AccessController.doPrivileged callback" {
         }
         .exception => unreachable;
     }
-    drop classes;
 }
 
 test "instruction executes System.arraycopy native" {
@@ -1510,9 +1497,6 @@ test "instruction executes System.arraycopy native" {
     } else {
         assert(false);
     }
-    drop context;
-    drop classes;
-    drop constant_pool;
 }
 
 test "instruction executes float and double raw bit natives" {
@@ -1643,9 +1627,6 @@ test "instruction executes float and double raw bit natives" {
         return;
     };
     assert_double_result(.return_value(double_value), 2.0);
-    drop context;
-    drop classes;
-    drop constant_pool;
 }
 
 test "instruction executes new object allocation" {
@@ -1709,7 +1690,6 @@ test "instruction executes new object allocation" {
     } else {
         assert(false);
     }
-    drop context;
 }
 
 test "instruction executes invokespecial constructor initialization" {
@@ -1835,7 +1815,6 @@ test "instruction executes invokespecial constructor initialization" {
         }
         .exception => unreachable;
     }
-    drop classes;
 }
 
 test "instruction executes invokevirtual override dispatch" {
@@ -1968,7 +1947,6 @@ test "instruction executes invokevirtual override dispatch" {
         return;
     };
     assert_int_result(result, 2);
-    drop classes;
 }
 
 test "instruction executes invokeinterface implementation dispatch" {
@@ -2098,7 +2076,6 @@ test "instruction executes invokeinterface implementation dispatch" {
         return;
     };
     assert_int_result(result, 3);
-    drop classes;
 }
 
 test "instruction executes int local shorthand load store and add" {
@@ -2134,7 +2111,6 @@ test "instruction executes int local shorthand load store and add" {
         return;
     };
     assert_int_result(result, 42);
-    drop method;
 }
 
 test "instruction executes int local operand load store and add" {
@@ -2170,7 +2146,6 @@ test "instruction executes int local operand load store and add" {
         return;
     };
     assert_int_result(result, 42);
-    drop method;
 }
 
 test "instruction executes int subtract multiply and negate" {
@@ -2206,7 +2181,6 @@ test "instruction executes int subtract multiply and negate" {
         return;
     };
     assert_int_result(result, 42);
-    drop method;
 }
 
 test "instruction executes float load store arithmetic and return" {
@@ -2248,7 +2222,6 @@ test "instruction executes float load store arithmetic and return" {
         return;
     };
     assert_float_result(result, 5.0);
-    drop method;
 }
 
 test "instruction executes double load store arithmetic and return" {
@@ -2292,7 +2265,6 @@ test "instruction executes double load store arithmetic and return" {
         return;
     };
     assert_double_result(result, 2.0);
-    drop method;
 }
 
 test "instruction executes integer division and remainder normal paths" {
@@ -2330,7 +2302,6 @@ test "instruction executes integer division and remainder normal paths" {
         return;
     };
     assert_int_result(result, 32);
-    drop method;
 }
 
 test "instruction executes long division and remainder normal paths" {
@@ -2370,7 +2341,6 @@ test "instruction executes long division and remainder normal paths" {
         return;
     };
     assert_long_result(result, 22);
-    drop method;
 }
 
 test "instruction executes stack manipulation ops" {
@@ -2607,7 +2577,6 @@ test "instruction executes stack manipulation ops" {
         return;
     };
     assert_int_result(seventh_result, 42);
-    drop seventh_method;
 }
 
 test "instruction executes iinc shifts and bitwise int ops" {
@@ -2652,7 +2621,6 @@ test "instruction executes iinc shifts and bitwise int ops" {
         return;
     };
     assert_int_result(result, 42);
-    drop method;
 }
 
 test "instruction executes wide local access and iinc" {
@@ -2685,7 +2653,6 @@ test "instruction executes wide local access and iinc" {
         return;
     };
     assert_int_result(result, 42);
-    drop method;
 }
 
 test "instruction executes logical right shifts" {
@@ -2749,7 +2716,6 @@ test "instruction executes logical right shifts" {
         return;
     };
     assert_long_result(long_result, 1);
-    drop long_method;
 }
 
 test "instruction executes int and long conversions" {
@@ -2813,7 +2779,6 @@ test "instruction executes int and long conversions" {
         return;
     };
     assert_int_result(long_to_int_result, 1);
-    drop long_to_int_method;
 }
 
 test "instruction executes integer to float and double conversions" {
@@ -2933,7 +2898,6 @@ test "instruction executes integer to float and double conversions" {
         return;
     };
     assert_double_result(long_to_double_result, 42.0);
-    drop long_to_double_method;
 }
 
 test "instruction executes float and double conversions" {
@@ -3109,7 +3073,6 @@ test "instruction executes float and double conversions" {
         return;
     };
     assert_float_result(double_to_float_result, 1.0);
-    drop double_to_float_method;
 }
 
 test "instruction executes int byte char and short conversions" {
@@ -3200,7 +3163,6 @@ test "instruction executes int byte char and short conversions" {
         return;
     };
     assert_int_result(short_result, 0 - 32768);
-    drop short_method;
 }
 
 test "instruction executes unary int branches" {
@@ -3254,7 +3216,6 @@ test "instruction executes unary int branches" {
         return;
     };
     assert_int_result(result, 42);
-    drop method;
 }
 
 test "instruction executes int compare branches and goto loop" {
@@ -3302,7 +3263,6 @@ test "instruction executes int compare branches and goto loop" {
         return;
     };
     assert_int_result(result, 42);
-    drop method;
 }
 
 test "instruction executes table and lookup switches" {
@@ -3381,7 +3341,6 @@ test "instruction executes table and lookup switches" {
         return;
     };
     assert_int_result(lookup_result, 42);
-    drop lookup_method;
 }
 
 test "instruction executes jsr ret and jsr_w subroutines" {
@@ -3476,7 +3435,6 @@ test "instruction executes jsr ret and jsr_w subroutines" {
         return;
     };
     assert_int_result(jsr_w_result, 42);
-    drop jsr_w_method;
 }
 
 test "instruction executes nop and goto_w" {
@@ -3510,7 +3468,6 @@ test "instruction executes nop and goto_w" {
         return;
     };
     assert_int_result(result, 42);
-    drop method;
 }
 
 test "instruction executes reference load store and returns" {
@@ -3569,7 +3526,6 @@ test "instruction executes reference load store and returns" {
         return;
     };
     assert_void_result(void_result);
-    drop void_method;
 }
 
 test "instruction executes athrow with existing exception reference" {
@@ -3601,7 +3557,6 @@ test "instruction executes athrow with existing exception reference" {
     } else {
         assert(false);
     }
-    drop context;
 }
 
 test "instruction dispatches local exception handler" {
@@ -3693,7 +3648,6 @@ test "instruction dispatches local exception handler" {
         return;
     };
     assert_int_result(result, 5);
-    drop classes;
 }
 
 test "instruction dispatches propagated call exception handler" {
@@ -3840,7 +3794,6 @@ test "instruction dispatches propagated call exception handler" {
         return;
     };
     assert_int_result(result, 3);
-    drop classes;
 }
 
 test "instruction executes int array creation load store and length" {
@@ -3884,7 +3837,6 @@ test "instruction executes int array creation load store and length" {
         return;
     };
     assert_int_result(result, 42);
-    drop method;
 }
 
 test "instruction executes anewarray reference array creation" {
@@ -3963,7 +3915,6 @@ test "instruction executes anewarray reference array creation" {
         assert(false);
     }
     vm.clear();
-    drop classes;
 }
 
 test "instruction executes checkcast and instanceof normal paths" {
@@ -4163,7 +4114,6 @@ test "instruction executes checkcast and instanceof normal paths" {
     assert_int_result(pass_result, 1);
     assert_int_result(null_result, 0);
     assert_int_result(miss_result, 0);
-    drop classes;
 }
 
 test "instruction executes monitorenter and monitorexit normal paths" {
@@ -4228,7 +4178,6 @@ test "instruction executes monitorenter and monitorexit normal paths" {
     };
     assert_int_result(result, 1);
     assert(vm.heap.object_count() == 1);
-    drop classes;
 }
 
 test "instruction executes multianewarray normal path" {
@@ -4310,7 +4259,6 @@ test "instruction executes multianewarray normal path" {
     } else {
         assert(false);
     }
-    drop classes;
 }
 
 test "instruction executes wide and floating array load store ops" {
@@ -4424,7 +4372,6 @@ test "instruction executes wide and floating array load store ops" {
         return;
     };
     assert_double_result(double_result, 1.0);
-    drop double_method;
 }
 
 test "instruction executes narrow array load store ops" {
@@ -4574,7 +4521,6 @@ test "instruction executes narrow array load store ops" {
         return;
     };
     assert_int_result(boolean_result, 1);
-    drop boolean_method;
 }
 
 test "instruction executes reference array load store ops" {
@@ -4613,7 +4559,6 @@ test "instruction executes reference array load store ops" {
 
     const loaded = expect_ref(context.frame.pop());
     assert(loaded.is_null());
-    drop context;
 }
 
 test "instruction executes reference comparison and null branches" {
@@ -4661,7 +4606,6 @@ test "instruction executes reference comparison and null branches" {
         return;
     };
     assert_int_result(result, 42);
-    drop method;
 }
 
 test "instruction executes long local arithmetic and return" {
@@ -4701,7 +4645,6 @@ test "instruction executes long local arithmetic and return" {
         return;
     };
     assert_long_result(result, 1);
-    drop method;
 }
 
 test "instruction executes long shifts and bitwise ops" {
@@ -4771,7 +4714,6 @@ test "instruction executes long shifts and bitwise ops" {
         return;
     };
     assert_long_result(bitwise_result, 1);
-    drop bitwise_method;
 }
 
 test "instruction executes long operand load store and compare" {
@@ -4811,5 +4753,4 @@ test "instruction executes long operand load store and compare" {
         return;
     };
     assert_int_result(result, 0 - 1);
-    drop method;
 }
