@@ -248,162 +248,47 @@ fn read_wide(reader: &ByteReader): ConstantWide ! ClassfileError {
     };
 }
 
+fn read_constant_payload(reader: &ByteReader, tag: ConstantTag): Constant ! ClassfileError {
+    return switch tag {
+        ConstantTag.utf8 => {
+            const length = try reader.read_u2();
+            const bytes = try reader.read_bytes(length as usize);
+            const value = string.from(bytes[..]);
+            drop bytes;
+            yield .utf8(value);
+        }
+        ConstantTag.integer => .integer(try reader.read_u4());
+        ConstantTag.float => .float(try reader.read_u4());
+        ConstantTag.long => .long(try read_wide(reader));
+        ConstantTag.double => .double(try read_wide(reader));
+        ConstantTag.class_ref => .class_ref(try reader.read_u2());
+        ConstantTag.string_ref => .string_ref(try reader.read_u2());
+        ConstantTag.field_ref => .field_ref(try read_member_ref(reader));
+        ConstantTag.method_ref => .method_ref(try read_member_ref(reader));
+        ConstantTag.interface_method_ref => .interface_method_ref(try read_member_ref(reader));
+        ConstantTag.name_and_type => .name_and_type(try read_name_and_type(reader));
+        ConstantTag.method_handle => .method_handle(ConstantMethodHandle {
+            reference_kind: try reader.read_u1(),
+            reference_index: try reader.read_u2(),
+        });
+        ConstantTag.method_type => .method_type(try reader.read_u2());
+        ConstantTag.dynamic => .dynamic(try read_dynamic_ref(reader));
+        ConstantTag.invoke_dynamic => .invoke_dynamic(try read_dynamic_ref(reader));
+        ConstantTag.module_ref => .module_ref(try reader.read_u2());
+        ConstantTag.package_ref => .package_ref(try reader.read_u2());
+    };
+}
+
 pub fn read_constant(reader: &ByteReader, out: &Constant): void ! ClassfileError {
     const tag = try parse_constant_tag(try reader.read_u1());
-    if tag == ConstantTag.utf8 {
-        const length = try reader.read_u2();
-        const bytes = try reader.read_bytes(length as usize);
-        const value = string.from(bytes[..]);
-        drop bytes;
-        out = .utf8(value);
-        return;
-    }
-    if tag == ConstantTag.integer {
-        out = .integer(try reader.read_u4());
-        return;
-    }
-    if tag == ConstantTag.float {
-        out = .float(try reader.read_u4());
-        return;
-    }
-    if tag == ConstantTag.long {
-        out = .long(try read_wide(reader));
-        return;
-    }
-    if tag == ConstantTag.double {
-        out = .double(try read_wide(reader));
-        return;
-    }
-    if tag == ConstantTag.class_ref {
-        out = .class_ref(try reader.read_u2());
-        return;
-    }
-    if tag == ConstantTag.string_ref {
-        out = .string_ref(try reader.read_u2());
-        return;
-    }
-    if tag == ConstantTag.field_ref {
-        out = .field_ref(try read_member_ref(reader));
-        return;
-    }
-    if tag == ConstantTag.method_ref {
-        out = .method_ref(try read_member_ref(reader));
-        return;
-    }
-    if tag == ConstantTag.interface_method_ref {
-        out = .interface_method_ref(try read_member_ref(reader));
-        return;
-    }
-    if tag == ConstantTag.name_and_type {
-        out = .name_and_type(try read_name_and_type(reader));
-        return;
-    }
-    if tag == ConstantTag.method_handle {
-        const reference_kind = try reader.read_u1();
-        const reference_index = try reader.read_u2();
-        out = .method_handle(ConstantMethodHandle {
-            reference_kind: reference_kind,
-            reference_index: reference_index,
-        });
-        return;
-    }
-    if tag == ConstantTag.method_type {
-        out = .method_type(try reader.read_u2());
-        return;
-    }
-    if tag == ConstantTag.dynamic {
-        out = .dynamic(try read_dynamic_ref(reader));
-        return;
-    }
-    if tag == ConstantTag.invoke_dynamic {
-        out = .invoke_dynamic(try read_dynamic_ref(reader));
-        return;
-    }
-    if tag == ConstantTag.module_ref {
-        out = .module_ref(try reader.read_u2());
-        return;
-    }
-    out = .package_ref(try reader.read_u2());
+    out = try read_constant_payload(reader, tag);
     return;
 }
 
 fn read_constant_pool_entry(reader: &ByteReader, constants: &List<Constant>): u16 ! ClassfileError {
     const tag = try parse_constant_tag(try reader.read_u1());
-    if tag == ConstantTag.utf8 {
-        const length = try reader.read_u2();
-        const bytes = try reader.read_bytes(length as usize);
-        const value = string.from(bytes[..]);
-        drop bytes;
-        constants.push(.utf8(value));
-        return 1;
-    }
-    if tag == ConstantTag.integer {
-        constants.push(.integer(try reader.read_u4()));
-        return 1;
-    }
-    if tag == ConstantTag.float {
-        constants.push(.float(try reader.read_u4()));
-        return 1;
-    }
-    if tag == ConstantTag.long {
-        constants.push(.long(try read_wide(reader)));
-        return 2;
-    }
-    if tag == ConstantTag.double {
-        constants.push(.double(try read_wide(reader)));
-        return 2;
-    }
-    if tag == ConstantTag.class_ref {
-        constants.push(.class_ref(try reader.read_u2()));
-        return 1;
-    }
-    if tag == ConstantTag.string_ref {
-        constants.push(.string_ref(try reader.read_u2()));
-        return 1;
-    }
-    if tag == ConstantTag.field_ref {
-        constants.push(.field_ref(try read_member_ref(reader)));
-        return 1;
-    }
-    if tag == ConstantTag.method_ref {
-        constants.push(.method_ref(try read_member_ref(reader)));
-        return 1;
-    }
-    if tag == ConstantTag.interface_method_ref {
-        constants.push(.interface_method_ref(try read_member_ref(reader)));
-        return 1;
-    }
-    if tag == ConstantTag.name_and_type {
-        constants.push(.name_and_type(try read_name_and_type(reader)));
-        return 1;
-    }
-    if tag == ConstantTag.method_handle {
-        const reference_kind = try reader.read_u1();
-        const reference_index = try reader.read_u2();
-        constants.push(.method_handle(ConstantMethodHandle {
-            reference_kind: reference_kind,
-            reference_index: reference_index,
-        }));
-        return 1;
-    }
-    if tag == ConstantTag.method_type {
-        constants.push(.method_type(try reader.read_u2()));
-        return 1;
-    }
-    if tag == ConstantTag.dynamic {
-        constants.push(.dynamic(try read_dynamic_ref(reader)));
-        return 1;
-    }
-    if tag == ConstantTag.invoke_dynamic {
-        constants.push(.invoke_dynamic(try read_dynamic_ref(reader)));
-        return 1;
-    }
-    if tag == ConstantTag.module_ref {
-        constants.push(.module_ref(try reader.read_u2()));
-        return 1;
-    }
-    constants.push(.package_ref(try reader.read_u2()));
-    return 1;
+    constants.push(try read_constant_payload(reader, tag));
+    return constant_tag_slot_width(tag) as u16;
 }
 
 pub fn read_constant_pool(reader: &ByteReader, constant_pool_count: u16, constants: &List<Constant>): void ! ClassfileError {
