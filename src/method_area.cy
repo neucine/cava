@@ -28,7 +28,6 @@ pub struct SymbolPool {
     pub fn clear(self: &SymbolPool): void {
         while self.symbols.len() > 0 {
             var symbol = self.symbols.pop();
-            drop symbol;
         }
     }
 
@@ -49,7 +48,6 @@ pub struct SymbolPool {
         }
         const symbol = string.from(value);
         self.symbols.push(symbol);
-        drop symbol;
     }
 }
 
@@ -264,7 +262,6 @@ pub struct MethodArea {
         while self.classes.len() > 0 {
             var class = self.classes.pop();
             class.clear();
-            drop class;
         }
         self.symbols.clear();
         self.application_class_root = "";
@@ -420,7 +417,6 @@ pub struct MethodArea {
         self.classes.push(class.clone());
         const index = self.classes.len() - 1;
         class.clear();
-        drop class;
         return index;
     }
 
@@ -501,7 +497,6 @@ pub struct MethodArea {
         if project_root_from_example_class_path(path) is root {
             self.application_class_root = $"{root}/examples/classes";
             self.jdk_class_root = $"{root}/jdk/classes";
-            drop root;
         }
     }
 
@@ -513,13 +508,11 @@ pub struct MethodArea {
         const super_class = class.super_class.clone();
         self.define_descriptor_array_references_for_class(class_index);
         if super_class == "" {
-            drop super_class;
             return;
         }
         const ignored_loaded = self.load_class_from_path(root, super_class.clone()) catch (err) {
             return;
         };
-        drop super_class;
     }
 
     fn load_class_from_path_optional(self: &MethodArea, root: string, class_name: string): ?usize {
@@ -555,7 +548,6 @@ pub struct MethodArea {
         var visited: List<usize> = [];
         self.load_constant_references_for_class_visited(root, class_index, &visited);
         visited.clear();
-        drop visited;
     }
 
     fn load_constant_references_for_class_visited(self: &MethodArea, root: string, class_index: usize, visited: &List<usize>): void {
@@ -686,9 +678,6 @@ pub struct MethodArea {
 }
 
 fn duplicate_loaded_class(existing: usize, source: string, classfile: ClassFile, name: string): usize ! ClassfileError {
-    drop name;
-    drop classfile;
-    drop source;
     return existing;
 }
 
@@ -1077,8 +1066,6 @@ fn apply_code_attribute_info(classfile: &ClassFile, name_index: u16, raw: []cons
         info.local_var_count = info.local_var_count + (count as u32);
         try reader.skip((count as usize) * 10);
     }
-    drop reader;
-    drop name;
     return;
 }
 
@@ -1127,10 +1114,8 @@ fn code_info_from_attribute(classfile: &ClassFile, name_index: u16, raw: []const
         const nested_length = try reader.read_u4();
         const nested_raw = try reader.read_bytes(nested_length as usize);
         try apply_code_attribute_info(classfile, nested_name_index, nested_raw[..], &out);
-        drop nested_raw;
         index = index + 1;
     }
-    drop reader;
     return out;
 }
 
@@ -1140,10 +1125,8 @@ fn member_code_info(classfile: &ClassFile, attributes: []AttributeInfo): CodeInf
     while index < attributes.len() {
         const current = try code_info_from_attribute(classfile, attributes[index].name_index, attributes[index].raw[..]);
         if current.code_len != 0 or current.max_stack != 0 or current.max_locals != 0 {
-            drop out;
             return current;
         }
-        drop current;
         index = index + 1;
     }
     return out;
@@ -1243,11 +1226,8 @@ fn derive_source_file(classfile: &ClassFile): string ! ClassfileError {
             var reader = ByteReader.init(attributes[index].raw[..]);
             const source_file_index = try reader.read_u2();
             const out = try classfile.utf8(source_file_index);
-            drop reader;
-            drop name;
             return out;
         }
-        drop name;
         index = index + 1;
     }
     return "";
@@ -1283,7 +1263,6 @@ fn derive_methods(classfile: &ClassFile, class_name: string): List<Method>!Class
             parameter_count: parameter_count,
             return_descriptor: return_descriptor,
         });
-        drop code;
         index = index + 1;
     }
     return methods;
@@ -1321,6 +1300,5 @@ pub fn derive_class(classfile: &ClassFile): Class ! ClassfileError {
         linked: false,
         class_object: null_ref,
     };
-    drop class_name;
     return out;
 }
