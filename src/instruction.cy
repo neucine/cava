@@ -3128,38 +3128,20 @@ fn newarray(context: &Context, vm: &VM): void ! InstructionError {
     }
 
     const atype = context.read_u1();
-    var descriptor = "I";
-    var valid = true;
-    if atype == 4 {
-        descriptor = "Z";
-    }
-    if atype == 5 {
-        descriptor = "C";
-    }
-    if atype == 6 {
-        descriptor = "F";
-    }
-    if atype == 7 {
-        descriptor = "D";
-    }
-    if atype == 8 {
-        descriptor = "B";
-    }
-    if atype == 9 {
-        descriptor = "S";
-    }
-    if atype == 10 {
-        descriptor = "I";
-    }
-    if atype == 11 {
-        descriptor = "J";
-    }
     if atype < 4 or atype > 11 {
-        valid = false;
-    }
-    if !valid {
         assert(false);
     }
+    const descriptor = switch atype {
+        4 => "Z";
+        5 => "C";
+        6 => "F";
+        7 => "D";
+        8 => "B";
+        9 => "S";
+        10 => "I";
+        11 => "J";
+        _ => "I";
+    };
 
     const reference = vm.heap.allocate_array(0, descriptor.bytes(), count as usize);
     context.frame.push(.ref_value(reference));
