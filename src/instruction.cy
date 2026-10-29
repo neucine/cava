@@ -322,9 +322,7 @@ fn find_field_in_hierarchy(context: &Context, vm: &VM, class_index: usize, name_
     while true {
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
-        const field_index: ?usize = find_field_index_by_constants(class, context, name_index, descriptor_index) catch (problem) {
-            yield none;
-        };
+        const field_index: ?usize = find_field_index_by_constants(class, context, name_index, descriptor_index) catch (problem) => none;
         if field_index is found {
             return class.fields[found];
         }
@@ -397,9 +395,7 @@ fn find_static_method_index_in_hierarchy(context: &Context, vm: &VM, class_index
     while true {
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
-        const method_index: ?usize = find_static_method_index_by_constants(class, context, name_index, descriptor_index) catch (problem) {
-            yield none;
-        };
+        const method_index: ?usize = find_static_method_index_by_constants(class, context, name_index, descriptor_index) catch (problem) => none;
         if method_index is found {
             return ResolvedMethod {
                 class_index: current_index,
@@ -419,9 +415,7 @@ fn find_instance_method_index_in_hierarchy(context: &Context, vm: &VM, class_ind
     while true {
         var classes = vm.method_area.classes[..];
         const class = &classes[current_index];
-        const method_index: ?usize = find_instance_method_index_by_constants(class, context, name_index, descriptor_index) catch (problem) {
-            yield none;
-        };
+        const method_index: ?usize = find_instance_method_index_by_constants(class, context, name_index, descriptor_index) catch (problem) => none;
         if method_index is found {
             return ResolvedMethod {
                 class_index: current_index,
@@ -441,9 +435,7 @@ fn find_interface_method_index_in_hierarchy(context: &Context, vm: &VM, class_in
         throw InstructionError.invalid_constant;
     }
     var classes = vm.method_area.classes[..];
-    const method_index: ?usize = find_instance_method_index_by_constants(&classes[class_index], context, name_index, descriptor_index) catch (problem) {
-        yield none;
-    };
+    const method_index: ?usize = find_instance_method_index_by_constants(&classes[class_index], context, name_index, descriptor_index) catch (problem) => none;
     if method_index is found {
         return ResolvedMethod {
             class_index: class_index,
@@ -453,13 +445,9 @@ fn find_interface_method_index_in_hierarchy(context: &Context, vm: &VM, class_in
 
     var interface_index: usize = 0;
     while interface_index < classes[class_index].interfaces.len() {
-        const parent_index: ?usize = vm.resolve_class_index(classes[class_index].interfaces[interface_index].clone()) catch (problem) {
-            yield none;
-        };
+        const parent_index: ?usize = vm.resolve_class_index(classes[class_index].interfaces[interface_index].clone()) catch (problem) => none;
         if parent_index is parent {
-            const method: ?ResolvedMethod = find_interface_method_index_in_hierarchy(context, vm, parent, name_index, descriptor_index) catch (problem) {
-                yield none;
-            };
+            const method: ?ResolvedMethod = find_interface_method_index_in_hierarchy(context, vm, parent, name_index, descriptor_index) catch (problem) => none;
             if method is found {
                 return found;
             }
@@ -3188,9 +3176,7 @@ fn anewarray(context: &Context, vm: &VM): void ! InstructionError {
 
     const descriptor = reference_array_component_descriptor(class_name);
     const array_descriptor = reference_array_descriptor(descriptor);
-    const array_class_index = vm.resolve_class_index(array_descriptor.clone()) catch (problem) {
-        yield 0;
-    };
+    const array_class_index = vm.resolve_class_index(array_descriptor.clone()) catch (problem) => 0;
     const reference = vm.heap.allocate_array(array_class_index, descriptor.bytes(), count as usize);
     context.frame.push(.ref_value(reference));
     return;
@@ -5214,9 +5200,7 @@ fn execute_frame_registered(context: &Context, vm: &VM): void ! InstructionError
 
 pub fn execute_frame_next(context: &Context, class_name: string, method_name: string): bool ! InstructionError {
     const pc = context.frame.pc;
-    const fetched: ?Instruction = fetch(context.code[pc as usize]) catch (problem) {
-        yield none;
-    };
+    const fetched: ?Instruction = fetch(context.code[pc as usize]) catch (problem) => none;
     if fetched is instruction {
         if instruction.is_local {
             const execute = instruction.local_execute;

@@ -59,7 +59,7 @@ If Cyna has a language, runtime, library, or tooling limitation that prevents a 
 ## Testing
 
 Cava requires Cyna 0.4.0 with compiler fixes through commit
-`5ec800557c0f2235617982f3985d3ddad491a54f` on
+`b62ab8b9750c1f90b15b4e68b4d4553c693525b3` on
 `neucine/cyna` `master`. Put that compiler's
 `zig-out/bin` on `PATH` before building or testing Cava. The initial 0.4.0
 release lacks fixes needed by this migration.
