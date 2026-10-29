@@ -824,8 +824,8 @@ pub fn read_classfile(reader: &ByteReader, out: &ClassFile): void ! ClassfileErr
     return out.read(reader);
 }
 
-pub fn parse_classfile(data: string, out: &ClassFile): void ! ClassfileError {
-    var reader = ByteReader.init(data.bytes());
+pub fn parse_classfile(data: []const u8, out: &ClassFile): void ! ClassfileError {
+    var reader = ByteReader.init(data);
     const parsed = out.read(&reader);
     drop reader;
     return parsed;

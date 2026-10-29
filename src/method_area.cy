@@ -452,7 +452,7 @@ pub struct MethodArea {
     pub fn load_class_from_source(self: &MethodArea, source: string): usize ! ClassfileError {
         var classfile = new_classfile();
         const source_copy = source;
-        try parse_classfile(source_copy, &classfile);
+        try parse_classfile(source_copy.bytes(), &classfile);
         drop source_copy;
         const name = try classfile.class_name(classfile.this_class);
         if self.find_class_index(name.clone()) is existing {
@@ -715,16 +715,16 @@ fn empty_code(): [:]u8 {
     return byte_buffer(native_code[..]);
 }
 
-fn owned_text(value: []const u8): string {
-    return string.from(value);
+fn owned_text(value: string): string {
+    return value.clone();
 }
 
 fn builtin_field(class_name: string, name: string, descriptor: string, access: u16, index: u16, slot: u16): Field {
     return Field {
-        class_name: owned_text(class_name.bytes()),
+        class_name: owned_text(class_name),
         access_flags: field_access_flags(access),
-        name: owned_text(name.bytes()),
-        descriptor: owned_text(descriptor.bytes()),
+        name: owned_text(name),
+        descriptor: owned_text(descriptor),
         index: index,
         slot: slot,
     };
@@ -732,10 +732,10 @@ fn builtin_field(class_name: string, name: string, descriptor: string, access: u
 
 fn builtin_method(class_name: string, name: string, descriptor: string, access: u16, parameter_count: u32, return_descriptor: string): Method {
     return Method {
-        class_name: owned_text(class_name.bytes()),
+        class_name: owned_text(class_name),
         access_flags: method_access_flags(access),
-        name: owned_text(name.bytes()),
-        descriptor: owned_text(descriptor.bytes()),
+        name: owned_text(name),
+        descriptor: owned_text(descriptor),
         code: empty_code(),
         max_stack: 0,
         max_locals: 0,
@@ -745,7 +745,7 @@ fn builtin_method(class_name: string, name: string, descriptor: string, access: 
         local_var_count: 0,
         line_number_count: 0,
         parameter_count: parameter_count,
-        return_descriptor: owned_text(return_descriptor.bytes()),
+        return_descriptor: owned_text(return_descriptor),
     };
 }
 
@@ -855,17 +855,17 @@ fn builtin_class(name: string): Class {
         name: name,
         descriptor: class_descriptor_from_name(name),
         access_flags: class_access_flags(0x0021),
-        super_class: owned_text("java/lang/Object".bytes()),
+        super_class: owned_text("java/lang/Object"),
         interfaces: [],
         fields: [],
         methods: [],
         constant_pool: [],
         instance_vars: 0,
         static_vars: [],
-        source_file: owned_text("".bytes()),
+        source_file: owned_text(""),
         is_array: false,
-        component_type: owned_text("".bytes()),
-        element_type: owned_text("".bytes()),
+        component_type: owned_text(""),
+        element_type: owned_text(""),
         dimensions: 0,
         defined: true,
         linked: false,
