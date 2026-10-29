@@ -47,12 +47,10 @@ pub struct VM {
             var char_index: usize = 0;
             while char_index < chars.len() {
                 if !self.heap.set_element(chars_reference, char_index, .char_value(chars[char_index])) {
-                    drop chars;
                     throw InstructionError.invalid_constant;
                 }
                 char_index = char_index + 1;
             }
-            drop chars;
             var fields = string_class.fields[..];
             const field = &fields[value_field_index as usize];
             if !self.heap.set_field(reference, field.slot, .ref_value(chars_reference)) {
@@ -97,8 +95,6 @@ pub struct VM {
                             } else {
                                 print(text);
                             }
-                            drop text;
-                            drop bytes;
                             return;
                         }
                     }

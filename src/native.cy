@@ -414,7 +414,6 @@ fn java_string(context: &Context, vm: &VM, value: []const u8): ?Reference {
                 const ignored_element = vm.heap.set_element(chars_reference, char_index, .char_value(chars[char_index]));
                 char_index = char_index + 1;
             }
-            drop chars;
             var fields = string_class.fields[..];
             const field = &fields[value_field_index as usize];
             const slot = field.slot;
@@ -436,7 +435,6 @@ fn java_string_bytes(context: &Context, vm: &VM, reference: Reference): [:]u8 ! 
     var value_option = vm.heap.string_bytes(reference);
     if take value_option is value {
         const bytes = value.value.clone();
-        drop value;
         return bytes;
     }
     const string_class_index = try find_native_class_index(context, vm, "java/lang/String");
@@ -452,18 +450,15 @@ fn java_string_bytes(context: &Context, vm: &VM, reference: Reference): [:]u8 ! 
                             .char_value(ch) => bytes.push(ch as u8);
                             .byte_value(ch) => bytes.push(ch as u8);
                             _ => {
-                                drop bytes;
                                 throw InstructionError.invalid_constant;
                             }
                         }
                     } else {
-                        drop bytes;
                         throw InstructionError.invalid_constant;
                     }
                     index = index + 1;
                 }
                 const out = byte_buffer(bytes[..]);
-                drop bytes;
                 return out;
             }
         }
@@ -528,7 +523,6 @@ fn descriptor_class_object(context: &Context, vm: &VM, descriptor: []const u8): 
     while index < classes.len() {
         const class = &classes[index];
         if class.descriptor == descriptor_text or class.name == descriptor_text {
-            drop descriptor_text;
             return ensure_class_object(context, vm, index);
         }
         index = index + 1;
@@ -537,10 +531,8 @@ fn descriptor_class_object(context: &Context, vm: &VM, descriptor: []const u8): 
     if descriptor.len() > 2 and descriptor[0] == 'L' {
         const name = string.from(descriptor[1..descriptor.len() - 1]);
         const found = find_or_load_native_class_index(context, vm, name) catch (problem) {
-            drop name;
             throw InstructionError.invalid_constant;
         };
-        drop name;
         return try ensure_class_object(context, vm, found);
     }
     throw InstructionError.invalid_constant;
@@ -659,7 +651,6 @@ fn class_name_from_java_name(name: []const u8): string {
         index = index + 1;
     }
     const out = string.from(bytes[..]);
-    drop bytes;
     return out;
 }
 
@@ -669,7 +660,6 @@ fn java_string_buffer(context: &Context, vm: &VM, data: [:]u8): Reference ! Inst
     if find_loaded_class_index(classes, "java/lang/String") is string_class_index {
         return vm.heap.intern_string_buffer(string_class_index, &classes[string_class_index], bytes);
     }
-    drop bytes;
     throw InstructionError.invalid_constant;
 }
 
@@ -687,9 +677,6 @@ fn print_java_string(context: &Context, vm: &VM, reference: Reference): void {
         const bytes = value.value.clone();
         const text = string.from(bytes[..]);
         println(text);
-        drop text;
-        drop bytes;
-        drop value;
         return;
     }
     println("");
@@ -1107,15 +1094,12 @@ struct JavaLangClass {
         const ignored_caller = caller;
         const name_bytes = try java_string_bytes(context, vm, name);
         const class_name = class_name_from_java_name(name_bytes[..]);
-        drop name_bytes;
         const class_index = find_or_load_native_class_index(context, vm, class_name) catch (problem) {
             print("cava native error: Class.forName0 missing class ");
             println(class_name);
-            drop class_name;
             throw InstructionError.invalid_constant;
         };
         const reference = try ensure_class_object(context, vm, class_index);
-        drop class_name;
         const _cava_optional_221: ?Value = return_value(.ref_value(reference));
         return _cava_optional_221;
     }
@@ -1165,21 +1149,17 @@ struct JavaLangClass {
                 const name = string.from(component[1..component.len() - 1]);
                 if find_or_load_native_class_index_optional(context, vm, name) is component_index {
                     const reference = try ensure_class_object(context, vm, component_index);
-                    drop name;
                     const _cava_optional_214: ?Value = return_value(.ref_value(reference));
                     return _cava_optional_214;
                 }
-                drop name;
             }
             if component.len() > 0 and component[0] == '[' {
                 const name = string.from(component);
                 if find_or_load_native_class_index_optional(context, vm, name) is component_index {
                     const reference = try ensure_class_object(context, vm, component_index);
-                    drop name;
                     const _cava_optional_213: ?Value = return_value(.ref_value(reference));
                     return _cava_optional_213;
                 }
-                drop name;
             }
             const class_class_index = try find_or_load_native_class_index(context, vm, "java/lang/Class");
             var class_class = &classes[class_class_index];
@@ -1290,11 +1270,9 @@ struct JavaLangReflectArray {
             const component = &classes[component_index];
             const descriptor = array_descriptor_for_component(component);
             const array_class_index = find_or_load_native_class_index(context, vm, descriptor) catch (problem) {
-                drop descriptor;
                 throw InstructionError.invalid_constant;
             };
             const reference = vm.heap.allocate_array(array_class_index, component.descriptor.bytes(), length as usize);
-            drop descriptor;
             const _cava_optional_200: ?Value = return_value(.ref_value(reference));
             return _cava_optional_200;
         }
