@@ -75,10 +75,10 @@ fn parallel_worker(request: ParallelRequest): void {
 
 fn parallel_flag(runtime: &const Runtime, array: Reference, index: usize): i32 {
     if runtime.arrays.get(array, index) is value {
-        switch value {
-            .int_value(actual) => return actual;
+        return switch value {
+            .int_value(actual) => actual;
             _ => unreachable;
-        }
+        };
     }
     return 0;
 }

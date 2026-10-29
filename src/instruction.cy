@@ -228,30 +228,30 @@ pub fn constant_utf8(context: &Context, index: u16): string ! InstructionError {
     if index as usize >= context.constant_pool.len() {
         throw InstructionError.invalid_constant;
     }
-    switch context.constant_pool[index as usize] {
-        .utf8(value) => return value;
+    return switch context.constant_pool[index as usize] {
+        .utf8(value) => value;
         _ => throw InstructionError.invalid_constant;
-    }
+    };
 }
 
 pub fn constant_class_name(context: &Context, index: u16): string ! InstructionError {
     if index as usize >= context.constant_pool.len() {
         throw InstructionError.invalid_constant;
     }
-    switch context.constant_pool[index as usize] {
-        .class_ref(name_index) => return constant_utf8(context, name_index);
+    return switch context.constant_pool[index as usize] {
+        .class_ref(name_index) => try constant_utf8(context, name_index);
         _ => throw InstructionError.invalid_constant;
-    }
+    };
 }
 
 fn constant_utf8_equals(context: &Context, index: u16, expected: string): bool ! InstructionError {
     if index as usize >= context.constant_pool.len() {
         throw InstructionError.invalid_constant;
     }
-    switch context.constant_pool[index as usize] {
-        .utf8(value) => return value == expected;
+    return switch context.constant_pool[index as usize] {
+        .utf8(value) => value == expected;
         _ => throw InstructionError.invalid_constant;
-    }
+    };
 }
 
 pub fn find_class_index_by_constant(context: &Context, vm: &VM, index: u16): usize ! InstructionError {
@@ -268,10 +268,10 @@ pub fn find_class_index_by_constant(context: &Context, vm: &VM, index: u16): usi
     if name_index as usize >= context.constant_pool.len() {
         throw InstructionError.invalid_constant;
     }
-    switch context.constant_pool[name_index as usize] {
-        .utf8(name) => return vm.resolve_class_index(name.clone());
+    return switch context.constant_pool[name_index as usize] {
+        .utf8(name) => try vm.resolve_class_index(name.clone());
         _ => throw InstructionError.invalid_constant;
-    }
+    };
 }
 
 pub fn find_class_index(context: &Context, vm: &VM, name: string): usize ! InstructionError {
@@ -591,55 +591,49 @@ fn push_int(context: &Context, value: i32): void {
 }
 
 fn expect_int(value: Value): i32 {
-    switch value {
-        .int_value(actual) => return actual;
-        .boolean_value(actual) => return actual as i32;
-        .byte_value(actual) => return actual as i32;
-        .short_value(actual) => return actual as i32;
-        .char_value(actual) => return actual as i32;
+    return switch value {
+        .int_value(actual) => actual;
+        .boolean_value(actual) => actual as i32;
+        .byte_value(actual) => actual as i32;
+        .short_value(actual) => actual as i32;
+        .char_value(actual) => actual as i32;
         _ => unreachable;
-    }
-    return 0;
+    };
 }
 
 fn expect_ref(value: Value): Reference {
-    switch value {
-        .ref_value(actual) => return actual;
+    return switch value {
+        .ref_value(actual) => actual;
         _ => unreachable;
-    }
-    return null_ref;
+    };
 }
 
 fn expect_long(value: Value): i64 {
-    switch value {
-        .long_value(actual) => return actual;
+    return switch value {
+        .long_value(actual) => actual;
         _ => unreachable;
-    }
-    return 0;
+    };
 }
 
 fn expect_float(value: Value): f32 {
-    switch value {
-        .float_value(actual) => return actual;
+    return switch value {
+        .float_value(actual) => actual;
         _ => unreachable;
-    }
-    return 0.0;
+    };
 }
 
 fn expect_double(value: Value): f64 {
-    switch value {
-        .double_value(actual) => return actual;
+    return switch value {
+        .double_value(actual) => actual;
         _ => unreachable;
-    }
-    return 0.0;
+    };
 }
 
 fn expect_return_address(value: Value): u32 {
-    switch value {
-        .return_address_value(actual) => return actual;
+    return switch value {
+        .return_address_value(actual) => actual;
         _ => unreachable;
-    }
-    return 0;
+    };
 }
 
 fn expect_array_load(context: &Context, vm: &VM): Value {

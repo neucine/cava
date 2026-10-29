@@ -92,26 +92,26 @@ pub enum ConstantTag: i32 {
 }
 
 pub fn parse_constant_tag(raw: u8): ConstantTag ! ClassfileError {
-    switch raw {
-        1 => return ConstantTag.utf8;
-        3 => return ConstantTag.integer;
-        4 => return ConstantTag.float;
-        5 => return ConstantTag.long;
-        6 => return ConstantTag.double;
-        7 => return ConstantTag.class_ref;
-        8 => return ConstantTag.string_ref;
-        9 => return ConstantTag.field_ref;
-        10 => return ConstantTag.method_ref;
-        11 => return ConstantTag.interface_method_ref;
-        12 => return ConstantTag.name_and_type;
-        15 => return ConstantTag.method_handle;
-        16 => return ConstantTag.method_type;
-        17 => return ConstantTag.dynamic;
-        18 => return ConstantTag.invoke_dynamic;
-        19 => return ConstantTag.module_ref;
-        20 => return ConstantTag.package_ref;
+    return switch raw {
+        1 => .utf8;
+        3 => .integer;
+        4 => .float;
+        5 => .long;
+        6 => .double;
+        7 => .class_ref;
+        8 => .string_ref;
+        9 => .field_ref;
+        10 => .method_ref;
+        11 => .interface_method_ref;
+        12 => .name_and_type;
+        15 => .method_handle;
+        16 => .method_type;
+        17 => .dynamic;
+        18 => .invoke_dynamic;
+        19 => .module_ref;
+        20 => .package_ref;
         _ => throw ClassfileError.invalid_constant_tag;
-    }
+    };
 }
 
 pub fn constant_tag_slot_width(tag: ConstantTag): u8 {
