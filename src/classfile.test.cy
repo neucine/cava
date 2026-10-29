@@ -309,9 +309,6 @@ test "classfile parser reads class identity members and raw attributes" {
     assert(classfile.attributes[0].name_index == 4);
     assert(reader.remaining() == 0);
 
-    drop classfile;
-    drop reader;
-    drop data;
 }
 
 test "classfile resolves constant pool symbolic references" {
@@ -349,7 +346,6 @@ test "classfile resolves constant pool symbolic references" {
     assert(class_name.bytes().len() == 4);
     assert(class_name.bytes()[0] == 77);
     assert(class_name.bytes()[3] == 110);
-    drop class_name;
 
     const pair = (classfile.name_and_type(5) catch (problem) {
         assert(false);
@@ -360,7 +356,6 @@ test "classfile resolves constant pool symbolic references" {
     assert(pair.name.bytes()[5] == 114);
     assert(pair.descriptor.bytes().len() == 1);
     assert(pair.descriptor.bytes()[0] == 'I');
-    drop pair;
 
     const member = (classfile.member_ref(6) catch (problem) {
         assert(false);
@@ -369,21 +364,13 @@ test "classfile resolves constant pool symbolic references" {
     assert(member.class_name.bytes()[0] == 77);
     assert(member.name.bytes()[0] == 97);
     assert(member.descriptor.bytes()[0] == 'I');
-    drop member;
 
     const value = classfile.utf8(2) catch (err) {
         assert(err == ClassfileError.invalid_constant_kind);
-        drop classfile;
-        drop reader;
-        drop data;
         return;
     };
-    drop value;
     assert(false);
 
-    drop classfile;
-    drop reader;
-    drop data;
 }
 
 test "classfile resolved constants compare with string equality" {
@@ -421,7 +408,6 @@ test "classfile resolved constants compare with string equality" {
             return;
         };
         assert(value == "Main");
-        drop value;
     }
     if true {
         const value = classfile.name_and_type(5) catch (problem) {
@@ -430,7 +416,6 @@ test "classfile resolved constants compare with string equality" {
         };
         assert(value.name == "answer");
         assert(value.descriptor == "I");
-        drop value;
     }
     if true {
         const value = classfile.member_ref(6) catch (problem) {
@@ -440,7 +425,6 @@ test "classfile resolved constants compare with string equality" {
         assert(value.class_name == "Main");
         assert(value.name == "answer");
         assert(value.descriptor == "I");
-        drop value;
     }
     if true {
         const value = classfile.member_ref(6) catch (problem) {
@@ -450,10 +434,6 @@ test "classfile resolved constants compare with string equality" {
         assert(value.class_name != "Other");
         assert(value.name == "answer");
         assert(value.descriptor == "I");
-        drop value;
     }
 
-    drop classfile;
-    drop reader;
-    drop data;
 }
