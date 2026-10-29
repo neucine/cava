@@ -12,49 +12,25 @@ import { enter_method_monitor, exit_method_monitor } from .method_monitor;
 import { is_access_controller_do_privileged, invoke_privileged_action, initialize_java_system_properties, invoke_reflect_constructor } from .instruction;
 
 fn ref_arg(arguments: &List<Value>, index: usize): Reference {
-    switch arguments[index] {
-        .ref_value(actual) => {
-            return actual;
-        }
-        _ => {
-            return Reference.init_null();
-        }
-    }
+    return switch arguments[index] {
+        .ref_value(actual) => actual;
+        _ => Reference.init_null();
+    };
 }
 
 fn value_ref_or_null(value: Value): Reference {
-    switch value {
-        .ref_value(actual) => {
-            return actual;
-        }
-        .byte_value => {
-            return null_ref;
-        }
-        .short_value => {
-            return null_ref;
-        }
-        .char_value => {
-            return null_ref;
-        }
-        .int_value => {
-            return null_ref;
-        }
-        .long_value => {
-            return null_ref;
-        }
-        .float_value => {
-            return null_ref;
-        }
-        .double_value => {
-            return null_ref;
-        }
-        .boolean_value => {
-            return null_ref;
-        }
-        .return_address_value => {
-            return null_ref;
-        }
-    }
+    return switch value {
+        .ref_value(actual) => actual;
+        .byte_value => null_ref;
+        .short_value => null_ref;
+        .char_value => null_ref;
+        .int_value => null_ref;
+        .long_value => null_ref;
+        .float_value => null_ref;
+        .double_value => null_ref;
+        .boolean_value => null_ref;
+        .return_address_value => null_ref;
+    };
 }
 
 fn int_arg(arguments: &List<Value>, index: usize): i32 {
