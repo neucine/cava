@@ -116,31 +116,31 @@ pub fn parse_constant_tag(raw: u8): ConstantTag ! ClassfileError {
 
 pub fn constant_tag_slot_width(tag: ConstantTag): u8 {
     return switch tag {
-        ConstantTag.long => 2;
-        ConstantTag.double => 2;
+        .long => 2;
+        .double => 2;
         _ => 1;
     };
 }
 
 pub fn fixed_constant_payload_len(tag: ConstantTag): ?u16 {
     return switch tag {
-        ConstantTag.utf8 => none;
-        ConstantTag.integer => 4;
-        ConstantTag.float => 4;
-        ConstantTag.long => 8;
-        ConstantTag.double => 8;
-        ConstantTag.class_ref => 2;
-        ConstantTag.string_ref => 2;
-        ConstantTag.field_ref => 4;
-        ConstantTag.method_ref => 4;
-        ConstantTag.interface_method_ref => 4;
-        ConstantTag.name_and_type => 4;
-        ConstantTag.method_handle => 3;
-        ConstantTag.method_type => 2;
-        ConstantTag.dynamic => 4;
-        ConstantTag.invoke_dynamic => 4;
-        ConstantTag.module_ref => 2;
-        ConstantTag.package_ref => 2;
+        .utf8 => none;
+        .integer => 4;
+        .float => 4;
+        .long => 8;
+        .double => 8;
+        .class_ref => 2;
+        .string_ref => 2;
+        .field_ref => 4;
+        .method_ref => 4;
+        .interface_method_ref => 4;
+        .name_and_type => 4;
+        .method_handle => 3;
+        .method_type => 2;
+        .dynamic => 4;
+        .invoke_dynamic => 4;
+        .module_ref => 2;
+        .package_ref => 2;
     };
 }
 
@@ -250,31 +250,31 @@ fn read_wide(reader: &ByteReader): ConstantWide ! ClassfileError {
 
 fn read_constant_payload(reader: &ByteReader, tag: ConstantTag): Constant ! ClassfileError {
     return switch tag {
-        ConstantTag.utf8 => {
+        .utf8 => {
             const length = try reader.read_u2();
             const bytes = try reader.read_bytes(length as usize);
             const value = string.from(bytes[..]);
             yield .utf8(value);
         }
-        ConstantTag.integer => .integer(try reader.read_u4());
-        ConstantTag.float => .float(try reader.read_u4());
-        ConstantTag.long => .long(try read_wide(reader));
-        ConstantTag.double => .double(try read_wide(reader));
-        ConstantTag.class_ref => .class_ref(try reader.read_u2());
-        ConstantTag.string_ref => .string_ref(try reader.read_u2());
-        ConstantTag.field_ref => .field_ref(try read_member_ref(reader));
-        ConstantTag.method_ref => .method_ref(try read_member_ref(reader));
-        ConstantTag.interface_method_ref => .interface_method_ref(try read_member_ref(reader));
-        ConstantTag.name_and_type => .name_and_type(try read_name_and_type(reader));
-        ConstantTag.method_handle => .method_handle(ConstantMethodHandle {
+        .integer => .integer(try reader.read_u4());
+        .float => .float(try reader.read_u4());
+        .long => .long(try read_wide(reader));
+        .double => .double(try read_wide(reader));
+        .class_ref => .class_ref(try reader.read_u2());
+        .string_ref => .string_ref(try reader.read_u2());
+        .field_ref => .field_ref(try read_member_ref(reader));
+        .method_ref => .method_ref(try read_member_ref(reader));
+        .interface_method_ref => .interface_method_ref(try read_member_ref(reader));
+        .name_and_type => .name_and_type(try read_name_and_type(reader));
+        .method_handle => .method_handle(ConstantMethodHandle {
             reference_kind: try reader.read_u1(),
             reference_index: try reader.read_u2(),
         });
-        ConstantTag.method_type => .method_type(try reader.read_u2());
-        ConstantTag.dynamic => .dynamic(try read_dynamic_ref(reader));
-        ConstantTag.invoke_dynamic => .invoke_dynamic(try read_dynamic_ref(reader));
-        ConstantTag.module_ref => .module_ref(try reader.read_u2());
-        ConstantTag.package_ref => .package_ref(try reader.read_u2());
+        .method_type => .method_type(try reader.read_u2());
+        .dynamic => .dynamic(try read_dynamic_ref(reader));
+        .invoke_dynamic => .invoke_dynamic(try read_dynamic_ref(reader));
+        .module_ref => .module_ref(try reader.read_u2());
+        .package_ref => .package_ref(try reader.read_u2());
     };
 }
 

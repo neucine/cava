@@ -195,20 +195,20 @@ pub struct Context {
 
 pub fn execution_exit_code(error_value: InstructionError): i32 {
     return switch error_value {
-        InstructionError.unsupported_opcode => 20;
-        InstructionError.unsupported_native => 21;
-        InstructionError.invalid_constant => 22;
-        InstructionError.missing_return => 23;
+        .unsupported_opcode => 20;
+        .unsupported_native => 21;
+        .invalid_constant => 22;
+        .missing_return => 23;
         _ => 24;
     };
 }
 
 pub fn print_execution_error(error_value: InstructionError): void {
     const message = switch error_value {
-        InstructionError.unsupported_opcode => "execution failed: unsupported opcode";
-        InstructionError.unsupported_native => "execution failed: unsupported native";
-        InstructionError.invalid_constant => "execution failed: invalid or missing constant/class/member";
-        InstructionError.missing_return => "execution failed: missing return";
+        .unsupported_opcode => "execution failed: unsupported opcode";
+        .unsupported_native => "execution failed: unsupported native";
+        .invalid_constant => "execution failed: invalid or missing constant/class/member";
+        .missing_return => "execution failed: missing return";
         _ => "execution failed";
     };
     println(message);

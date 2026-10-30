@@ -14,10 +14,10 @@ pub enum MethodAreaError: i32 {
 
 fn method_area_error_from_fs(err: FsError): MethodAreaError {
     return switch err {
-        FsError.not_found => MethodAreaError.not_found;
-        FsError.permission_denied => MethodAreaError.permission_denied;
-        FsError.already_exists => MethodAreaError.already_exists;
-        FsError.invalid_path => MethodAreaError.invalid_path;
+        .not_found => MethodAreaError.not_found;
+        .permission_denied => MethodAreaError.permission_denied;
+        .already_exists => MethodAreaError.already_exists;
+        .invalid_path => MethodAreaError.invalid_path;
         _ => MethodAreaError.io_error;
     };
 }
