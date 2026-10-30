@@ -4,9 +4,9 @@ Cava is a Cyna language exercise. Finding gaps is a successful outcome.
 
 When the port encounters a Cyna limitation, pause and document it in the Cyna
 repository's `docs/LANGUAGE_GAPS.md` before adding a workaround. Do not create
-or append to a Cava-local Cyna gap log. The existing `docs/gap-log.md` is
-historical evidence only; Cava-specific JVM implementation work belongs in
-the porting plan or ordinary project tasks.
+or append to a Cava-local Cyna gap log. Earlier reports are archived in
+`cyna-arch/docs/archive/CAVA_GAP_LOG_2026-10-30.md`; Cava-specific JVM
+implementation work belongs in the porting plan or ordinary project tasks.
 
 ## Gap Categories
 

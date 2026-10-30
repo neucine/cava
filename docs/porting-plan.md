@@ -58,6 +58,18 @@ Cyna currently blocks the port.
 
 ## Current Drift To Remove
 
+The following JVM behavior remains Cava implementation work from the archived
+porting reports, not Cyna language gaps:
+
+- Resolve `CONSTANT_Dynamic` for `ldc` and `ldc_w` after defining bootstrap
+  linking. String, class, method type, and method handle constants are present.
+- Construct and propagate the appropriate Java exceptions for invalid array
+  operations and zero-divisor integer division or remainder. Handler dispatch
+  exists, but these paths still use `assert(false)`.
+- Implement JVM `frem` and `drem` and add edge-case tests for floating-point
+  conversions. The other float comparison and conversion paths are present.
+
+
 - Cava preloads selected JDK classes and recursively scans constant pools;
   Zava resolves classes on demand through `method_area.resolveClass` using an
   initiating/defining loader model.

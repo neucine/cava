@@ -54,7 +54,7 @@ If Cyna has a language, runtime, library, or tooling limitation that prevents a 
 - [Scope](docs/scope.md)
 - [Porting Plan](docs/porting-plan.md)
 - [Cyna Gap Policy](docs/cyna-gap-policy.md)
-- [Historical Porting Findings](docs/gap-log.md) (closed to new Cyna entries)
+- Historical Cyna findings are archived in `cyna-arch/docs/archive/CAVA_GAP_LOG_2026-10-30.md`.
 
 ## Testing
 
