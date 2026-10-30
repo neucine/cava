@@ -163,13 +163,13 @@ fn main(): i32 {
 
 Expected capability: Passing a dynamically built `string` to `std.fs.read_file` should not leave a live allocation after the caller drops the path and any returned source string is cleaned up.
 
-Current blocker: A classpath-loading test that writes `/tmp/CavaLoaderTest.class`, builds the path with `class_file_path`, and calls `read_file(path)` passes functionally but fails Cyna runtime leak checking with one live allocation. Attempting to retain owned dense class bytes directly as `List<[:]u8>` also exposed a Cyna sema crash in dense-array type interning, so Cava cannot currently use that as a storage workaround.
+Historical blocker: A classpath-loading test that wrote `/tmp/CavaLoaderTest.class`, built the path with `class_file_path`, and called `read_file(path)` passed functionally but failed Cyna runtime leak checking with one live allocation. Attempting to retain owned dense class bytes directly as `List<[:]u8>` also exposed a separate Cyna sema crash in dense-array type interning; that report still needs a current isolated reproduction.
 
 Classification: Runtime / Tooling Gap.
 
-Decision: Keep parsed-byte loading and path construction in Cava. Keep the `load_class_from_path` API shape, but do not enable the filesystem integration test until the dynamic `std.fs` string leak and/or dense-array list crash is fixed in Cyna. For now, classfile metadata tests use caller-owned byte buffers.
+Decision: Cava retained `load_class_from_path` and now tests both successful and missing-file constructed class paths. Cyna's current leak-checked minimal reproduction passes with and without explicit `drop path;`; the Cava classpath tests also pass with scope cleanup. The dense-storage report is separate and remains unverified on the current compiler.
 
-Status: Open.
+Status: Historical leak not reproduced on Cyna `d66eeae7` (arm64 macOS). Cava `f0b168d` enabled the two classpath tests and removed the explicit path drops; `cyna test` passed 110/110 with `leak_check = true`. See Cyna `docs/LANGUAGE_GAPS.md` LG-21 for reproduction details.
 
 ## 2026-06-29: Method-Area String Bytes View Cannot Escape
 
@@ -448,6 +448,10 @@ Status: Fixed locally.
 ## 2026-06-28: Owned List In Result Payload Leaks Runtime Storage
 
 Module: `src/classfile.cy`
+
+The reproduction below uses the retired `result<T, E>` / `.ok(...)` syntax
+from the original compiler report. Current Cyna uses `T!E`, ordinary success
+returns, and `throw` for failure.
 
 Zava construct: parser helpers return owned parsed containers or errors.
 
